@@ -46,7 +46,7 @@ only what the human pastes carries over.
    show its exact JSON and get a separate `WITHDRAW <PLAN-ID>` from the human. On hosts with a
    native confirmation form (Claude Code and Codex both support it), the first call opens the
    form, and accepting the form sends the withdrawal immediately.
-4. **Withdraw only with a verified request.** The pair "exchange A + network" must appear in
+4. **API withdrawals require a native confirmation form and a verified request.** The pair "exchange A + network" must appear in
    the [outbound withdraw table](references/exchanges.md#outbound-withdraw). Pass `network` at
    the top level and the memo only in `tag`. Put exactly what the table requires for that
    exchange into `params`: `fee` for OKX, `accountType` for Bybit, `uta` for Bitget, `{}` for
@@ -102,6 +102,12 @@ With ccxt-mcp 0.1.3 and ccxt 4.5.85, `call_implicit_get` accepts only camelCase 
 [`references/ccxt-mcp.md`](references/ccxt-mcp.md#tools).
 
 ## Step 0. Preflight (read-only)
+
+Before the first write in a fresh chat, ask the operator for the latest operation record
+from the previous chat for this account (see [journal line](#journal-line-in-the-chat)).
+On first use, have them confirm there was no prior attempt. In either case, confirm that
+no other send is outstanding and nobody else is acting on the route. If there is an
+`OPEN` step, reconcile it first. Lost, stale or uncertain state means reads only.
 
 For each server involved:
 
@@ -172,7 +178,7 @@ OKX Wallet is a non-custodial wallet. Only the human sends from it, by hand.
    exchange states it, require `C` ≥ minimum (that covers both). Example: `S = 150`, gas in
    TRX, `d = 1`, minimum 150: `C = 149` fails; `S = 151` gives `C = 150` and passes. Show the
    human a send sheet: network, contract, `S`, fee asset and model, `N`, `d`, expected `C`,
-   and the minimum with its basis (stated or assumed).
+   and the minimum with its basis (stated or assumed). Record the sources and UTC time of the chain and contract checks.
 5. By default the human copies the address **themselves** in the exchange app (Deposit →
    USDT → network). Call `get_deposit_address` only if the human asked for it separately, the
    profile has `funds`, and you showed a mini-plan `PLAN <PLAN-ID>` with the exact JSON of
@@ -214,24 +220,19 @@ OKX Wallet is a non-custodial wallet. Only the human sends from it, by hand.
    source). Without that, hold the route. The human also notes from that page, or from B's
    deposit settings, which B wallet deposits land in.
 2. Enable flags, minimums, contract, memo and precision appear only in `info` (or in the
-   `call_implicit_get` response), with different field names per exchange. A missing field is
-   **unknown**, and the network does not qualify. Infer nothing from the network name.
-3. A candidate qualifies only if all of these hold:
-   - the pair "A + network code" is in the
-     [outbound withdraw table](references/exchanges.md#outbound-withdraw), and the outbound
-     value from the table matches the network id in A's live response;
-   - B's network id comes from B's live response (or from B's deposit page if the response
-     lacks it);
-   - both sides are on the same chain from the [chain table](#chains), confirmed by an
-     exchange field (name, `chainId`, explorer link) or by the human in each side's UI;
-   - the USDT contract on both sides matches that chain's reference (compare EVM addresses
-     case-insensitively). If a side does not return the contract (WhiteBIT), the human reads
-     it in the UI;
-   - withdrawals on A are enabled (including for API, if the exchange distinguishes) **and**
-     deposits on B are enabled, and the amount is within every minimum and maximum;
-   - for an API withdrawal, B is not Gate (Gate's deposit minimum is not available by API)
-     and A is not BingX. Those routes, and any pair missing from the outbound table, are
-     manual withdrawals in A's UI ([2.9](#29-manual-withdrawal-in-exchange-as-ui)).
+   `call_implicit_get` response), with different field names per exchange. Read any missing field from the relevant exchange UI. If it remains
+   unknown, the network does not qualify. Infer nothing from the network name.
+3. For **every route**, verify that A allows withdrawal and B allows deposit on the same
+   [reference chain and USDT contract](#chains). Record each venue's network ID or UI label,
+   the source and UTC time of each check, and its limits. Use the deposit or withdrawal page
+   for missing API fields. Check the full recipient and memo per rule 9.
+   - **API withdrawal:** require a native form, API withdrawals enabled on A, and an
+     [outbound table](references/exchanges.md#outbound-withdraw) entry whose wire value
+     matches A's live network ID. Gate inbound and BingX outbound use the manual path.
+   - **Manual withdrawal:** qualify the network using the UI labels, chain, contract,
+     availability and the UI amount step. Confirm exact amounts from A's preview in
+     [2.9](#29-manual-withdrawal-in-exchange-as-ui). The API table and ccxt serialization
+     checks apply only to API calls.
 4. Matching names (`BEP20` and `BSC`) prove nothing. The same contract address can exist on
    several EVM chains, so chain **and** contract decide together.
 5. Network cost is A's withdrawal fee plus B's deposit fee plus internal transfers. Pick the
@@ -316,7 +317,7 @@ Example (target credit): B must receive 300 USDT, `f = 1`, `d = 0`, model unconf
 ```text
 PLAN <PLAN-ID>  (for example FK-20261124-1312-OKX-BYBIT), created <UTC>, expires <UTC + 15 min>
 Route: <A-alias> (<mode>) → <B exchange> (B's mode, wallets and caps are read in B's session), USDT
-Chain: <Tron mainnet | BNB Smart Chain 56 | Ethereum 1 | TON mainnet>, contract <…> (A: <source>, B: <source>)
+Chain: <Tron mainnet | BNB Smart Chain 56 | Ethereum 1 | TON mainnet>, contract <…> (A: <source, UTC>, B: <source, UTC>)
 Network: A network=<ccxt code> → outbound <field>=<value> = id in A's response <…>; B network id <…> (<source>)
 Candidates: <network / A withdraw / B deposit / fee / min / field source>
 Available on A: <field>=<value>, reserve <R>, transferable <T>
@@ -329,7 +330,7 @@ Calls on A (exactly these arguments):
      proof: <API: <read from the transfer proof table> | operator: <A> UI transfer history, access and quiet window confirmed <UTC> | manual: the human transfers in A's UI>
   2. withdraw {"account":"<A>","code":"USDT","amount":<W>,"address":"<full address>","tag":"<memo as a string, only if required>","network":"<code>","params":<per table>}   ← separate WITHDRAW <PLAN-ID>
      proof: fetchWithdrawals record with the call's id, status ok, with a hash
-Then: deposit on B by transaction hash (2.7); then the HANDOFF block (2.8); any transfer on B is a separate plan in B's session
+Then: hand off the verified route and withdrawal hash (2.8); B matches the deposit (2.7) before planning an internal transfer.
 Before each write: expiry and that step's checks (2.5). Both networks are checked before the withdrawal.
 Caps: maxTransferValue A=<…>; user limit <…> | target credit <…>
 To approve: APPROVE <PLAN-ID>
@@ -361,7 +362,7 @@ To approve: APPROVE <PLAN-ID>
    read. Before a withdrawal, also save the latest IDs from `fetchWithdrawals` on A and the
    balance of the debited wallet. Before a transfer, also save both wallets' balances (they
    only locate funds; they prove nothing). After the withdrawal, find its record by ID and
-   write the hash into the chat.
+   write the hash into the chat. Before dispatch, publish the OPEN record below.
 4. **Call with exactly the plan's arguments.**
    - `elicitationSupported: true`: the call opens the host's form. The form shows only a
      preview (amount, wallets or address and network, memo, environment) and one `confirm`
@@ -377,14 +378,13 @@ To approve: APPROVE <PLAN-ID>
      steps only via a new plan with fresh data and new `APPROVE` (and `WITHDRAW`).
    - Form response lost or unknown (host timeout, dropped connection, no response): the write
      may have gone out. Reconcile per 2.7 only; do not repeat the call.
-   - `elicitationSupported: false`: a call without `confirm` returns a preview and a
-     `confirmToken` that lives 60 s. Compare the preview with the plan field by field, then
-     repeat the **identical** call with `"confirm":"<token>"`. Do this only if the human has
-     already approved exactly these arguments (`APPROVE`, plus `WITHDRAW` for a withdrawal).
-     The model itself can redeem the token, so human approval is mandatory here.
-5. `CONFIRM_EXPIRED` means nothing was sent. Repeat steps 1–2. If everything matches and the
-   plan is still valid, get a new preview with the same arguments and redeem the token. If
-   anything changed, a new approval is required.
+   - `elicitationSupported: false`: route withdrawals to the exchange UI (2.9) before
+     calling `withdraw`. For an approved internal `transfer`, compare the returned preview
+     with the plan and redeem its 60-second token with the identical arguments. Keep the
+     token out of the chat record.
+5. Only for an internal transfer: a confirmed pre-dispatch token rejection permits a new
+   preview under the same still-valid plan after rechecking steps 1–2. Keep the operation
+   record current before redemption. An unknown response always goes to reconciliation.
 6. After each step, reconcile against history (2.7) and write a journal line.
 
 ### 2.6 Responses: what was definitely not sent
@@ -393,7 +393,7 @@ To approve: APPROVE <PLAN-ID>
 |---|---|---|
 | `CONFIRM_INVALID`, `CONFIRM_EXPIRED`, `CONFIRM_MISMATCH` | token rejected before dispatch | new preview per 2.5, item 5 |
 | `CONFIRM_DECLINED`, `CONFIRM_CANCELED` | the human declined or closed the form; nothing sent | stop; remaining steps need a new plan and new approvals |
-| `CONFIRM_UNAVAILABLE` | the form did not open or got no answer within 300 s; nothing sent | ask the human, then the same approved call |
+| `CONFIRM_UNAVAILABLE` | the form did not open or got no answer within 300 s; nothing sent | stop; for a withdrawal use a fresh manual sheet after confirming non-execution |
 | `TIER_DISABLED`, `TRANSFER_VALUE_CAP`, `DAILY_VALUE_CAP`, `UNVALUABLE_TRANSFER`, `UNKNOWN_ACCOUNT`, `-32602` | gate or schema rejection before dispatch | stop and report |
 | **everything else**: `UNKNOWN_OUTCOME`, `EXCHANGE_ERROR`, `INSUFFICIENT_FUNDS`, `AUTH_FAILED`, `BAD_REQUEST`, `INTERNAL_ERROR`, host timeout, dropped connection, no response | the write may have gone out | reconcile per 2.7, no retries |
 
@@ -478,8 +478,7 @@ back as `UNKNOWN_OUTCOME` and cannot be told apart from a failure of the write i
 B's mode, wallets, available amounts, steps and caps are read only in a session that has B's
 key. In scheme A that is a new launch and a new chat
 ([scheme A](references/security.md#scheme-a-one-keyed-account-per-launch)). That chat starts
-by reading this file, and the human pastes the HANDOFF block, the only thing that carries
-over. In scheme B it can be the same chat. Once the withdrawal has a hash, the A session
+by reading this file, and the human pastes the HANDOFF block plus the latest operation record for any previously used account. In scheme B it can be the same chat. Once the withdrawal has a hash, the A session
 writes the block in full:
 
 ```text
@@ -488,6 +487,7 @@ B: exchange <ccxt id>, account <B alias>, identity <nonsecret UID or account lab
 Lands in: <B wallet> (source: <B UI | typical, unverified>); then: <nothing | transfer to <B wallet>>
 User: limit <USDT> | target credit <USDT>
 Chain: <name>, EVM chainId <56 | 1 | none>, contract <…>, ccxt code <…>, B network id <…>
+Pre-send verification: A <source, observed chain and contract, UTC>; B <source, observed chain and contract, UTC>
 Deposit: address <full address>, memo <none | exact memo>
 A: <exchange> <alias>, withdrawal id <…> (A's namespace), W=<…>, D=<…>, sent <UTC>
 Hash: <full on-chain hash>
@@ -499,10 +499,16 @@ Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | as
    confirms that this alias's key belongs to that account. Otherwise stop.
 2. A missing or unreadable field is re-established by a read (B's deposit history, or A's
    `fetchWithdrawals` in an A session), or by the operator reading it in the exchange UI.
-   Never infer or reconstruct a hash, address, memo, identity, amount or bound. Do not re-read
-   A or recheck the networks for fields the block already has.
-3. Find the deposit by its hash (2.7). Check it against the block's chain, contract, network
-   id, address, memo and `C` bounds.
+   Never infer a missing value. Keep the pre-send A/B chain and token verification with
+   its sources and times. Recover lost evidence from the original chat or transaction-specific
+   exchange or on-chain evidence. Today's coin listing alone cannot identify a past transfer.
+3. Match one completed B deposit per 2.7: full hash, USDT, chain, receiving address, memo
+   (when required), and unambiguous credit within the expected bounds. On Bybit the address
+   may be in `addressTo` or `info.toAddress`. For omitted receipt fields use evidence tied
+   to this transaction (B's deposit details or its on-chain receipt on the verified chain).
+   Bybit's deposit record omits the token contract: use the documented pre-send verification
+   above. If the record supplies a contract it must agree. Missing evidence, conflicting
+   values or multiple matching deposits hold the route.
 4. Find where the credit sits. Start from the block's `Lands in` wallet, then the deposit
    wallet in the [account mode table](references/exchanges.md#account-mode-and-available-amount)
    (typical only: account settings can change it). Read that wallet's available field per
@@ -516,18 +522,22 @@ Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | as
 
 ### 2.9 Manual withdrawal in exchange A's UI
 
-Used when the route is manual only: B is Gate, A is BingX, the pair is not in the
-[outbound withdraw table](references/exchanges.md#outbound-withdraw), or the user chooses it.
-The agent never calls `withdraw` here. The human withdraws in A's UI from a sheet built under
-2.2 and 2.3, with the human reading from A's withdrawal page any field the API lacks:
+Use this path for BingX outbound, Gate inbound, a network outside the outbound API table,
+a host without a native confirmation form, or a user-requested manual send. The human
+selects the verified chain in A's UI. Keep the sheet in draft until A's preview gives the
+exact debit, fee and amount sent to B; calculate the exact net credit after B's fee.
+Check the UI step, limits, reserve, budget or target, and B's deposit minimum before sending.
+For example, with 99 USDT entered, a 1 USDT fee on top and no deposit fee, the preview
+must show debit 100 and receive 99. An unknown fee treatment or receive amount holds the sheet.
 
 ```text
 WITHDRAWAL SHEET <PLAN-ID>, created <UTC>, expires <UTC + 15 min>
-From: <A exchange> <wallet>; A's UI network label <…> = chain <…>, contract <…>
+From: <A exchange> <wallet>; A's UI label <…> = chain <…>, contract <…>
+Route evidence: A <source, observed chain/contract, UTC>; B <source, observed chain/contract, UTC>
 To: <B exchange>, address <full address>, memo <none | exact memo> (from B's deposit page)
 Enter: W=<…> (multiple of A's UI step, ≥ A's withdrawal minimum <…>)
-Fee: f=<…> <asset>, model <on top | deducted | unconfirmed>; debit D=<…>; A's "receive amount" must read <…>
-Expected on B: C=<C_min>…<C_max> USDT, d=<…>, B deposit minimum <…> (<stated | assumed>)
+Fee: f=<…> <asset>, model <on top | deducted>; exact debit D=<…>; exact receive amount on A's preview <…>
+Expected on B: exact C=<…> USDT after deposit fee d=<…> <asset>, B deposit minimum <…> (<stated | assumed>)
 User: limit <USDT> | target credit <USDT>
 ```
 
@@ -539,7 +549,7 @@ User: limit <USDT> | target credit <USDT>
    Alternatively, an A session reads `fetchWithdrawals`; a pending record is polled (2.7).
    The human's word that it was sent is not a status.
 3. Fill in the HANDOFF block (2.8) from the sheet, the record ID and the hash. B's session
-   counts the deposit only by hash within the sheet's `C` bounds (2.7).
+   counts the deposit only by hash and the sheet's exact credit (set both bounds to `C`, 2.7).
 
 ## Scenario 3. funding ↔ trading/margin on one exchange
 
@@ -570,6 +580,25 @@ from spot balances. Without a profile, read via
 `call_read_method {"exchange":"hyperliquid","method":"fetchBalance","params":{"user":"0x…"},"includeInfo":true}`.
 
 ## Journal line in the chat
+
+Before any potentially dispatching call or manual confirmation, put this record in the chat.
+Use the approved arguments or the exact send sheet; omit secrets and confirmation tokens.
+
+```text
+OPEN <plan/step> | <journal path or manual wallet, exchange/account identity> | snapshot <UTC> | <exact arguments/sheet> | id/hash <known values or pending>
+```
+
+Keep it current on every response. Pending, missing, lost or ambiguous results keep the step
+OPEN across chats, including when the server records an error and lists no unresolved intent.
+Only reconcile read-only until the operator can establish the outcome under 2.7. Close the
+record as DONE with attributable proof of completion or NOT SENT with proof under rule 5.
+For a deposit-address request use the verified address response; a confirmed dry run is NOT
+SENT. A completed step must never be sent again. Retain the latest record for Step 0; a crash
+hold on the server journal still applies even after the exchange outcome is known.
+
+Chat records depend on the operator carrying the latest state. They cannot lock parallel
+chats or guarantee exactly-once execution if a record is lost or stale and the operator
+mistakenly confirms there was no prior attempt. Example of a reconciliation entry:
 
 ```text
 [<UTC>] <PLAN-ID> step <n> <tool|manual> <alias> → <ok|code> id=<…> status=<…> proof=<read | operator, <exchange> UI, <UTC>> txid=<…> D/W/C=<…>

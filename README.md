@@ -41,7 +41,7 @@ Automatic skill discovery is optional and host-specific; this repository does no
 - **Exchange A → exchange B** (semi-automatic). Accounts for account modes, available amount
   minus margin reserve, and a network enabled on both sides. Debit, withdraw amount and credit
   are computed separately. Then: exact plan for A → approval → separate withdrawal approval →
-  deposit matched by hash on B → a self-contained HANDOFF block for a fresh B chat → a new
+  a HANDOFF block with the hash and route evidence → deposit matched in the fresh B chat → a new
   plan and approval for any transfer on B. Routes to Gate and from BingX use a manual
   withdrawal sheet in A's UI, with the same expected-credit and hash checks.
 - **funding ↔ trading/margin** on one exchange.
@@ -71,6 +71,7 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
   Withdrawals run only for offline-verified "exchange + network" pairs; withdrawals to Gate
   and from BingX are manual. The full address, network and memo are checked on the final
   confirmation screen.
+- **Fresh chats.** Carry the latest operation record forward. An open or unknown send is reconciled read-only. API withdrawals require a native confirmation form; otherwise use the exchange UI.
 - **Crash hold.** A crash-cut entry in the shared ccxt-mcp journal stops all writes on every
   profile that shares it, for good: reads and operator investigation only.
 - **Exchange side.** Minimal key permissions, IP allowlist and a withdrawal address whitelist

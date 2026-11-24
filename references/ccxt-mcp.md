@@ -90,7 +90,7 @@ Schemas from `tools/list` (required fields in **bold**):
   - **Host without elicitation.** The call returns a preview and `meta.confirmToken`: a UUID
     with an HMAC over the exact payload including `params`, single-use, valid for 60 s.
     Redemption errors are `CONFIRM_INVALID`, `CONFIRM_EXPIRED` and `CONFIRM_MISMATCH`. The
-    model can redeem the token too.
+    model can redeem the token too. Fundkit uses this branch only for internal transfers; withdrawals use the exchange UI when native confirmation is unavailable.
 - Check order: tier gate → caps → confirmation → `dryRun` → `intent` (fsync) → exchange call
   → `result` or `error`. Anything rejected before `intent` was definitely not sent.
 - `UNKNOWN_OUTCOME` comes when a timeout or network error happens after `intent`, including

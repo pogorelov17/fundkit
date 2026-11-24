@@ -35,7 +35,7 @@ fresh chat that starts with `Read SKILL.md …` ([loading the skill](#loading-th
    It binds only A's writes, B's deposit route (network, full address, memo) and the
    expected credit bounds; the human notes where B credits deposits. The chat ends with the
    filled-in HANDOFF block ([SKILL.md, 2.8](../SKILL.md#28-settlement-on-b)).
-2. **Launch with B's key (settlement).** The human pastes the HANDOFF block. The agent
+2. **Launch with B's key (settlement).** The human pastes the HANDOFF block and follows Step 0 for prior operations. The agent
    matches B's account identity, attributes the deposit by hash, finds the wallet holding it
    and, if needed, makes a new plan with its own approval for the exact B transfer. B's
    wallets, steps and caps are read only here.
@@ -185,7 +185,7 @@ Read SKILL.md and help me plan a USDT transfer.
 The agent reads `SKILL.md` from the working directory and opens the files in `references/`
 when a step points to them. Nothing needs to be installed, linked or copied. Start **every**
 fresh chat or host launch with this read, including B's launch in scheme A. There, paste
-the whole HANDOFF block: `Read SKILL.md and settle <PLAN-ID> on B.` followed by the block.
+the whole HANDOFF block and bring the latest operation record for any previously used account per Step 0: `Read SKILL.md and settle <PLAN-ID> on B.` followed by the block.
 
 **Automatic discovery** means the host finds and loads a skill from its own skills directory
 without being asked. This repository does not set that up and nothing here depends on it. The
