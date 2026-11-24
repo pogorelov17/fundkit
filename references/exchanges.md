@@ -82,8 +82,8 @@ responses unless noted:
   behind `funds`: `fetchDepositAddressesByNetwork` on an account without `funds` gave
   `TIER_DISABLED`, without an account too. The raw name
   `privateGetV5AssetDepositQueryAddress` does not match that pattern: `call_implicit_get` on
-  it returned the address on an account without `funds`. The skill therefore uses it only as
-  a check after the gated read on the same `funds` alias.
+  it returned the address on an account without `funds`. First complete the gated read on the same `funds` alias.
+  Its fields must agree with the unique raw row. That raw row supplies the address and memo.
 - Bybit serves this endpoint only to main-account keys (Bybit docs).
 - `privateGetV5UserQueryApi` (`GET /v5/user/query-api`, any key may call it) returns
   `readOnly`, `permissions`, `ips`, `userID` and `isMaster`. The server replaces the key value

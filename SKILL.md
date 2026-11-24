@@ -85,8 +85,8 @@ only what the human pastes carries over.
    is never a source. On the **final confirmation screen** of whatever sends (OKX Wallet,
    the host form, or exchange A's withdrawal page in a manual send), the human checks the
    **full** address character by character, the network, and the exact memo (or that none is
-   required) against that source: B's page, or the read's tool result as the host displays
-   it, not your prose. Any difference: do not confirm.
+   required) against that source: B's page, or the host-displayed row from the most recent step 4 raw Bybit
+   read (chain, `addressDeposit` and `tagDeposit`). Any difference: do not confirm.
    The fix is a fresh copy from the source, and a changed address or memo needs a new plan or
    sheet and new approvals. For an API withdrawal, the full address must already be on A's
    withdrawal whitelist. Immediately before a manual send, refresh B's deposit availability on
@@ -209,7 +209,9 @@ sends from OKX Wallet, using the checked sheet.
    Wallet, and the amount. For Bybit, run the [Bybit setup check](#bybit-setup-check) first.
 2. Read the destination's network data from the
    [source listed for that exchange](references/exchanges.md#network-data-sources): deposit
-   enabled, deposit minimum, deposit fee and contract. Obtain the memo with the address in step 4. An empty response or an error means
+   enabled, deposit minimum, deposit fee and contract. Record the network's memo-required flag when supplied
+   (for example Gate's `is_tag`). Obtain the actual memo with the address in step 4.
+   An empty response or an error means
    "no data", not "network disabled". If the source lacks a field (for example the Gate
    deposit minimum), the human reads it on the exchange's deposit page, and the plan says
    "source: human, <exchange> UI". Bybit's deposit fee is the exception: it comes from Bybit's
@@ -221,12 +223,13 @@ sends from OKX Wallet, using the checked sheet.
    the amounts below clear the minimum. Reject bridged variants and other contracts.
 4. **Deposit address and memo.** For Bybit, you read it from the operator's own Bybit account
    ([Bybit deposit address](#bybit-deposit-address)); the human does not open Bybit. For other
-   exchanges, or if the user chooses the manual path, the human copies the address
+   exchanges, or if the user chooses the manual path, the human copies the address and any required memo
    **themselves** in the exchange app (Deposit → USDT → network). Call `get_deposit_address`
    only if the human asked for it separately, the profile has `funds`, and you showed a
    mini-plan `PLAN <PLAN-ID>` with the exact JSON of that call and an expiry, and the human
    replied `ADDRESS <PLAN-ID>`. Warn that the first call may create a new address and that
    `dryRun` does not stop this tool.
+   Hold if the memo is missing when required or conflicts with the network flag.
    Give the operator these details before asking them to prepare the unsigned wallet preview.
 5. **Amounts.** Keep these apart:
    - `S`: the USDT amount the human enters in the wallet;
@@ -330,10 +333,10 @@ Use one alias with `"funds": "live"` for every read below.
    character for character from the unique raw row in step 4, with the provenance
    `Bybit UID <userID>, alias <alias>, read <UTC>, chain <chain>`. Copy the same values into
    the send sheet. The human pastes the address from your code block and later checks the
-   wallet's final screen against the tool result itself (rule 9), not your prose. To see the
+   wallet's final screen against the latest step 4 raw result (rule 9). To see the
    full tool result, they use their host's own view of the tool call: in Claude Code,
    `Ctrl+O` opens the detailed transcript. If the host truncates or hides the result, pause;
-   the user may instead choose to copy the address from Bybit's deposit page, which then is
+   the user may instead choose to copy the address and any required memo from Bybit's deposit page, which then is
    the source.
 
 ## Scenario 2. Exchange A → exchange B (semi-automatic)
