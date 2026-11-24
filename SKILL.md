@@ -24,7 +24,8 @@ Detailed tables live in [`references/`](references/): pins, schemas and gates in
 [`ccxt-mcp.md`](references/ccxt-mcp.md), per-exchange data in
 [`exchanges.md`](references/exchanges.md), environment and key setup in
 [`security.md`](references/security.md). Read the reference a step points to before you act
-on it.
+on it. A new chat or host launch remembers nothing: it starts by reading this file again, and
+only what the human pastes carries over.
 
 ## Hard rules
 
@@ -84,6 +85,8 @@ example `[code, since, limit]`, and use `null` for a skipped one.
 call_read_method {"exchange":"okx","account":"okx-main","method":"fetchDepositWithdrawFee","args":["USDT"],"includeInfo":true}
 call_read_method {"exchange":"okx","account":"okx-main","method":"fetchBalance","params":{"type":"funding"},"includeInfo":true}
 call_read_method {"exchange":"okx","account":"okx-main","method":"fetchWithdrawals","args":["USDT",null,20]}
+call_read_method {"exchange":"okx","account":"okx-main","method":"fetchAccounts","includeInfo":true}
+call_read_method {"exchange":"okx","account":"okx-main","method":"fetchTransfer","args":["<transId>","USDT"],"includeInfo":true}
 call_implicit_get {"exchange":"kucoin","method":"publicGetCurrenciesCurrency","params":{"currency":"USDT"}}
 call_implicit_get {"exchange":"gate","method":"publicWalletGetCurrencyChains","params":{"currency":"USDT"}}
 ```
@@ -106,7 +109,20 @@ For each server involved:
    may belong to another alias. Reconcile them first through the server for that alias.
 2. Call `list_accounts {}`: check the alias, `exchange`, `environment`, `funds`, `dryRun`,
    `confirm` (not `never`) and `maxTransferValue`. Aliases must be unique across all servers.
-3. Tell the user which profiles are read-only, which have `funds: "live"` and with what cap,
+3. **One server per keyed exchange.** ccxt-mcp fills every account of an exchange from the
+   same `<EXCHANGE>_*` variables, so in a scheme A launch two connected servers for one
+   exchange (say `okx-main` and `okx-sub`) sign with the **same** key under different aliases
+   (verified offline). Ask the operator which scheme this launch uses. In scheme A, if more
+   than one connected server or alias has the keyed exchange, stop until the operator leaves
+   exactly one registration enabled
+   ([one registration](references/security.md#one-registration-per-keyed-exchange)).
+4. **Account identity.** An alias is a label and does not prove which exchange account the
+   key belongs to. Before the first write in a launch, read an account identifier and have
+   the human compare it with the exchange UI. On OKX, `fetchAccounts` with `includeInfo`
+   ([call syntax](#call-syntax)) returns `id` (the UID), raw `label` (the API key name) and
+   `perm`. If you know no such read for the exchange, say that only the operator's
+   registration check stands behind the alias.
+5. Tell the user which profiles are read-only, which have `funds: "live"` and with what cap,
    and whether the native form is available. Only the operator can enable a missing tier, in
    the config; it cannot be done from the conversation.
 
@@ -128,18 +144,33 @@ OKX Wallet is a non-custodial wallet. Only the human sends from it, by hand.
    "source: human, <exchange> UI".
 3. A network qualifies if its chain is in the [chain table](#chains), deposits are enabled,
    the USDT contract on that chain matches both the wallet's contract and the reference, and
-   the amount is at least the minimum. Reject bridged variants and other contracts.
-4. By default the human copies the address **themselves** in the exchange app (Deposit →
+   the amounts below clear the minimum. Reject bridged variants and other contracts.
+4. **Amounts.** Keep these apart:
+   - `S`: the USDT amount the human enters in the wallet;
+   - the wallet's network fee, as shown on its confirm screen: its **asset** and whether it
+     is added on top of `S` or taken out of it. Gas in the chain's native coin (TRX, BNB,
+     ETH, TON) is not USDT: it never enters the USDT math, but the wallet must hold enough of
+     that coin. A USDT fee taken out of `S` lowers the on-chain amount. If the screen does
+     not make the asset and model clear, stop;
+   - `N`: the on-chain USDT amount (`S`, or `S` minus a USDT fee taken out of it);
+   - `d`: the exchange's deposit fee, and `C = N − d`: the expected credit.
+
+   Exchanges rarely say whether the deposit minimum applies to `N` or to `C`. Unless the
+   exchange states it, require `C` ≥ minimum (that covers both). Example: `S = 150`, gas in
+   TRX, `d = 1`, minimum 150: `C = 149` fails; `S = 151` gives `C = 150` and passes. Show the
+   human a send sheet: network, contract, `S`, fee asset and model, `N`, `d`, expected `C`,
+   and the minimum with its basis (stated or assumed).
+5. By default the human copies the address **themselves** in the exchange app (Deposit →
    USDT → network). Call `get_deposit_address` only if the human asked for it separately, the
    profile has `funds`, and you showed a mini-plan `PLAN <PLAN-ID>` with the exact JSON of
    that call and an expiry, and the human replied `ADDRESS <PLAN-ID>`. Warn that the first
    call may create a new address and that `dryRun` does not stop this tool.
-5. Before sending, the human checks that the wallet network matches the deposit network, that
-   the first and last 6 characters of the address match in two places, and that the memo is
-   set if one is required.
-6. After sending, ask for the transaction hash from the wallet and credit the deposit by the
-   [deposit rule](#27-reconciliation). If the funds must reach a trading wallet, run
-   Scenario 3.
+6. Before sending, the human checks that the wallet network matches the deposit network, that
+   the first and last 6 characters of the address match in two places, that the memo is set
+   if one is required, and that the confirm screen shows the `S` and fee from the send sheet.
+7. After sending, ask for the transaction hash from the wallet and credit the deposit by the
+   [deposit rule](#27-reconciliation): the credited amount must equal the expected `C`. If
+   the funds must reach a trading wallet, run Scenario 3.
 
 ## Scenario 2. Exchange A → exchange B (semi-automatic)
 
@@ -165,7 +196,8 @@ OKX Wallet is a non-custodial wallet. Only the human sends from it, by hand.
    `fetchCurrencies` to pick a network: a response over 80,000 characters is replaced whole
    by `{"truncated":true}`. If this host launch has no keyed profile for B (scheme A) and B's
    source needs a key, the human reads B's fields on B's deposit page (the plan names that
-   source). Without that, hold the route.
+   source). Without that, hold the route. The human also notes from that page, or from B's
+   deposit settings, which B wallet deposits land in.
 2. Enable flags, minimums, contract, memo and precision appear only in `info` (or in the
    `call_implicit_get` response), with different field names per exchange. A missing field is
    **unknown**, and the network does not qualify. Infer nothing from the network name.
@@ -221,8 +253,9 @@ Unknown `d`: stop.
 
 Treat the model as unconfirmed until exchange fields or documentation show it directly. With
 an unconfirmed model, require at least `W + f` available, and the lower bound of `C` must be
-at least B's deposit minimum. Plan the final transfer on B at no more than the lower bound of
-`C`.
+at least B's deposit minimum (that holds whichever amount B applies the minimum to). The plan
+states `C` as bounds; any transfer on B is planned later from the actual credit
+([2.8](#28-settlement-on-b)).
 
 Example (debit budget): budget 100 USDT, `f = 1` on top, `d = 0`. Then `W = 99`, `D = 100`,
 `C = 99`. If the model is unconfirmed, `W = 99` gives `D` from 99 to 100 and `C` from 98 to
@@ -265,52 +298,46 @@ Example (target credit): B must receive 300 USDT, `f = 1`, `d = 0`, model unconf
 
 ```text
 PLAN <PLAN-ID>  (for example FK-20261124-1312-OKX-BYBIT), created <UTC>, expires <UTC + 15 min>
-Route: <A-alias> (<mode>) → <B-alias> (<mode>), USDT
+Route: <A-alias> (<mode>) → <B exchange> (B's mode, wallets and caps are read in B's session), USDT
 Chain: <Tron mainnet | BNB Smart Chain 56 | Ethereum 1 | TON mainnet>, contract <…> (A: <source>, B: <source>)
 Network: A network=<ccxt code> → outbound <field>=<value> = id in A's response <…>; B network id <…> (<source>)
 Candidates: <network / A withdraw / B deposit / fee / min / field source>
 Available on A: <field>=<value>, reserve <R>, transferable <T>
 Amounts: D=<…>, W=<…>, C=<…> (fee model: <on top | deducted | unconfirmed>); f=<…> <asset>, d=<…> <asset>
 Amount steps: currency <…>, network <…>, exchange <…> (<source>); W and transfer amounts are multiples of all, ≤ 15 significant digits, ≥ 0.000001
-B address: <first6>…<last6>, memo <none | …>, copied by the human from B's UI, on A's whitelist: yes
-Calls (exactly these arguments):
+B deposit: address <first6>…<last6>, memo <none | …>, copied by the human from B's UI, on A's whitelist: yes
+Expected on B: C=<C_min>…<C_max> USDT, lands in <B wallet> (source: <B UI | typical, unverified>)
+Calls on A (exactly these arguments):
   1. transfer {"account":"<A>","code":"USDT","amount":<…>,"fromAccount":"<…>","toAccount":"<…>","params":{}}
   2. withdraw {"account":"<A>","code":"USDT","amount":<W>,"address":"<…>","tag":"<memo as a string, only if required>","network":"<code>","params":<per table>}   ← separate WITHDRAW <PLAN-ID>
-  3. (wait) credit on B by transaction hash (2.7)
-  4. transfer {"account":"<B>","code":"USDT","amount":<≤ C_min>,"fromAccount":"<…>","toAccount":"<…>","params":{}}   ← new plan if this one has expired
+Then: deposit on B by transaction hash (2.7); any transfer on B is a separate plan in B's session (2.8)
+Carry-over for B: PLAN-ID, chain, contract, B network id, address <first6>…<last6>, memo, C bounds, withdrawal id, hash
 Before each write: expiry and that step's checks (2.5). Both networks are checked before the withdrawal.
-Caps: maxTransferValue A=<…>, B=<…>; user limit <…>
+Caps: maxTransferValue A=<…>; user limit <…>
 To approve: APPROVE <PLAN-ID>
 ```
 
 ### 2.5 Executing each write
 
-1. **Expiry.** Before **every** dispatch, including redeeming a token and the final transfer
-   on B, check that the current UTC time is strictly before `expires`. If `now ≥ expires`, the
-   plan has expired, and the remaining steps go into a new plan with a new approval (and a new
-   `WITHDRAW` for a withdrawal). The final step after waiting for the deposit almost always
-   needs a new plan.
+1. **Expiry.** Before **every** dispatch, including redeeming a token, check that the current
+   UTC time is strictly before `expires`. If `now ≥ expires`, the plan has expired, and the
+   remaining steps go into a new plan with a new approval (and a new `WITHDRAW` for a
+   withdrawal).
 2. **Recheck before the call.** For every step, compare the exact arguments with the approved
    plan and check the account mode, available amount, reserve and caps on the debited
    exchange. What else to check depends on the step:
-   - **Internal transfer on A**: both A wallets and the exact transfer amount.
+   - **Internal transfer** (on A, or on B per 2.8): both wallets and the exact amount.
    - **Withdrawal from A** (initial data checks): both networks per 2.2, address and memo,
      fees, minimums and amounts per 2.3. If B's data is only available in B's app, the
      operator checks it there before the withdrawal.
-   - **Internal transfer on B** (destination-only settlement): confirm the credit by the
-     hash from the A session per 2.7, then check the credited wallet, its available amount,
-     the target wallet and the exact transfer amount. B's data plus the withdrawal result
-     saved in the chat are enough for this step; do not re-read A or recheck the networks.
 
    If any condition of the step is unknown, stop. If the conditions of the approved plan have
    changed, recompute the remaining steps and get a new approval.
 3. **History and balances.** Before a withdrawal, save the latest IDs from `fetchWithdrawals`
    on A and the balance of the debited wallet. Before each internal transfer, save the
-   balances of both wallets and the latest IDs from `fetchTransfers` on the same exchange,
-   where the method exists (2.7). After the withdrawal, the A session finds the record by its
-   ID and saves the PLAN-ID, network and on-chain hash in the chat. If a new launch opens a
-   separate chat, carry the approved plan and the journal line over. The B session finds the
-   deposit by hash in `fetchDeposits` and records the credit ID.
+   balances of both wallets and, where the exchange has one, the latest transfer records
+   (2.7). After the withdrawal, find the record by its ID and save the plan's carry-over line
+   with the withdrawal ID and on-chain hash in the chat.
 4. **Call with exactly the plan's arguments.**
    - `elicitationSupported: true`: the call opens the host's form. The form shows only a
      preview (amount, wallets or address and network, memo, environment) and one `confirm`
@@ -350,11 +377,24 @@ back as `UNKNOWN_OUTCOME` and cannot be told apart from a failure of the write i
 
 ### 2.7 Reconciliation
 
-- **A step is done only with an attributable unique ID.** That is either the `id` in the
-  call's own response, or the ID of a record that the operator, in the exchange UI,
-  unambiguously attributes to this step (created by this key within the call window). You
-  then find that ID through `fetchWithdrawals` / `fetchTransfers` and record it in the
-  journal.
+- **A step is done only with an attributable unique ID and a success status for it.** The ID
+  is either the `id` in the call's own response, or the ID of a record that the operator, in
+  the exchange UI, unambiguously attributes to this step (created by this key within the call
+  window). An ID only says which record is this step's; it does not say the step succeeded.
+  Then read that record's status and record both in the journal:
+  - **Withdrawal:** the record with that ID in `fetchWithdrawals`, status `ok`, with a hash.
+  - **Transfer on OKX:** `fetchTransfer` with `args: ["<transId>","USDT"]` and `includeInfo`
+    ([call syntax](#call-syntax)). The `transfer` response gives `id` = OKX `transId` and
+    `status: null`. Done only when the read returns that `id`, raw `info.state: "success"`
+    (unified `status: "ok"`) and the planned amount and wallets. `pending`: wait and read
+    again (a read, never the write). `failed`, or an empty, null or error response: hold;
+    nothing is retried until the operator checks OKX's transfer history in the UI and either
+    gives a success record or confirms non-execution per rule 5; anything further is a new
+    plan. Do not look for `transId` in OKX `fetchTransfers`: it lists account bills, and its
+    `id` is a `billId` ([transfer status](references/exchanges.md#transfer-status)).
+  - **Transfer elsewhere:** the record with that ID in `fetchTransfers`, status `ok`. A
+    pending status: wait and read again. No such ID, any other status, or no such method
+    (Gate, WhiteBIT): hold the route as for OKX `failed`.
 - Matching amount, address, network or wallets, and balance shifts, are **not** proof, even
   when the timing matches: a parallel operation (another session, the UI, another person)
   looks the same. Report such records as "candidate" and go no further.
@@ -377,20 +417,40 @@ back as `UNKNOWN_OUTCOME` and cannot be told apart from a failure of the write i
     `BEP20`.
   - A deposit counts only if there is **exactly one** such record, its hash equals A's
     withdrawal hash (or the hash from the wallet), the asset is USDT, the chain is the
-    plan's, the status is complete (`ok`), and the credited amount is unambiguous, within the
-    plan's `C` (if the plan sets one) and at least the fixed amount of the final transfer.
+    plan's, the status is complete (`ok`), and the credited amount is unambiguous and matches
+    the expectation: within the A plan's `C` bounds (Scenario 2) or equal to the send
+    sheet's `C` (Scenario 1). Network gas is never part of it.
   - Several candidates, no hash, an incomplete status, a record that does not show how much
-    was credited, or a record that changed after reconciliation (amount, network, status):
-    hold the route. Do not take the next step; report and wait for a new plan and approval.
-- Call only history methods the exchange has. Gate and WhiteBIT have no `fetchTransfers`. If
-  an internal transfer there returned no `id`, hold the route: no further steps until the
-  operator reconciles the transfer in the exchange UI and gives its ID, or confirms
-  non-execution per rule 5. Report any discrepancy over 0.01 USDT.
+    was credited, a credited amount outside the expectation, or a record that changed after
+    reconciliation (amount, network, status): hold the route. Do not take the next step;
+    report and wait for a new plan and approval.
+- Call only history methods the exchange has. Report any discrepancy over 0.01 USDT.
+
+### 2.8 Settlement on B
+
+B's mode, wallets, available amounts, steps and caps are read only in a session that has B's
+key. In scheme A that is a new launch and a new chat
+([scheme A](references/security.md#scheme-a-one-keyed-account-per-launch)): it starts by
+reading this file, and the human pastes the carry-over line from the A plan. In scheme B it
+can be the same chat.
+
+1. Run Step 0 on B's server.
+2. Find the deposit by its hash (2.7) and check it against the carried-over chain, contract,
+   network id and `C` bounds. Do not re-read A or recheck the networks.
+3. Find where the credit sits. Start from the wallet the A plan named, then the deposit
+   wallet in the [account mode table](references/exchanges.md#account-mode-and-available-amount)
+   (typical only: account settings can change it). Read that wallet's available field per
+   2.1. A balance change only locates funds; the hash attributes them. If it is not clear
+   which wallet holds the credit, the human checks B's UI.
+4. If the user needs the funds elsewhere on B, make a **new plan** with one `transfer` and its
+   own PLAN-ID and expiry. Its amount is at most the credited amount and at most the
+   available field of the wallet holding it, a multiple of B's steps (2.3), and within B's
+   `maxTransferValue` and the user's limit. Then `APPROVE <PLAN-ID>` → 2.5 → 2.7.
 
 ## Scenario 3. funding ↔ trading/margin on one exchange
 
 Same cycle: account mode → available amount and reserve → a plan with one `transfer` and an
-expiry → `APPROVE <PLAN-ID>` → expiry check and recheck → call → reconciliation by ID (2.7).
+expiry → `APPROVE <PLAN-ID>` → expiry check and recheck → call → ID and success status (2.7).
 Take wallet names only from the [wallet table](references/exchanges.md#wallets-for-transfer).
 On Gate and Bitget, `funding` is an alias of `spot`, so `funding → spot` is meaningless
 there. On BingX, `future` is `stdFutures`, while USDT-M perpetual is `swap` or `linear`
@@ -417,16 +477,19 @@ from spot balances. Without a profile, read via
 ## Journal line in the chat
 
 ```text
-[<UTC>] <PLAN-ID> step <n> <tool> <alias> → <ok|code> id=<…> txid=<…> D/W/C=<…>
+[<UTC>] <PLAN-ID> step <n> <tool> <alias> → <ok|code> id=<…> status=<…> txid=<…> D/W/C=<…>
 ```
 
 ## When to stop and ask
 
 A required profile or tier is missing; the version is not `0.1.3` / `4.5.84`;
-`configProblems` or `unresolvedIntents` is not empty; the account mode, available amount,
-network flag, minimum, fee, chain, contract, fee asset or amount step is unknown; an amount is
-not exactly representable; the "exchange + network" pair is not in the outbound withdraw
-table; the recipient is Gate (manual only); the preview or form does not match the plan; the
-plan has expired; there was no explicit `APPROVE`, `WITHDRAW` or `ADDRESS`; the address is not
-on A's whitelist; a write's outcome is unknown or has no attributable ID; Hyperliquid turned
-out to be a USDT source or recipient, or runs in unified mode.
+`configProblems` or `unresolvedIntents` is not empty; more than one connected server or alias
+has the keyed exchange in a scheme A launch; the human could not match the account
+identifier; the account mode, available amount, network flag, minimum, fee, chain, contract,
+fee asset or amount step is unknown; an amount is not exactly representable; the "exchange +
+network" pair is not in the outbound withdraw table; the recipient is Gate (manual only); the
+preview or form does not match the plan; the plan has expired; there was no explicit
+`APPROVE`, `WITHDRAW` or `ADDRESS`; the address is not on A's whitelist; a write's outcome is
+unknown, has no attributable ID, or its status is not success; a deposit's credit does not
+match the expected `C`; Hyperliquid turned out to be a USDT source or recipient, or runs in
+unified mode.

@@ -93,6 +93,8 @@ Schemas from `tools/list` (required fields in **bold**):
 - `UNKNOWN_OUTCOME` comes when a timeout or network error happens after `intent`, including
   in a preliminary read inside ccxt. Its hint points to `get_orders`; for transfers and
   withdrawals reconcile per [SKILL.md, 2.7](../SKILL.md#27-reconciliation) instead.
+- A successful `transfer` or `withdraw` result has the exchange's ID; that attributes the
+  record but is not a success status (OKX `transfer` returns `status: null`).
 - The form has no PLAN-ID and no plan expiry, so the skill shows them before the call
   ([SKILL.md, 2.5](../SKILL.md#25-executing-each-write)).
 
@@ -146,6 +148,9 @@ keys, and a guard allowed only unsigned GET plus Hyperliquid's public `POST /inf
 | `amount` in `withdraw`/`transfer` on 9 exchanges, mocked currency data (currency step `0.0001`, network `0.00001` and vice versa), `10.12349` | as in the [amount step table](exchanges.md#amount-steps); Gate `withdraw` → `10.1235` |
 | deposit parsing, mocked raw records | WhiteBIT: unified `txid` = internal `transactionId`, hash only in `info.transactionHash`; KuCoin: `info.chain: "bsc"`, `network: "BEP20"` |
 | dispatch cut off after `intent` | `UNKNOWN_OUTCOME`; `unresolvedIntents: []` |
+| OKX `transfer` → `fetchTransfer` / `fetchTransfers`, mocked responses (`call_read_method`, `includeInfo`) | `transfer` result `id` = `transId`, `status: null`; `fetchTransfer` raw `state` `success` / `pending` / `failed` → `ok` / `pending` / `failed`; empty `data` → all fields `null`; `fetchTransfers` `id` = `billId` ([transfer status](exchanges.md#transfer-status)) |
+| two servers, aliases `okx-test` and `okx-sub`, one launch environment | both sign with the same `OK-ACCESS-KEY`; OKX `fetchAccounts` gives `id` = raw `uid`, plus raw `label` and `perm` |
+| registrations in scratch homes | Codex: `enabled = false` → `codex mcp list` shows `disabled`; `codex mcp get` prints the registration, not a connection. Claude Code: `claude mcp remove <name> -s user` removes it; `claude mcp list` health-checks |
 | public `fetchCurrencies` | Bitget, WhiteBIT, KuCoin, Gate → truncation marker; Binance, Bybit, OKX, MEXC, BingX → `{}` |
 | public `fetchDepositWithdrawFee USDT includeInfo` | Bitget and WhiteBIT: flags, minimums and fees in `info`; BingX `null`; the rest `AUTH_FAILED` |
 | `call_implicit_get` | Gate `publicWalletGetCurrencyChains`, KuCoin `publicGetCurrenciesCurrency` → data; snake_case → `UNKNOWN_ENDPOINT` |

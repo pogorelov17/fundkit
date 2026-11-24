@@ -141,9 +141,26 @@ If the response lacks the field the exchange documents as available to transfer 
 in that mode, stop. `free` is not such a field.
 
 Typical route: A `transfer` from the trading wallet to the withdrawal wallet → A `withdraw` →
-credit in B's deposit wallet → B `transfer` to the trading wallet. `fetchDeposits` and
-`fetchWithdrawals` exist on all nine exchanges; `fetchTransfers` is missing on Gate and
-WhiteBIT, and `fetchLedger` on WhiteBIT, BingX and MEXC. Only WhiteBIT has `certified: false`.
+credit in B's deposit wallet → a separate plan in B's session for a B `transfer` to the
+trading wallet ([SKILL.md, 2.8](../SKILL.md#28-settlement-on-b)). The deposit wallet column
+is typical only; where a deposit actually lands is confirmed in B's session.
+
+`fetchDeposits` and `fetchWithdrawals` exist on all nine exchanges; `fetchTransfers` is
+missing on Gate and WhiteBIT, and `fetchLedger` on WhiteBIT, BingX and MEXC. Only WhiteBIT has
+`certified: false`.
+
+## Transfer status
+
+OKX, ccxt 4.5.85, verified offline: `transfer` returns `id` = `transId` and `status: null`.
+`fetchTransfer(transId)` reads `GET /api/v5/asset/transfer-state`. OKX documents raw `state`
+as `success`, `pending` or `failed`; ccxt maps `success` to `ok` and passes the others
+through. An empty `data` gives every field `null`. `fetchTransfers` reads
+`GET /api/v5/account/bills-archive` (`type=1`), whose `id` is a `billId`, so a `transId`
+never appears there.
+
+For the other exchanges it was not checked whether `transfer` and `fetchTransfers` return the
+same ID. If the ID is not found with an `ok` status, the route holds
+([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
 
 ## Hyperliquid
 

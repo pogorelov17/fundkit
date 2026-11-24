@@ -16,23 +16,54 @@ the launch environment. No values belong in the repository, host configs, argv o
   same key.
 
 **There is no automatic secret isolation between accounts.** Claude Code passes its whole
-launch environment to every MCP server (verified). Prefixed names such as `OKX_MAIN_*` and
+launch environment to every MCP server (verified), so prefixed names such as `OKX_MAIN_*` and
 `${…}` substitution in `.mcp.json` isolate nothing: every server gets the values, and so does
 the agent's shell. Codex passes a server only the names in its `env_vars` (verified), but the
-values still sit in the host environment. Whether the agent's shell can see them depends on
-Codex settings and was not tested here, so assume it can. Two launch schemes are supported.
+values still sit in the host environment, and two servers listing the same names get the same
+values. Whether the agent's shell can see them depends on Codex settings and was not tested
+here, so assume it can. Two launch schemes are supported.
 
 ### Scheme A: one keyed account per launch
 
-The launch environment holds keys for **only one** account; the other servers in that launch
-run without keys (for example Hyperliquid). An A → B route is two separate launches:
+The launch environment holds keys for **only one** account, and exactly one enabled server
+uses that exchange ([below](#one-registration-per-keyed-exchange)); other servers run
+without keys (for example Hyperliquid). An A → B route is two separate launches, each with a
+fresh chat that starts with `Read SKILL.md …` ([loading the skill](#loading-the-skill)):
 
 1. **Launch with A's key (initial checks and withdrawal).** Check both networks, with B's
-   fields from a public source or read by the human on B's deposit page, and execute the
-   withdrawal from A. Save the withdrawal result in the chat
-   ([SKILL.md, 2.5](../SKILL.md#25-executing-each-write)).
-2. **Launch with B's key (destination-only settlement).** Using the hash from the chat,
-   reconcile the deposit on B and run the approved internal transfer.
+   fields from a public source or read by the human on B's deposit page, and run the A plan.
+   It binds only A's writes, B's deposit route (network, address, memo) and the expected
+   credit bounds; the human notes where B credits deposits. The chat ends with the plan's
+   carry-over line, withdrawal ID and hash ([SKILL.md, 2.4](../SKILL.md#24-plan)).
+2. **Launch with B's key (settlement).** The human pastes the carry-over line. The agent
+   attributes the deposit by hash, finds the wallet holding it and, if needed, makes a new
+   plan with its own approval for the exact B transfer
+   ([SKILL.md, 2.8](../SKILL.md#28-settlement-on-b)). B's wallets, steps and caps are read
+   only here.
+
+Until the B session runs, the funds sit in whichever B wallet takes deposits (often funding,
+main or spot; see the [account mode table](exchanges.md#account-mode-and-available-amount)).
+
+### One registration per keyed exchange
+
+ccxt-mcp fills **every** account of an exchange in the process from the same
+`<EXCHANGE>_*` variables. Claude Code passes them to every server, and Codex to every server
+that lists them in `env_vars`. So two enabled registrations for one exchange in a scheme A
+launch (for example `ccxt-okx-main` and `ccxt-okx-sub`) both sign with the launch's key under
+different aliases (verified offline). An alias is a label: it cannot show which account a key
+belongs to.
+
+Before the launch, the operator leaves exactly one registration enabled for the keyed
+exchange and removes or disables the others:
+
+- Claude Code: `claude mcp remove <name> -s <scope>` (verified), or disable it for this project
+  in interactive `/mcp`; then `claude mcp list` must show only one server for that exchange.
+- Codex: `enabled = false` in that server's `[mcp_servers.<name>]` table; `codex mcp list`
+  then shows it as `disabled` (verified).
+
+In the session, Step 0 of [`SKILL.md`](../SKILL.md#step-0-preflight-read-only) stops if more
+than one connected server or alias has the keyed exchange, and has the human match an account
+identifier (OKX: UID and API key label from `fetchAccounts`) against the exchange UI.
 
 The agent in such a launch can technically read that key (same OS user; rule 1 of
 [`SKILL.md`](../SKILL.md#hard-rules) forbids it), so exchange-side restrictions are
@@ -132,8 +163,9 @@ tool_timeout_sec = 120
 ```
 
 `env_vars` forwards only the listed names to the server (verified). Codex does **not** expand
-`${…}` inside `env`. A second account of the same exchange needs a separate launch. Everything
-else follows schemes A and B.
+`${…}` inside `env`. A second account of the same exchange needs a separate launch with only
+its own registration enabled ([one registration](#one-registration-per-keyed-exchange)).
+Everything else follows schemes A and B.
 
 A host timeout does not stop the dispatch on the server (verified). After a timeout, only
 reconcile ([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
@@ -148,7 +180,9 @@ Read SKILL.md and help me plan a USDT transfer.
 ```
 
 The agent reads `SKILL.md` from the working directory and opens the files in `references/`
-when a step points to them. Nothing needs to be installed, linked or copied.
+when a step points to them. Nothing needs to be installed, linked or copied. Start **every**
+fresh chat or host launch with this read, including B's launch in scheme A. There, add the
+carry-over line: `Read SKILL.md and settle <PLAN-ID> on B. Carry-over: …`.
 
 **Automatic discovery** means the host finds and loads a skill from its own skills directory
 without being asked. This repository does not set that up and nothing here depends on it. The
@@ -157,11 +191,12 @@ documentation.
 
 ## Smoke check
 
-Run on each host before the first real session. No keys are needed for the first two rows.
+Run on each host before the first real session. No keys are needed for the first three rows.
 
 | Check | Claude Code | Codex |
 |---|---|---|
-| server registered and connected | `claude mcp list` shows `ccxt-okx-main … ✔ Connected` | `codex mcp get ccxt-okx-main` (`env` values are masked as `*****`) |
+| registration (one enabled server per keyed exchange) | `claude mcp list` lists `ccxt-okx-main` | `codex mcp list` shows `ccxt-okx-main … enabled`; `codex mcp get ccxt-okx-main` prints the registration (`env` values masked as `*****`) |
+| connection | `claude mcp list` health-checks: `ccxt-okx-main … ✔ Connected` | `codex mcp list` / `get` show registration only, not a connection; the server state row below proves it |
 | skill readable | from the repository root: `Read SKILL.md and help me plan a USDT transfer.` | same |
 | server state | ask the agent to call `get_safety_status` and `list_accounts` | same |
 

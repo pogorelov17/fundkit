@@ -15,7 +15,8 @@ From the repository root, in Claude Code or Codex:
 Read SKILL.md and help me plan a USDT transfer.
 ```
 
-That explicit read is all the skill needs. Without exchange servers the agent can explain the
+That explicit read is all the skill needs. Start every fresh chat or host launch with it,
+including the second (B) launch of scheme A. Without exchange servers the agent can explain the
 flow but stops before live data. To let it read live data and execute approved writes, the
 operator sets up:
 
@@ -34,12 +35,13 @@ Automatic skill discovery is optional and host-specific; this repository does no
 ## What it does
 
 - **OKX Wallet → exchange.** Picks a network from the exchange's live data; the human copies
-  the address from the exchange UI and sends from the wallet by hand. The deposit is matched
-  by transaction hash.
+  the address from the exchange UI and sends from the wallet by hand. Send amount, network fee
+  (asset and model) and expected credit are kept apart. The deposit is matched by transaction
+  hash and expected credit.
 - **Exchange A → exchange B** (semi-automatic). Accounts for account modes, available amount
   minus margin reserve, and a network enabled on both sides. Debit, withdraw amount and credit
-  are computed separately. Then: exact plan → approval → separate withdrawal approval →
-  reconciliation by ID.
+  are computed separately. Then: exact plan for A → approval → separate withdrawal approval →
+  deposit matched by hash on B → a new plan and approval for any transfer on B.
 - **funding ↔ trading/margin** on one exchange.
 - **Hyperliquid**: watch-only margin and position monitoring by public address.
 
@@ -49,17 +51,19 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
 ## Safety model
 
 - **Keys.** The agent knows only account aliases and never reads the environment. One server
-  per account. Hosts do not isolate keys between servers (Claude Code passes its whole
-  environment to each one), so keep one account's keys per host launch or have the operator
-  launch each server separately ([schemes A and B](references/security.md#environment-contract)).
+  per account. Claude Code passes its whole environment to every server; Codex forwards only
+  each server's `env_vars`, but the values stay in the host environment. So either keep one
+  account's keys and one enabled registration for that exchange per host launch, or have the
+  operator launch each server separately
+  ([schemes A and B](references/security.md#environment-contract)).
 - **Approvals.** Writes run only from a plan with exact arguments and an expiry, after the
   reply `APPROVE <PLAN-ID>`. The first `withdraw` call also needs a separate
   `WITHDRAW <PLAN-ID>`; a requested deposit-address lookup needs `ADDRESS <PLAN-ID>`.
-- **Execution.** No retries on an unknown outcome. A step counts only with an attributable ID,
-  a deposit only by its on-chain hash. Amounts are explicit and exact multiples of the
-  currency, network and exchange steps. Network, chain, contract, fee and minimums are never
-  guessed. Withdrawals run only for offline-verified "exchange + network" pairs; withdrawals
-  to Gate and from BingX are manual.
+- **Execution.** No retries on an unknown outcome. A step counts only with an attributable ID
+  and a success status, a deposit only by its on-chain hash and expected credit. Amounts are
+  explicit and exact multiples of the currency, network and exchange steps. Network, chain,
+  contract, fee and minimums are never guessed. Withdrawals run only for offline-verified
+  "exchange + network" pairs; withdrawals to Gate and from BingX are manual.
 - **Exchange side.** Minimal key permissions, IP allowlist and a withdrawal address whitelist
   ([key permissions](references/security.md#exchange-key-permissions)).
 
@@ -87,9 +91,10 @@ The last withdrawal is stuck. Reconcile what actually happened without repeating
 
 Verified in a scratch environment with no real keys and no live writes: pins, schemas and
 gates, the approval token (including 60 s expiry), and the final `withdraw` and `transfer`
-requests on all nine exchanges, built offline without sending. Also public network data,
-`call_implicit_get`, and the server environment on Claude Code 2.1.331 and Codex 0.172.0
-([details](references/ccxt-mcp.md#verification)).
+requests on all nine exchanges, built offline without sending; OKX transfer status reads on
+mocked responses; two same-exchange registrations sharing one key. Also public network data,
+`call_implicit_get`, the server environment and registration commands on Claude Code 2.1.331
+and Codex 0.172.0 ([details](references/ccxt-mcp.md#verification)).
 
 Not verified: real accounts, modes, available amounts, fee models, exchange responses to
 writes, and actual transfers. Network flags and fees are visible only with a key on most
