@@ -32,14 +32,13 @@ fresh chat that starts with `Read SKILL.md …` ([loading the skill](#loading-th
 
 1. **Launch with A's key (initial checks and withdrawal).** Check both networks, with B's
    fields from a public source or read by the human on B's deposit page, and run the A plan.
-   It binds only A's writes, B's deposit route (network, address, memo) and the expected
-   credit bounds; the human notes where B credits deposits. The chat ends with the plan's
-   carry-over line, withdrawal ID and hash ([SKILL.md, 2.4](../SKILL.md#24-plan)).
-2. **Launch with B's key (settlement).** The human pastes the carry-over line. The agent
-   attributes the deposit by hash, finds the wallet holding it and, if needed, makes a new
-   plan with its own approval for the exact B transfer
-   ([SKILL.md, 2.8](../SKILL.md#28-settlement-on-b)). B's wallets, steps and caps are read
-   only here.
+   It binds only A's writes, B's deposit route (network, full address, memo) and the
+   expected credit bounds; the human notes where B credits deposits. The chat ends with the
+   filled-in HANDOFF block ([SKILL.md, 2.8](../SKILL.md#28-settlement-on-b)).
+2. **Launch with B's key (settlement).** The human pastes the HANDOFF block. The agent
+   matches B's account identity, attributes the deposit by hash, finds the wallet holding it
+   and, if needed, makes a new plan with its own approval for the exact B transfer. B's
+   wallets, steps and caps are read only here.
 
 Until the B session runs, the funds sit in whichever B wallet takes deposits (often funding,
 main or spot; see the [account mode table](exchanges.md#account-mode-and-available-amount)).
@@ -159,10 +158,14 @@ args = ["<APP_DIR>/node_modules/ccxt-mcp/js/server.js"]
 env = { CCXT_MCP_CONFIG = "<PROFILES>/okx-main/config.json" }
 env_vars = ["OKX_APIKEY", "OKX_SECRET", "OKX_PASSWORD"]
 startup_timeout_sec = 30
-tool_timeout_sec = 120
+tool_timeout_sec = 420
 ```
 
-`env_vars` forwards only the listed names to the server (verified). Codex does **not** expand
+`tool_timeout_sec` must be longer than the server's 300 s wait for the confirmation form
+plus the exchange call ([gates](ccxt-mcp.md#gates-and-approval)). With a shorter timeout,
+the host can report a timeout while the server is still waiting on the form. The server
+never sees the host timeout, so if the form is still answered, the write is sent. `env_vars` forwards only the listed
+names to the server (verified). Codex does **not** expand
 `${…}` inside `env`. A second account of the same exchange needs a separate launch with only
 its own registration enabled ([one registration](#one-registration-per-keyed-exchange)).
 Everything else follows schemes A and B.
@@ -181,8 +184,8 @@ Read SKILL.md and help me plan a USDT transfer.
 
 The agent reads `SKILL.md` from the working directory and opens the files in `references/`
 when a step points to them. Nothing needs to be installed, linked or copied. Start **every**
-fresh chat or host launch with this read, including B's launch in scheme A. There, add the
-carry-over line: `Read SKILL.md and settle <PLAN-ID> on B. Carry-over: …`.
+fresh chat or host launch with this read, including B's launch in scheme A. There, paste
+the whole HANDOFF block: `Read SKILL.md and settle <PLAN-ID> on B.` followed by the block.
 
 **Automatic discovery** means the host finds and loads a skill from its own skills directory
 without being asked. This repository does not set that up and nothing here depends on it. The

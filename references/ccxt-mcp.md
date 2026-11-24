@@ -82,8 +82,11 @@ Schemas from `tools/list` (required fields in **bold**):
   `confirm` is `"never"`.
   - **Host with elicitation.** The first call shows a form with the preview text and one
     `confirm: boolean` field; `params` are not shown. On `accept` with `true` the write is
-    sent **immediately**; on `decline` the result is `CONFIRM_DECLINED`. If the form fails to
-    open: `CONFIRM_UNAVAILABLE`, and the server does not fall back to token mode.
+    sent **immediately**; on `decline` the result is `CONFIRM_DECLINED`. The server waits up
+    to 300 s (`elicitInput` with `timeout: 300000` in `js/factory.js`). If the form fails to
+    open or times out: `CONFIRM_UNAVAILABLE`, and the server does not fall back to token
+    mode. A host tool timeout shorter than that leaves the form open after the agent has
+    seen a timeout, so a later accept still sends the write.
   - **Host without elicitation.** The call returns a preview and `meta.confirmToken`: a UUID
     with an HMAC over the exact payload including `params`, single-use, valid for 60 s.
     Redemption errors are `CONFIRM_INVALID`, `CONFIRM_EXPIRED` and `CONFIRM_MISMATCH`. The
@@ -94,7 +97,9 @@ Schemas from `tools/list` (required fields in **bold**):
   in a preliminary read inside ccxt. Its hint points to `get_orders`; for transfers and
   withdrawals reconcile per [SKILL.md, 2.7](../SKILL.md#27-reconciliation) instead.
 - A successful `transfer` or `withdraw` result has the exchange's ID; that attributes the
-  record but is not a success status (OKX `transfer` returns `status: null`).
+  record but is not a success status. OKX `transfer` returns `status: null`; Bybit's
+  `status: "ok"` means only `retCode 0`, and KuCoin's is filled in by ccxt
+  ([transfer proof](exchanges.md#transfer-proof)).
 - The form has no PLAN-ID and no plan expiry, so the skill shows them before the call
   ([SKILL.md, 2.5](../SKILL.md#25-executing-each-write)).
 
@@ -106,8 +111,11 @@ Schemas from `tools/list` (required fields in **bold**):
 - The daily cap (`maxDailyValue`) and intents are keyed by **alias**. Aliases must therefore
   be unique across all profiles, or caps and records get mixed.
 - `unresolvedIntents` are intents without `result` or `error`, which means only those cut off
-  by a process crash, across all aliases. `UNKNOWN_OUTCOME` and host timeouts do not appear
-  there.
+  by a process crash, across all aliases (also aliases this server does not configure).
+  `UNKNOWN_OUTCOME` and host timeouts do not appear there. The server reads only the current
+  and the previous month's file, so an old entry drops off the list without being resolved.
+  `get_safety_status` also returns the `journal` path. The skill treats any entry as a
+  terminal write hold ([SKILL.md, Step 0](../SKILL.md#step-0-preflight-read-only)).
 
 ## Limitations
 
@@ -148,7 +156,10 @@ keys, and a guard allowed only unsigned GET plus Hyperliquid's public `POST /inf
 | `amount` in `withdraw`/`transfer` on 9 exchanges, mocked currency data (currency step `0.0001`, network `0.00001` and vice versa), `10.12349` | as in the [amount step table](exchanges.md#amount-steps); Gate `withdraw` → `10.1235` |
 | deposit parsing, mocked raw records | WhiteBIT: unified `txid` = internal `transactionId`, hash only in `info.transactionHash`; KuCoin: `info.chain: "bsc"`, `network: "BEP20"` |
 | dispatch cut off after `intent` | `UNKNOWN_OUTCOME`; `unresolvedIntents: []` |
-| OKX `transfer` → `fetchTransfer` / `fetchTransfers`, mocked responses (`call_read_method`, `includeInfo`) | `transfer` result `id` = `transId`, `status: null`; `fetchTransfer` raw `state` `success` / `pending` / `failed` → `ok` / `pending` / `failed`; empty `data` → all fields `null`; `fetchTransfers` `id` = `billId` ([transfer status](exchanges.md#transfer-status)) |
+| OKX `transfer` → `fetchTransfer` / `fetchTransfers`, mocked responses (`call_read_method`, `includeInfo`) | `transfer` result `id` = `transId`, `status: null`; `fetchTransfer` raw `state` `success` / `pending` / `failed` → `ok` / `pending` / `failed`; empty `data` → all fields `null`; `fetchTransfers` `id` = `billId` ([transfer proof](exchanges.md#transfer-proof)) |
+| `transfer` + proof read on 9 exchanges, token flow, `unshare -rn`, mocked raw responses with success / pending / failed / missing plus an unrelated record of the same amount (this revision) | as in the [transfer proof table](exchanges.md#transfer-proof): Binance read sends `type=FUNDING_MAIN`, default `MAIN_UMFUTURE`; Bybit `transferId` filter, transfer result `status: "ok"` while raw status was `PENDING`; Bitget `fromType=spot`, `uta` not sent; BingX `GET /api/v3/asset/transferRecord?transferId=…`, no params → `EXCHANGE_ERROR`; MEXC no params → `BAD_REQUEST`, `fetchTransfer` → `asset/internal/transfer/record?transact_id=…`; KuCoin ledger `id` ≠ `orderId`, `status: null`; Gate empty body → `id: null`; Gate and WhiteBIT `fetchTransfers` → `NOT_SUPPORTED`; WhiteBIT `withdraw` `id` = the `uniqueId` sent; 39 requests recorded, none unmocked |
+| journal with a crash-cut intent for an alias not in this config, plus one two months old (this revision) | `unresolvedIntents` lists the foreign alias; the two-month-old intent is not listed |
+| Bybit `fetchDeposits`, two records with the same amount and network, different hashes (this revision) | raw status `1` → `pending`, `3` → `ok`, `4` → `fail`; only the hash tells the records apart |
 | two servers, aliases `okx-test` and `okx-sub`, one launch environment | both sign with the same `OK-ACCESS-KEY`; OKX `fetchAccounts` gives `id` = raw `uid`, plus raw `label` and `perm` |
 | registrations in scratch homes | Codex: `enabled = false` → `codex mcp list` shows `disabled`; `codex mcp get` prints the registration, not a connection. Claude Code: `claude mcp remove <name> -s user` removes it; `claude mcp list` health-checks |
 | public `fetchCurrencies` | Bitget, WhiteBIT, KuCoin, Gate → truncation marker; Binance, Bybit, OKX, MEXC, BingX → `{}` |

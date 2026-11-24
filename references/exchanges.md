@@ -49,10 +49,11 @@ and BingX returned `{}` without a key.
 ### Gate as recipient (manual only)
 
 Gate's deposit minimum is not available by API, so the agent never calls `withdraw` to Gate.
-The human opens Gate's deposit page (network, minimum, contract, address) and sends the
-withdrawal themselves from exchange A's UI or from the wallet. The agent provides the
-`currency_chains` data, reconciles the Gate deposit by transaction hash
-([SKILL.md, 2.7](../SKILL.md#27-reconciliation)) and can then run Scenario 3 on Gate.
+The human reads Gate's deposit page (network, minimum, contract, full address, memo) and
+withdraws from exchange A's UI with the
+[withdrawal sheet](../SKILL.md#29-manual-withdrawal-in-exchange-as-ui), or sends from the
+wallet (Scenario 1). The agent supplies the `currency_chains` data and reconciles the Gate
+deposit by hash ([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
 
 ## Outbound withdraw
 
@@ -70,7 +71,7 @@ depend on live data and are **not verified**, so withdrawals there are manual on
 | OKX | `chain=USDT-TRC20` | `USDT-BSC` | `USDT-ERC20` | `USDT-TON` | `toAddr=<address>:<memo>` | `{"fee":"<exact f>"}` (sent as `fee`) |
 | Bitget | `chain=TRC20` | `BSC` | `ERC20` | `TON` | `tag` | `{"uta":true}` or `{"uta":false}` per the verified mode; without it ccxt assumes classic on any probe error |
 | WhiteBIT | `network=` the exact string passed: pass `<NET>` from the `"USDT (<NET>)"` key (`TRC20`, `BEP20`, `ERC20`, `TON`) | | | | `memo` | `{}` |
-| BingX | manual only | | | | — | — |
+| BingX | manual only ([sheet](../SKILL.md#29-manual-withdrawal-in-exchange-as-ui)) | | | | — | — |
 | MEXC | `netWork=TRX` | `BSC`¹ | `ETH` | `TONCOIN`¹ | `memo` | `{}` |
 | KuCoin | `chain=trx` | `bsc` | `eth` | `ton` | `memo` | `{}`; `network` is required, without it the default chain is sent |
 
@@ -149,18 +150,38 @@ is typical only; where a deposit actually lands is confirmed in B's session.
 missing on Gate and WhiteBIT, and `fetchLedger` on WhiteBIT, BingX and MEXC. Only WhiteBIT has
 `certified: false`.
 
-## Transfer status
+## Transfer proof
 
-OKX, ccxt 4.5.85, verified offline: `transfer` returns `id` = `transId` and `status: null`.
-`fetchTransfer(transId)` reads `GET /api/v5/asset/transfer-state`. OKX documents raw `state`
-as `success`, `pending` or `failed`; ccxt maps `success` to `ok` and passes the others
-through. An empty `data` gives every field `null`. `fetchTransfers` reads
-`GET /api/v5/account/bills-archive` (`type=1`), whose `id` is a `billId`, so a `transId`
-never appears there.
+How to prove that one `transfer` call succeeded, per exchange. This was verified offline
+through ccxt-mcp 0.1.3 with ccxt 4.5.85: real `transfer` and `call_read_method` calls, with
+responses mocked in the shape that ccxt's own code comments show
+([verification](ccxt-mcp.md#verification)). How the exchanges behave with a real key was not
+tested. Every read is a `call_read_method` with `includeInfo: true`, where
+`<since>` comes from the pre-dispatch snapshot
+([SKILL.md, 2.5](../SKILL.md#25-executing-each-write)). Match the response `id` only against
+the field named here; the success value is the raw one (pending and failed values:
+[SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
 
-For the other exchanges it was not checked whether `transfer` and `fetchTransfers` return the
-same ID. If the ID is not found with an `ok` status, the route holds
-([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
+| Exchange | `transfer` result `id` | Result `status` | Proof read | Raw success | Route |
+|---|---|---|---|---|---|
+| Binance | `tranId` | `null` | `fetchTransfers` `["USDT",<since>,20]`, `params {"type":"<FROM>_<TO>"}`: the wallet ids the transfer sent, e.g. `FUNDING_MAIN` (funding → spot). Without `type`, ccxt asks for `MAIN_UMFUTURE` | `CONFIRMED` | API |
+| Bybit | `transferId` (a UUID that ccxt generates and sends) | `ok` only means `retCode 0`, not a transfer status | `fetchTransfers` `["USDT",<since>,20]`, `params {"transferId":"<id>"}` | `SUCCESS` | API |
+| OKX | `transId` | `null` | `fetchTransfer` `["<transId>","USDT"]` (`GET /asset/transfer-state`). Not `fetchTransfers`: it reads bills, whose `id` is a `billId`. Not found → every field `null` | `info.state: "success"` | API |
+| Bitget classic | `transferId` | `null` | `fetchTransfers` `["USDT",<since>,20]`, `params {"fromAccount":"<plan's fromAccount>"}` (sent as `fromType`). The transfer itself uses `params {"uta":false}`, which is not sent | `Successful` | API |
+| Bitget UTA | `transferId` (v3 UTA endpoint) | `null` | none: `fetchTransfers` reads only the classic v2 records | — | operator or manual |
+| BingX | `transferId`; the response also has `tranId`, a different field | `null` | `fetchTransfers` `["USDT",<since>,20]`, `params {"transferId":"<id>"}` (ccxt requires it, or both `fromAccount` and `toAccount`) | `CONFIRMED` | API |
+| MEXC | `tranId` | `null` | `fetchTransfers` `["USDT",<since>,20]`, `params {"fromAccountType":"<FROM>","toAccountType":"<TO>"}` (both required, raw `SPOT`/`FUTURES` of the planned direction). Not `fetchTransfer`: it queries `asset/internal/transfer/record` by `transact_id` | `SUCCESS` | API |
+| KuCoin | `orderId` | `ok`, filled in by ccxt from the request, not by the exchange | none: `fetchTransfers` reads account ledgers. Each entry has its own ledger `id` and no status; raw `context` may name the `orderId` (format unverified), so it is a candidate only | — | operator or manual |
+| Gate | `tx_id` if the exchange returns it; an empty body gives `null` | `null` | none: `fetchTransfers` returns `NOT_SUPPORTED` | — | operator or manual |
+| WhiteBIT | none: the response is `[]` | `null` | none: `fetchTransfers` returns `NOT_SUPPORTED` | — | operator or manual |
+
+A record with the right ID counts only with the planned amount and wallets. Other records in
+the same read, even with the same amount and direction, are someone else's. "Operator"
+means the operator route in [SKILL.md, 2.7](../SKILL.md#27-reconciliation), confirmed before
+approval; otherwise the step is done manually in the UI. Withdrawals are proved by their own
+`id` in `fetchWithdrawals`. WhiteBIT's withdrawal response is `[]` too, but ccxt generates
+`uniqueId`, sends it and returns it as `id` (verified offline), and ccxt parses a history
+record's `uniqueId` as its `id`.
 
 ## Hyperliquid
 

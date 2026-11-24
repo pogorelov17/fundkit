@@ -41,7 +41,9 @@ Automatic skill discovery is optional and host-specific; this repository does no
 - **Exchange A → exchange B** (semi-automatic). Accounts for account modes, available amount
   minus margin reserve, and a network enabled on both sides. Debit, withdraw amount and credit
   are computed separately. Then: exact plan for A → approval → separate withdrawal approval →
-  deposit matched by hash on B → a new plan and approval for any transfer on B.
+  deposit matched by hash on B → a self-contained HANDOFF block for a fresh B chat → a new
+  plan and approval for any transfer on B. Routes to Gate and from BingX use a manual
+  withdrawal sheet in A's UI, with the same expected-credit and hash checks.
 - **funding ↔ trading/margin** on one exchange.
 - **Hyperliquid**: watch-only margin and position monitoring by public address.
 
@@ -60,10 +62,17 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
   reply `APPROVE <PLAN-ID>`. The first `withdraw` call also needs a separate
   `WITHDRAW <PLAN-ID>`; a requested deposit-address lookup needs `ADDRESS <PLAN-ID>`.
 - **Execution.** No retries on an unknown outcome. A step counts only with an attributable ID
-  and a success status, a deposit only by its on-chain hash and expected credit. Amounts are
-  explicit and exact multiples of the currency, network and exchange steps. Network, chain,
-  contract, fee and minimums are never guessed. Withdrawals run only for offline-verified
-  "exchange + network" pairs; withdrawals to Gate and from BingX are manual.
+  and a success status, a deposit only by its full on-chain hash and expected credit. Pending
+  records are polled read-only; failed, missing or ambiguous ones hold the route. Internal
+  transfer proof is venue-specific: an API read on Binance, Bybit, OKX, Bitget classic, BingX
+  and MEXC; on Gate, WhiteBIT, KuCoin and Bitget UTA only operator evidence agreed in advance,
+  or the transfer is manual. Amounts are explicit and exact multiples of the currency,
+  network and exchange steps. Network, chain, contract, fee and minimums are never guessed.
+  Withdrawals run only for offline-verified "exchange + network" pairs; withdrawals to Gate
+  and from BingX are manual. The full address, network and memo are checked on the final
+  confirmation screen.
+- **Crash hold.** A crash-cut entry in the shared ccxt-mcp journal stops all writes on every
+  profile that shares it, for good: reads and operator investigation only.
 - **Exchange side.** Minimal key permissions, IP allowlist and a withdrawal address whitelist
   ([key permissions](references/security.md#exchange-key-permissions)).
 
@@ -90,13 +99,15 @@ The last withdrawal is stuck. Reconcile what actually happened without repeating
 ## Verification and limits
 
 Verified in a scratch environment with no real keys and no live writes: pins, schemas and
-gates, the approval token (including 60 s expiry), and the final `withdraw` and `transfer`
-requests on all nine exchanges, built offline without sending; OKX transfer status reads on
-mocked responses; two same-exchange registrations sharing one key. Also public network data,
+gates, the approval token (including 60 s expiry) and the 300 s form wait, and the final
+`withdraw` and `transfer` requests on all nine exchanges, built offline without sending;
+transfer proof reads on all nine exchanges, journal crash entries and deposit hash
+matching, all on mocked responses; two same-exchange registrations sharing one key. Also public network data,
 `call_implicit_get`, the server environment and registration commands on Claude Code 2.1.331
 and Codex 0.172.0 ([details](references/ccxt-mcp.md#verification)).
 
 Not verified: real accounts, modes, available amounts, fee models, exchange responses to
-writes, and actual transfers. Network flags and fees are visible only with a key on most
+writes and reads with a real key (the transfer proof table relies on the response shapes in
+ccxt's code), and actual transfers. Network flags and fees are visible only with a key on most
 exchanges, so plans are built from live data at request time. The skill gives no execution
 guarantees. Use at your own risk and start with `dryRun`.
