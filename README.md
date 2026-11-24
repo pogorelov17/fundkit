@@ -1,88 +1,97 @@
 # fundkit
 
-Навык (Agent Skill), с которым AI-агент безопасно перемещает USDT между криптокошельком и
-биржами. Состоит только из Markdown: своих программ, скриптов, зависимостей и сервисов нет.
-С биржами агент работает через официальный MCP-сервер
-[`ccxt-mcp@0.1.3`](https://github.com/ccxt/ccxt/tree/master/mcp) с закреплённым `ccxt@4.5.85`.
-Это последняя версия ccxt, с которой `withdraw` в ccxt-mcp 0.1.3 передаёт бирже сеть, комиссию
-и memo; с 4.5.87 они теряются.
+A Markdown-only Agent Skill that lets an AI agent move USDT between a crypto wallet and
+exchanges with a human approving every write. There is no code: no programs, scripts,
+packages or services. The agent talks to exchanges through the official MCP server
+[`ccxt-mcp@0.1.3`](https://github.com/ccxt/ccxt/tree/master/mcp), pinned with `ccxt@4.5.85`,
+the last ccxt release with which the server's `withdraw` still passes network, fee and memo
+to the exchange. Works in Claude Code and Codex.
 
-*A Markdown-only Agent Skill for planned, human-approved USDT funding moves via the official
-ccxt-mcp server. Works in Claude Code and Codex.*
+## Quick start
 
-## Что умеет
-
-- **OKX Wallet → биржа.** Подбирает сеть по живым данным биржи, а адрес человек сам копирует
-  из её интерфейса и сам отправляет из кошелька. Зачисление сверяется по хешу транзакции.
-- **Биржа A → биржа B** (полуавтоматически). Учитывает режим аккаунтов, доступную сумму с
-  резервом маржи и сеть, включённую на обеих сторонах. Раздельно считает списание, аргумент
-  вывода и зачисление. Дальше точный план → подтверждение → отдельное подтверждение вывода →
-  сверка по ID.
-- **funding ↔ trading/margin** внутри одной биржи.
-- **Hyperliquid** — только мониторинг маржи и позиций по публичному адресу.
-
-Биржи: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin и Hyperliquid (только
-чтение).
-
-## Принципы
-
-- Агент знает только алиасы аккаунтов и не читает окружение. Каждый сервер обслуживает один
-  аккаунт. Автоматической изоляции ключей между аккаунтами нет: Claude Code передаёт серверам
-  всё своё окружение. Поэтому в одном запуске хоста держите ключи только одного аккаунта или
-  запускайте каждый сервер отдельно средствами оператора.
-- Записи выполняются только по плану с точными аргументами и ответом `ПОДТВЕРЖДАЮ <PLAN-ID>`.
-  Перед первым вызовом вывода нужно отдельное `ВЫВОД <PLAN-ID>`.
-- Повторов при неизвестном исходе нет; шаг засчитывается только по атрибутируемому ID, а
-  депозит — по хешу транзакции в блокчейне. Суммы только явные и точно кратные шагам валюты,
-  сети и биржи. Сеть, цепочку, контракт, комиссию и минимумы агент не угадывает. Вывод идёт
-  только по офлайн-проверенной паре «биржа + сеть»; вывод на Gate и с BingX — вручную.
-- На бирже: минимальные права ключей, IP allowlist и whitelist адресов вывода.
-
-## Быстрый старт
-
-1. Установите сервер с точными пинами
-   ([`references/ccxt-mcp.md`](.claude/skills/usdt-funding/references/ccxt-mcp.md)). Создайте
-   по `config.json` на аккаунт, начиная с `"dryRun": true`.
-2. Зарегистрируйте серверы в хосте без секретов и выберите схему запуска (A или B): примеры
-   для Claude Code и Codex — в
-   [`references/security.md`](.claude/skills/usdt-funding/references/security.md).
-3. Подключите навык. Claude Code находит
-   [`.claude/skills/usdt-funding/`](.claude/skills/usdt-funding/SKILL.md) сам. Codex этот путь
-   не читает, поэтому сделайте симлинк в `.agents/skills/` или скопируйте папку в
-   `~/.codex/skills/`.
-4. Выполните smoke-check хоста (там же). Первым запросом попросите агента сделать
-   предполётную проверку.
-
-### Примеры запросов
+From the repository root, in Claude Code or Codex:
 
 ```text
-Проверь, какие биржевые профили подключены и что им разрешено.
-Хочу пополнить Bybit на 150 USDT из OKX Wallet. Какая сеть подойдёт и что проверить перед отправкой?
-Составь план: на Bybit (UTA) должно прийти 300 USDT с OKX (торговый счёт), резерв маржи на OKX 100 USDT.
-Переведи на KuCoin 50 USDT из main в trade — сначала план.
-Сколько свободной маржи и какие позиции на Hyperliquid по адресу 0x…?
-Предыдущий вывод завис — сверь, что реально произошло, ничего не повторяя.
+Read SKILL.md and help me plan a USDT transfer.
 ```
 
-## Состав
+That explicit read is all the skill needs. Without exchange servers the agent can explain the
+flow but stops before live data. To let it read live data and execute approved writes, the
+operator sets up:
 
-| Файл | Зачем |
+1. **Server.** Install the pinned server ([install](references/ccxt-mcp.md#install)) and create
+   one `config.json` per account, starting with `"dryRun": true`
+   ([profile config](references/security.md#profile-configjson)).
+2. **Host.** Register the servers without secrets and pick launch scheme A or B
+   ([environment contract](references/security.md#environment-contract),
+   [host registration](references/security.md#host-registration)).
+3. **Check.** Run the [smoke check](references/security.md#smoke-check), then ask the agent
+   for a preflight check as the first request.
+
+Automatic skill discovery is optional and host-specific; this repository does not rely on it
+([loading the skill](references/security.md#loading-the-skill)).
+
+## What it does
+
+- **OKX Wallet → exchange.** Picks a network from the exchange's live data; the human copies
+  the address from the exchange UI and sends from the wallet by hand. The deposit is matched
+  by transaction hash.
+- **Exchange A → exchange B** (semi-automatic). Accounts for account modes, available amount
+  minus margin reserve, and a network enabled on both sides. Debit, withdraw amount and credit
+  are computed separately. Then: exact plan → approval → separate withdrawal approval →
+  reconciliation by ID.
+- **funding ↔ trading/margin** on one exchange.
+- **Hyperliquid**: watch-only margin and position monitoring by public address.
+
+Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plus Hyperliquid
+(read-only).
+
+## Safety model
+
+- **Keys.** The agent knows only account aliases and never reads the environment. One server
+  per account. Hosts do not isolate keys between servers (Claude Code passes its whole
+  environment to each one), so keep one account's keys per host launch or have the operator
+  launch each server separately ([schemes A and B](references/security.md#environment-contract)).
+- **Approvals.** Writes run only from a plan with exact arguments and an expiry, after the
+  reply `APPROVE <PLAN-ID>`. The first `withdraw` call also needs a separate
+  `WITHDRAW <PLAN-ID>`; a requested deposit-address lookup needs `ADDRESS <PLAN-ID>`.
+- **Execution.** No retries on an unknown outcome. A step counts only with an attributable ID,
+  a deposit only by its on-chain hash. Amounts are explicit and exact multiples of the
+  currency, network and exchange steps. Network, chain, contract, fee and minimums are never
+  guessed. Withdrawals run only for offline-verified "exchange + network" pairs; withdrawals
+  to Gate and from BingX are manual.
+- **Exchange side.** Minimal key permissions, IP allowlist and a withdrawal address whitelist
+  ([key permissions](references/security.md#exchange-key-permissions)).
+
+## Example requests
+
+```text
+Check which exchange profiles are connected and what they are allowed to do.
+I want to top up Bybit with 150 USDT from OKX Wallet. Which network fits and what should I check before sending?
+Make a plan: 300 USDT must arrive on Bybit (UTA) from OKX (trading account), keep a 100 USDT margin reserve on OKX.
+Move 50 USDT from main to trade on KuCoin. Plan first.
+How much free margin and which positions are on Hyperliquid for address 0x…?
+The last withdrawal is stuck. Reconcile what actually happened without repeating anything.
+```
+
+## Files
+
+| File | Contents |
 |---|---|
-| [`SKILL.md`](.claude/skills/usdt-funding/SKILL.md) | правила и сценарии для агента |
-| [`references/ccxt-mcp.md`](.claude/skills/usdt-funding/references/ccxt-mcp.md) | пины, схемы, подтверждение, журнал, ограничения, что проверено |
-| [`references/exchanges.md`](.claude/skills/usdt-funding/references/exchanges.md) | кошельки, поля сетей, режимы, что требует теста на аккаунте |
-| [`references/security.md`](.claude/skills/usdt-funding/references/security.md) | контракт окружения, регистрация в хостах, smoke-check, права ключей |
+| [`SKILL.md`](SKILL.md) | agent rules and scenarios |
+| [`references/ccxt-mcp.md`](references/ccxt-mcp.md) | pins, tool schemas, approval gates, journal, limitations, verification |
+| [`references/exchanges.md`](references/exchanges.md) | wallets, network data, outbound withdraw table, amount steps, account modes |
+| [`references/security.md`](references/security.md) | environment contract, host registration, loading the skill, smoke check, key permissions |
 
-## Проверки и ограничения
+## Verification and limits
 
-Проверено в scratch-окружении без настоящих ключей и без live-записей. Записи собирались офлайн
-в сетевом namespace без интерфейсов, запрос записывался без отправки. Проверены пины, схемы и
-гейты, токен подтверждения (в том числе истечение через 60 с) и итоговые запросы `withdraw` и
-`transfer` у всех девяти бирж. Проверены также публичные данные сетей, `call_implicit_get` и
-окружение серверов в Claude Code 2.1.331 и Codex 0.172.0. Подробности — в
-[`references/ccxt-mcp.md`](.claude/skills/usdt-funding/references/ccxt-mcp.md#проверено-2026-11-24-scratch-без-настоящих-ключей-без-live-записей).
+Verified in a scratch environment with no real keys and no live writes: pins, schemas and
+gates, the approval token (including 60 s expiry), and the final `withdraw` and `transfer`
+requests on all nine exchanges, built offline without sending. Also public network data,
+`call_implicit_get`, and the server environment on Claude Code 2.1.331 and Codex 0.172.0
+([details](references/ccxt-mcp.md#verification)).
 
-Не проверено: реальные аккаунты, режимы, доступные суммы, модели комиссий, ответы бирж на
-запись и фактические переводы. Включённость сетей и комиссии у большинства бирж видны только с
-ключом, поэтому план строится по живым данным в момент запроса. Гарантий исполнения навык не
-даёт. Используйте на свой риск и начинайте с `dryRun`.
+Not verified: real accounts, modes, available amounts, fee models, exchange responses to
+writes, and actual transfers. Network flags and fees are visible only with a key on most
+exchanges, so plans are built from live data at request time. The skill gives no execution
+guarantees. Use at your own risk and start with `dryRun`.
