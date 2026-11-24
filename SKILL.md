@@ -56,12 +56,12 @@ only what the human pastes carries over.
    table, or the exchange is marked "manual only", the human withdraws in the exchange UI.
 5. **Reconcile before considering another attempt.** On `UNKNOWN_OUTCOME`, a host timeout, a
    dropped connection, no response, or any error that is not on the
-   [not-sent list](#26-responses-what-was-definitely-not-sent), retry nothing. Non-execution is
-   proven **only** by a code from that list, or by an explicit operator finding from the
-   exchange's own records (UI or support) covering the window from the snapshot to now. An
-   empty API history, an empty `unresolvedIntents` and an unchanged balance are not proof. A
-   new attempt requires a fresh plan or sheet and fresh authorization. For a dispatched
-   operation that later failed, follow the refund evidence rule in 2.7.
+   [not-sent list](#26-responses-what-was-definitely-not-sent), retry nothing. For a potentially submitted operation, establish non-execution
+   from a pre-dispatch response in 2.6 or an explicit operator finding from the exchange's
+   records covering the snapshot through the present. An empty history, unchanged balance
+   or empty `unresolvedIntents` cannot prove it. For a witnessed cancellation on a manual
+   confirmation screen use the rule below. A new attempt needs fresh authorization; for
+   a dispatched operation that failed, use the return-evidence rule in 2.7.
 6. **Amounts are explicit.** Do not accept "all", "max" or "the rest" without a number. Every
    amount is a USDT number labeled with its meaning (debit, call argument or credit, see
    [2.3](#23-debit-withdraw-amount-and-credit)) and exactly representable in the currency,
@@ -82,6 +82,26 @@ only what the human pastes carries over.
    the selected network, fee (asset and amount), and applicable minimum from its live data or
    deposit page. Recalculate net credit. If anything changed, cancel, replace the sheet, and
    get fresh approval; if a field is unavailable or the minimum is missed, hold the send.
+
+### Manual confirmation
+
+For both manual routes, give each final sheet a unique ID and a UTC expiry 15 minutes after
+creation. A replacement gets a new ID. Show the sheet to the person controlling the sending
+wallet or exchange account. Use the following sequence:
+
+1. Leave the transaction unsigned and unsubmitted while checking the final screen against
+   the current sheet and B's deposit page (rule 9). If a value changes or the sheet expires,
+   cancel the screen. Prepare a replacement only after the destination and amounts qualify.
+2. Once the checks pass, record `OPEN` with the exact sheet and its ID. The operator checks
+   that the screen still matches and the UTC expiry has not arrived, then personally signs
+   or submits that exact transaction. **That final action authorizes the manual send.**
+   A sheet, chat message or past authorization alone does not authorize another submission.
+3. If the operator instead deliberately cancels the still-unsigned, unsubmitted screen, they
+   report the sheet ID, UTC time and that they personally observed cancellation before using
+   any signing or submission control. Record this as `NOT SENT — canceled before submission`
+   against that OPEN. If cancellation happens before OPEN, discard the unused sheet.
+   If the operator pressed Sign or Submit, lost the screen, or cannot establish the ordering,
+   keep OPEN and reconcile read-only. A missing hash or a later Cancel button proves nothing.
 
 ## Call syntax
 
@@ -185,18 +205,18 @@ sends from OKX Wallet, using the checked sheet.
    Exchanges rarely say whether the deposit minimum applies to `N` or to `C`. Unless the
    exchange states it, require `C` ≥ minimum (that covers both). Example: `S = 150`, gas in
    TRX, `d = 1`, minimum 150: `C = 149` fails; `S = 151` gives `C = 150` and passes. Show the
-   human a send sheet: network, contract, `S`, fee asset and model, `N`, `d`, expected `C`,
-   and the minimum with its basis (stated or assumed). Record the sources and UTC time of the chain and contract checks.
+   human a draft send sheet with the source wallet, destination account, network and contract,
+   `S`, fee asset and model, `N`, `d`, expected `C`, and the minimum and its basis. Include
+   the sources and UTC time of the route checks. After step 5, fill in the full recipient
+   and exact memo and issue `SEND SHEET <ID>, created <UTC>, expires <UTC + 15 min>`.
 5. By default the human copies the address **themselves** in the exchange app (Deposit →
    USDT → network). Call `get_deposit_address` only if the human asked for it separately, the
    profile has `funds`, and you showed a mini-plan `PLAN <PLAN-ID>` with the exact JSON of
    that call and an expiry, and the human replied `ADDRESS <PLAN-ID>`. Warn that the first
    call may create a new address and that `dryRun` does not stop this tool.
-6. Apply rule 9, including the fresh destination check. Record the step as OPEN before
-   the human confirms. On the wallet screen, compare the full address, network, exact memo,
-   `S` and the fee against the destination page and the send sheet. Any
-   mismatch: cancel, copy the address again from the exchange page, and make a new send
-   sheet.
+6. Follow [manual confirmation](#manual-confirmation). Refresh B's conditions, compare the
+   wallet's amount and fee with this send sheet, and verify the full address, network and
+   exact memo before recording OPEN. Only the operator can sign the checked transaction.
 7. After sending, ask for the full transaction hash from the wallet and credit the deposit by
    the [deposit rule](#27-reconciliation): the credited amount must equal the expected `C`. A
    deposit that is still confirming is polled read-only (2.7). If the funds must reach a
@@ -441,7 +461,7 @@ back as `UNKNOWN_OUTCOME` and cannot be told apart from a failure of the write i
     exchange states, the operator checks the UI, and polling continues.
   - **failed** (`failed`, `fail`, `canceled`, `rejected`): keep OPEN until the operator
     identifies the terminal failure and shows from attributable exchange or chain records
-    how the debit was reversed or released. Record the returned amount and any retained fee.
+    that no debit was taken or how the debit was reversed or released. Record the returned amount and any retained fee.
     Close as FAILED-RECONCILED with the operation ID/hash, proof references and UTC time.
     An unexplained shortfall, pending refund or balance change alone keeps the step OPEN.
     Any further attempt needs a new plan or sheet and fresh authorization.
@@ -555,11 +575,9 @@ Expected on B: exact C=<…> USDT after deposit fee d=<…> <asset>, B deposit m
 User: limit <USDT> | target credit <USDT>
 ```
 
-1. Refresh B's deposit conditions per rule 9 and record OPEN before the human confirms.
-   On A's final confirmation screen, before any 2FA code, check the full address, network
-   and memo against B's deposit page, and the amount, fee and receive amount against the sheet. If
-   the UI rounds the amount, changes the fee, or the sheet has expired, cancel and make a
-   new sheet.
+1. Follow [manual confirmation](#manual-confirmation) on A's withdrawal screen. Refresh B's
+   deposit conditions and compare the full address, network and memo with B's page. Verify
+   the exact debit, fee and receive amount before OPEN and before any submitting 2FA action.
 2. After sending, the human gives A's withdrawal record ID and the full hash from A's UI.
    Alternatively, an A session reads `fetchWithdrawals`; a pending record is polled (2.7).
    The human's word that it was sent is not a status.
@@ -607,7 +625,7 @@ Keep it current on every response. Pending, missing, lost or ambiguous results k
 OPEN across chats, including when the server records an error and lists no unresolved intent.
 Only reconcile read-only until the operator can establish the outcome under 2.7. Close the
 record as DONE with attributable proof of completion, NOT SENT with proof of non-execution
-under rule 5, or FAILED-RECONCILED with the failure and return evidence specified in 2.7.
+under rule 5 (including a witnessed manual cancellation), or FAILED-RECONCILED with the failure and return evidence specified in 2.7.
 For a deposit-address request use the verified address response. For `transfer` and
 `withdraw`, an explicit `dryRun: true` result closes the step as NOT SENT. A completed step must never be sent again. Retain the latest record for Step 0; a crash
 hold on the server journal still applies even after the exchange outcome is known.
