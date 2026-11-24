@@ -91,6 +91,8 @@ only what the human pastes carries over.
    sheet and new approvals. For an API withdrawal, the full address must already be on A's
    withdrawal whitelist. On every plan or sheet for a send, record the destination network's
    memo requirement (required, not required, or no published flag), its source and the UTC check time.
+   "Not required" allows a recipient-specific memo. Preserve every supplied memo exactly
+   through preview, submission, handoff and deposit reconciliation, including leading zeros.
    If the source publishes this field but omits it or returns an unknown value, hold even on
    the first lookup. Use "no published flag" only when the venue supplies no such field and
    the address-specific evidence establishes the memo. Before recording OPEN for a wallet send or any withdrawal,
@@ -343,7 +345,9 @@ Use one alias with `"funds": "live"` for every read below.
    Record the chain's `batchReleaseLimit` on the sheet. Bybit documents the string `"-1"`
    as unlimited. For a finite nonnegative decimal limit, verify that the incoming USDT amount
    `N` fits within the remaining credit allowance, accounting for other deposits in the
-   applicable period. A missing or malformed limit, unknown remaining allowance, or amount
+   applicable period and releases of older pending deposits against the same cap. Use
+   verified remaining capacity after those releases; today's deposits alone do not establish it.
+   A missing or malformed limit, unknown remaining allowance, or amount
    above it holds the sheet. Repeat this check before OPEN; a changed limit requires a new
    sheet. On the user-selected UI path, obtain the equivalent limit from Bybit's deposit
    details. Excess deposits can remain pending. [Address response](https://bybit-exchange.github.io/docs/v5/asset/deposit/master-deposit-addr)
@@ -678,7 +682,7 @@ Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | as
    its sources and times, which must precede the send. Recover lost evidence from the original chat or transaction-specific
    exchange or on-chain evidence. Today's coin listing alone cannot identify a past transfer.
 3. Match one completed B deposit per 2.7: full hash, USDT, chain, receiving address, memo
-   (when required), and unambiguous credit within the expected bounds. On Bybit the address
+   (exactly as recorded whenever the handoff supplies one), and unambiguous credit within the expected bounds. On Bybit the address
    may be in `addressTo` or `info.toAddress`. For omitted receipt fields use evidence tied
    to this transaction (B's deposit details or its on-chain receipt on the verified chain).
    Bybit's deposit record omits the token contract: use the documented pre-send verification
