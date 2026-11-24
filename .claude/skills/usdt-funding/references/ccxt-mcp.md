@@ -84,6 +84,7 @@ npm --prefix <APP_DIR> audit signatures   # проверка подписей и
 - `UNKNOWN_OUTCOME` приходит, когда после `intent` случился таймаут или сетевая ошибка, в том
   числе в предварительном чтении внутри ccxt. Его подсказка ссылается на `get_orders`; для
   переводов и выводов вместо этого сверяйся по SKILL.md, 2.7.
+- В форме нет PLAN-ID и срока плана, поэтому навык показывает их до вызова (SKILL.md, 2.5).
 
 ## Журнал
 
@@ -129,6 +130,8 @@ npm --prefix <APP_DIR> audit signatures   # проверка подписей и
 | `ARBONE` и коды BingX при подмене живых данных | значение берётся из живых данных — не проверяемо офлайн |
 | `transfer` у 9 бирж, офлайн | ожидаемые кошельки; KuCoin до записи `GET /api/ua/v1/account/mode` |
 | токен (sandbox, dryRun) | другой `params` → `CONFIRM_MISMATCH`; повтор → `CONFIRM_INVALID`; через 61,5 с → `CONFIRM_EXPIRED`; идентичный → `dryRun: true`; 100 > 50 → `TRANSFER_VALUE_CAP` |
+| `amount` в `withdraw`/`transfer` у 9 бирж, мок данных валют (шаг валюты `0.0001`, сети `0.00001` и наоборот), `10.12349` | как в таблице «Шаг суммы» exchanges.md; Gate `withdraw` → `10.1235` |
+| разбор депозитов, мок raw-записей | WhiteBIT: unified `txid` = внутренний `transactionId`, хеш только в `info.transactionHash`; KuCoin: `info.chain: "bsc"`, `network: "BEP20"` |
 | отправка, оборванная после `intent` | `UNKNOWN_OUTCOME`; `unresolvedIntents: []` |
 | публично `fetchCurrencies` | Bitget, WhiteBIT, KuCoin, Gate → маркер усечения; Binance, Bybit, OKX, MEXC, BingX → `{}` |
 | публично `fetchDepositWithdrawFee USDT includeInfo` | Bitget и WhiteBIT: флаги, минимумы, комиссии в `info`; BingX `null`; остальные `AUTH_FAILED` |

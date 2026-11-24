@@ -46,7 +46,7 @@
 **Gate как получатель — только вручную.** Минимум депозита Gate по API недоступен, поэтому
 агент не вызывает `withdraw` на Gate. Человек открывает страницу депозита Gate (сеть, минимум,
 контракт, адрес) и сам отправляет вывод из интерфейса биржи A или из кошелька. Агент даёт
-данные `currency_chains`, сверяет депозит Gate по txid через `fetchDeposits` и дальше может
+данные `currency_chains`, сверяет депозит Gate по хешу транзакции (SKILL.md, 2.7) и дальше может
 выполнить сценарий 3 на Gate.
 
 ## Исходящий withdraw (проверено офлайн, ccxt-mcp 0.1.3 + ccxt 4.5.85)
@@ -65,11 +65,36 @@
 | Bitget | `chain=TRC20` | `BSC` | `ERC20` | `TON` | `tag` | `{"uta":true}` или `{"uta":false}` по проверенному режиму; без него ccxt считает аккаунт classic при любой ошибке проверки |
 | WhiteBIT | `network=` ровно переданная строка: передавай `<NET>` из ключа `"USDT (<NET>)"` (`TRC20`, `BEP20`, `ERC20`, `TON`) | | | | `memo` | `{}` |
 | BingX | только вручную | | | | — | — |
-| MEXC | `netWork=TRX` | `BSC` | `ETH` | `TONCOIN` | `memo` | `{}` |
+| MEXC | `netWork=TRX` | `BSC`¹ | `ETH` | `TONCOIN`¹ | `memo` | `{}` |
 | KuCoin | `chain=trx` | `bsc` | `eth` | `ton` | `memo` | `{}`; `network` обязателен, без него уходит цепочка по умолчанию |
 
-Исходящее значение должно совпасть с id этой сети в живом ответе A. Иначе — стоп. Сумма
-уходит строкой по точности валюты; у MEXC и KuCoin — числом.
+Исходящее значение должно совпасть с id этой сети в живом ответе A. Иначе — стоп.
+¹ MEXC может отдавать для BEP20 и TON устаревший длинный id (например,
+`BNB Smart Chain(BEP20)`). Пара годится, только если в живом ответе A id ровно `BSC` или
+`TONCOIN`; иначе вывод вручную.
+
+## Шаг суммы (ccxt 4.5.85, проверено офлайн)
+
+Как ccxt меняет `amount` перед отправкой. «Валюта» и «сеть» — шаги из данных валют ccxt;
+округление математическое (может вверх), у Binance — вниз.
+
+| Биржа | `withdraw` | `transfer` |
+|---|---|---|
+| Binance | по шагу сети, вниз | по шагу валюты, вниз |
+| Bybit | без изменений | по шагу валюты |
+| Gate | по шагу валюты, в ccxt зашит `0.0001` | то же |
+| OKX | без изменений | по шагу валюты |
+| Bitget | по шагу сети | без изменений, числом |
+| WhiteBIT | по шагу валюты | по шагу валюты |
+| BingX | только вручную | по шагу валюты |
+| MEXC | без изменений, числом | без изменений, числом |
+| KuCoin | по шагу сети, затем числом | по шагу валюты |
+
+Шаг сети ccxt берёт из поля биржи: Binance `withdrawIntegerMultiple`, Bybit `minAccuracy`, OKX
+`wdTickSz`, Bitget `withdrawMinScale`, BingX и KuCoin `withdrawPrecision`; у Gate зашит
+`0.0001`, у MEXC не задан. Шаг валюты — явное поле (KuCoin `precision`, WhiteBIT
+`currency_precision`, Gate `0.0001`), иначе самый крупный шаг среди всех сетей USDT этой биржи.
+«Без изменений» не отменяет шаг самой биржи: его тоже нужно знать (SKILL.md, 2.3).
 
 ## Модель комиссии вывода
 
@@ -77,7 +102,8 @@
 
 - KuCoin отправляет `feeDeductType: "INTERNAL"` только при `params.includeFee: true` (проверено),
   иначе действует умолчание биржи. `includeFee` не используем;
-- OKX без `params.fee` сам запрашивает `GET /asset/currencies` и подставляет комиссию оттуда;
+- OKX без `params.fee` берёт комиссию из данных валют ccxt (`GET /asset/currencies`, объединённый
+  с кешем загрузки);
 - WhiteBIT `flex` — процентная составляющая.
 
 Ни одно из этого не делает модель подтверждённой.
@@ -104,8 +130,8 @@
 
 Типовой маршрут: A `transfer` из торгового кошелька в кошелёк вывода → A `withdraw` →
 зачисление в кошелёк депозита B → B `transfer` в торговый кошелёк.
-`fetchTransfers` отсутствует у Gate и WhiteBIT. `fetchLedger` отсутствует у WhiteBIT, BingX и
-MEXC. `certified: false` только у WhiteBIT.
+`fetchDeposits` и `fetchWithdrawals` есть у всех девяти; `fetchTransfers` отсутствует у Gate и
+WhiteBIT, `fetchLedger` — у WhiteBIT, BingX и MEXC. `certified: false` только у WhiteBIT.
 
 ## Hyperliquid (только мониторинг)
 
