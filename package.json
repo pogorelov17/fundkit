@@ -1,0 +1,21 @@
+{
+  "name": "fundkit",
+  "version": "0.1.0",
+  "description": "Lightweight toolkit for moving funds between crypto wallets and exchanges",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "fundkit": "src/cli.js"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "demo": "node scripts/mock-demo.js",
+    "check": "node --check src/cli.js && npm test"
+  },
+  "dependencies": {
+    "qrcode": "1.5.4"
+  }
+}

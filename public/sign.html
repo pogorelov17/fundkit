@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>USDT to Bybit</title>
+  <link rel="stylesheet" href="/sign.css">
+</head>
+<body>
+  <main>
+    <h1>Send USDT (BSC) to your Bybit deposit address</h1>
+    <section id="summary" class="card" hidden>
+      <dl>
+        <dt>Network</dt><dd>BNB Smart Chain (56)</dd>
+        <dt>Token</dt><dd><code id="token"></code></dd>
+        <dt>Amount</dt><dd><strong id="amount"></strong> USDT</dd>
+        <dt>To (Bybit deposit)</dt><dd><code id="to"></code></dd>
+      </dl>
+      <p class="hint">Before confirming in the wallet, check that the recipient matches the USDT&nbsp;/&nbsp;BSC
+        deposit address shown in your Bybit app. Gas is paid in BNB.</p>
+    </section>
+
+    <section id="open-in-wallet" class="card" hidden>
+      <p>No wallet detected in this browser.</p>
+      <p><a id="okx-link" class="button" href="#">Open in OKX Wallet</a></p>
+      <div id="qr-box" hidden>
+        <p>On a computer? Scan with your phone camera:</p>
+        <img id="qr" alt="QR code linking to this page in OKX Wallet" width="240" height="240">
+      </div>
+    </section>
+
+    <section id="actions" class="card" hidden>
+      <button id="connect" type="button">Connect OKX Wallet</button>
+      <button id="send" type="button" disabled>Review &amp; send in wallet</button>
+    </section>
+
+    <p id="status" role="status" aria-live="polite"></p>
+  </main>
+  <script type="module" src="/sign.js"></script>
+</body>
+</html>
