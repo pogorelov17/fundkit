@@ -104,6 +104,8 @@ The last withdrawal is stuck. Reconcile what actually happened without repeating
 | [`references/ccxt-mcp.md`](references/ccxt-mcp.md) | pins, tool schemas, approval gates, journal, limitations, verification |
 | [`references/exchanges.md`](references/exchanges.md) | wallets, network data, outbound withdraw table, amount steps, account modes |
 | [`references/security.md`](references/security.md) | environment contract, host registration, loading the skill, smoke check, key permissions |
+| [`references/recipients.md`](references/recipients.md) | native recipient reads (address, memo, landing wallet) per venue |
+| [`references/prompts.md`](references/prompts.md) | copyable prompts for read-only smoke checks and planning |
 
 ## Verification and limits
 

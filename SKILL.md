@@ -22,8 +22,10 @@ programs or scripts of your own.
 
 Detailed tables live in [`references/`](references/): pins, schemas and gates in
 [`ccxt-mcp.md`](references/ccxt-mcp.md), per-exchange data in
-[`exchanges.md`](references/exchanges.md), environment and key setup in
-[`security.md`](references/security.md). Read the reference a step points to before you act
+[`exchanges.md`](references/exchanges.md), native recipient reads in
+[`recipients.md`](references/recipients.md), environment and key setup in
+[`security.md`](references/security.md), copyable user prompts in
+[`prompts.md`](references/prompts.md). Read the reference a step points to before you act
 on it. A new chat or host launch remembers nothing: it starts by reading this file again, and
 only what the human pastes carries over.
 
@@ -233,8 +235,9 @@ sends from OKX Wallet, using the checked sheet.
    the USDT contract on that chain matches both the wallet's contract and the reference, and
    the amounts below clear the minimum. Reject bridged variants and other contracts.
 4. **Deposit address and memo.** For Bybit, you read it from the operator's own Bybit account
-   ([Bybit deposit address](#bybit-deposit-address)); the human does not open Bybit. For other
-   exchanges, or if the user chooses the manual path, the human copies the address and any required memo
+   ([Bybit deposit address](#bybit-deposit-address)); for OKX, by the
+   [native recipient read](references/recipients.md#okx). The human does not open the
+   exchange. For other exchanges, or if the user chooses the manual path, the human copies the address and any required memo
    **themselves** in the exchange app (Deposit → USDT → network). Call `get_deposit_address`
    only if the human asked for it separately, the profile has `funds`, and you showed a
    mini-plan `PLAN <PLAN-ID>` with the exact JSON of that call and an expiry, and the human
