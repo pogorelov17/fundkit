@@ -118,14 +118,17 @@ server refuses a file with other permissions, and `get_safety_status` shows
 ### Bybit deposit profile
 
 One-time setup that lets the agent read the operator's own Bybit deposit address
-([SKILL.md, Bybit deposit address](../SKILL.md#bybit-deposit-address)):
+([SKILL.md, Bybit deposit address](../SKILL.md#bybit-deposit-address)). It works from a cold
+start with nothing installed:
 
-1. **Key.** In Bybit's API management, create a key on the **main** account (Bybit gives
+1. **Server.** Install the pinned server once ([install](ccxt-mcp.md#install)).
+2. **Key.** In Bybit's API management, create a key on the **main** account (Bybit gives
    deposit addresses only to main-account keys) with **read-only** permission: no withdrawal,
    no transfer, no trading. Bind your IP. Note your UID shown there.
-2. **Profile** (`chmod 600`). `funds` is needed because ccxt-mcp gates every address read
-   behind it; `dryRun: true` blocks `transfer` and `withdraw`, and the read-only key makes
-   Bybit refuse them as well:
+3. **Profile** (`chmod 600`). `funds` is needed because ccxt-mcp gates the address read
+   behind it, and `"funds": "live"` requires some `maxTransferValue`. That cap applies only
+   to MCP `transfer` and `withdraw` on this account, which `dryRun: true` blocks and the
+   read-only key makes Bybit refuse; it does not limit what you send from OKX Wallet:
 
    ```json
    {
@@ -142,13 +145,13 @@ One-time setup that lets the agent read the operator's own Bybit deposit address
    }
    ```
 
-3. **Keys.** Put the key and secret into `BYBIT_APIKEY` and `BYBIT_SECRET` in the environment
+4. **Keys.** Put the key and secret into `BYBIT_APIKEY` and `BYBIT_SECRET` in the environment
    the server is launched with, by your own means, never in the repository or the chat.
    Scheme A in Claude Code:
    `( unset $(compgen -e | grep -vxE 'HOME|PATH|TERM|LANG|BYBIT_APIKEY|BYBIT_SECRET'); exec claude )`.
    In Codex, also set `env_vars = ["BYBIT_APIKEY", "BYBIT_SECRET"]` in the registration.
    Scheme B: your launcher sets them.
-4. **Register** the server with `CCXT_MCP_CONFIG` pointing to this profile
+5. **Register** the server with `CCXT_MCP_CONFIG` pointing to this profile
    ([host registration](#host-registration)), restart the host, start a new chat with the
    skill read. If something fails, the agent follows the
    [Bybit setup check](../SKILL.md#bybit-setup-check).

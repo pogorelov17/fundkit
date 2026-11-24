@@ -59,34 +59,54 @@ deposit by hash ([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
 ### Bybit deposit address
 
 How [SKILL.md, Scenario 1](../SKILL.md#bybit-deposit-address) reads the address from the
-operator's own Bybit account (verified offline with mocked responses unless noted):
+operator's own Bybit account. Verified offline with ccxt-mcp 0.1.3, ccxt 4.5.85 and mocked
+responses unless noted:
 
-- `call_read_method` with `fetchDepositAddressesByNetwork` calls only
+- `fetchDepositAddressesByNetwork` with `network` calls only
   `GET /v5/asset/deposit/query-address` with `coin=USDT` and `chainType` from the network code
   (`TRC20` → `TRX`, `BEP20` → `BSC`, `ERC20` → `ETH`, `TON` → `TON`). ccxt-mcp's
   `call_read_method` has no create fallback, and ccxt 4.5.85 has no Bybit
-  `createDepositAddress`, so even `get_deposit_address` only reads on Bybit. Bybit's docs say
-  nothing about creating an address on that query. An empty result means no address on that
+  `createDepositAddress`, so on Bybit even `get_deposit_address` only reads (no address:
+  `NOT_SUPPORTED`). The client sends GETs only; whether Bybit provisions an address
+  server-side on that query is not documented. An empty result means no address on that
   network: these tools cannot create one.
 - The raw entry has `chainType`, `chain`, `addressDeposit`, `tagDeposit`, `batchReleaseLimit`
   and `contractAddress` (last 6 characters only, per Bybit's docs). The unified `tag` turns an
   empty `tagDeposit` into `null`, so read the memo from raw `info.tagDeposit`.
-- Bybit serves this endpoint only to main-account keys (Bybit docs). The address-read tier gate
-  is ccxt-mcp's: `funds` on the account, otherwise `TIER_DISABLED`; without an account,
-  `TIER_DISABLED` too.
+- **Duplicates are hidden.** ccxt indexes the parsed `result.chains` by network
+  (`indexBy(…, 'network')`, network taken from `chain`). Two entries for `BSC` with addresses
+  `0x1111…` and `0x2222…` came back as one `BEP20` entry with `0x2222…`; the raw read showed
+  both. An entry for another chain shows up under its own key: an `ERC20` request answered
+  with a `BSC` entry gave `data` keyed `BEP20`.
+- **Gates.** ccxt-mcp gates methods matching `/deposit.?address|withdraw.?address|withdrawal.?whitelist/i`
+  behind `funds`: `fetchDepositAddressesByNetwork` on an account without `funds` gave
+  `TIER_DISABLED`, without an account too. The raw name
+  `privateGetV5AssetDepositQueryAddress` does not match that pattern: `call_implicit_get` on
+  it returned the address on an account without `funds`. The skill therefore uses it only as
+  a check after the gated read on the same `funds` alias.
+- Bybit serves this endpoint only to main-account keys (Bybit docs).
 - `privateGetV5UserQueryApi` (`GET /v5/user/query-api`, any key may call it) returns
   `readOnly`, `permissions`, `ips`, `userID` and `isMaster`. The server replaces the key value
   in `apiKey` with `[redacted:apiKey]`.
+- **Coin list first.** Before its first Bybit call, and already at startup, the server loads
+  Bybit's markets and, with a key, its coin list (`GET /v5/asset/coin/query-info`). The load
+  is cached on disk for a day. If Bybit answers `10005` there, the key check and every other
+  Bybit call in that server process return the same `10005` without sending their own
+  request (ccxt keeps the failed load), until a restart. If the coin list loads, a `10005`
+  from the key check comes from `query-api` itself.
 - Errors: no key in the server process gives `AUTH_FAILED` `bybit requires "apiKey" credential`
-  before any request, and the address read then gives `EXCHANGE_ERROR`
-  `bybit currencies not loaded`. Bybit `retCode` `10003` (invalid key), `10004` (signature),
-  `10010` (IP not bound) and `10005` (permission denied) map to `AUTH_FAILED`; for `10005` ccxt
-  adds a generic text naming "Account Transfer", "Subaccount Transfer" and "Withdrawal".
+  before any signed request, for the key check and the address read alike. Bybit `retCode`
+  `10003` (invalid key), `10004` (signature), `10010` (IP not bound) and `10005` (permission
+  denied) map to `AUTH_FAILED`; for `10005` ccxt adds a generic text naming "Account
+  Transfer", "Subaccount Transfer" and "Withdrawal".
 - Deposit fee: Bybit states that it charges no fee for on-chain crypto deposits
   ([Bybit's Fees That You Need to Know](https://www.bybit.com/en/help-center/article/Bybit-Fees-You-Need-to-Know),
-  checked 2026-11-24), so `d = 0` with that page as the source. A credit that differs from
-  the expected `C` still holds the route ([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
-- Not verified: whether a read-only key may read the address with a real Bybit account.
+  checked 2026-11-24), so `d = 0` with that page as the source. Bybit's network source has no
+  deposit fee field. If a live field or a Bybit page the user chose to check shows another
+  value, `d` is unknown and the route holds. A credit that differs from the expected `C`
+  also holds the route ([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
+- Not verified: whether a read-only key may read the address with a real Bybit account, and
+  whether Bybit ever returns several entries for one chain.
 
 ## Outbound withdraw
 

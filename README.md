@@ -64,7 +64,8 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
 - **Approvals.** MCP writes run only from a plan with exact arguments and an expiry, after the
   reply `APPROVE <PLAN-ID>`. The first `withdraw` call also needs a separate
   `WITHDRAW <PLAN-ID>`; a requested `get_deposit_address` call, which may create an address,
-  needs `ADDRESS <PLAN-ID>`. The Bybit address read creates nothing and needs no approval. The operator authorizes a manual send by signing or submitting
+  needs `ADDRESS <PLAN-ID>`. The Bybit address read sends only signed GETs and needs no
+  approval (whether Bybit provisions an address server-side is not documented). The operator authorizes a manual send by signing or submitting
   the exact transaction on the current sheet before its expiry.
 - **Execution.** No retries on an unknown outcome. A step counts only with an attributable ID
   and a success status, a deposit only by its full on-chain hash and expected credit. Pending
@@ -110,7 +111,8 @@ Verified in a scratch environment with no real keys and no live writes: pins, sc
 gates, the approval token (including 60 s expiry) and the 300 s form wait, and the final
 `withdraw` and `transfer` requests on all nine exchanges, built offline without sending;
 transfer proof reads on all nine exchanges, journal crash entries and deposit hash
-matching, all on mocked responses; the Bybit deposit-address read, key check, tier gates and
+matching, all on mocked responses; the Bybit deposit-address read (including duplicate,
+wrong-chain and memo entries checked against the raw response), key check, tier gates and
 setup errors on mocked responses; two same-exchange registrations sharing one key. Also public network data,
 `call_implicit_get`, the server environment and registration commands on Claude Code 2.1.331
 and Codex 0.172.0 ([details](references/ccxt-mcp.md#verification)).
