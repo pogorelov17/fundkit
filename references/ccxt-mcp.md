@@ -66,7 +66,9 @@ Schemas from `tools/list` (required fields in **bold**):
   so an extra key (for example `chain`) overrides the network. What each exchange actually
   receives: [outbound withdraw](exchanges.md#outbound-withdraw).
 - `get_deposit_address {`**`account, code`**`, network?, params?}`, with no `confirm`. If
-  `fetchDepositAddress` fails, the server calls `createDepositAddress`.
+  `fetchDepositAddress` fails, the server calls `createDepositAddress` where ccxt has it
+  (not on Bybit). `call_read_method` with an address method calls only that method, with no
+  create fallback ([Bybit deposit address](exchanges.md#bybit-deposit-address)).
 
 ## Gates and approval
 
@@ -158,6 +160,7 @@ keys, and a guard allowed only unsigned GET plus Hyperliquid's public `POST /inf
 | dispatch cut off after `intent` | `UNKNOWN_OUTCOME`; `unresolvedIntents: []` |
 | OKX `transfer` → `fetchTransfer` / `fetchTransfers`, mocked responses (`call_read_method`, `includeInfo`) | `transfer` result `id` = `transId`, `status: null`; `fetchTransfer` raw `state` `success` / `pending` / `failed` → `ok` / `pending` / `failed`; empty `data` → all fields `null`; `fetchTransfers` `id` = `billId` ([transfer proof](exchanges.md#transfer-proof)) |
 | `transfer` + proof read on 9 exchanges, token flow, `unshare -rn`, mocked raw responses with success / pending / failed / missing plus an unrelated record of the same amount (this revision) | as in the [transfer proof table](exchanges.md#transfer-proof): Binance read sends `type=FUNDING_MAIN`, default `MAIN_UMFUTURE`; Bybit `transferId` filter, transfer result `status: "ok"` while raw status was `PENDING`; Bitget `fromType=spot`, `uta` not sent; BingX `GET /api/v3/asset/transferRecord?transferId=…`, no params → `EXCHANGE_ERROR`; MEXC no params → `BAD_REQUEST`, `fetchTransfer` → `asset/internal/transfer/record?transact_id=…`; KuCoin ledger `id` ≠ `orderId`, `status: null`; Gate empty body → `id: null`; Gate and WhiteBIT `fetchTransfers` → `NOT_SUPPORTED`; WhiteBIT `withdraw` `id` = the `uniqueId` sent; 39 requests recorded, none unmocked |
+| Bybit deposit address, `unshare -rn`, synthetic keys, mocked responses (this revision) | `fetchDepositAddressesByNetwork` with `network` sends only `GET /v5/asset/deposit/query-address` (`chainType` `TRX`/`BSC`/`ETH`/`TON`); TON memo in raw `tagDeposit`, empty `tagDeposit` → unified `tag: null`; empty result → `data: {}`, and `get_deposit_address` → `NOT_SUPPORTED`, no create request; `query-api` shows `apiKey` as `[redacted:apiKey]`; no `funds`, `"funds": true` on live, or no `maxTransferValue` → `TIER_DISABLED` (the last two also in `configProblems`); no key → `requires "apiKey" credential`, no request sent; `10003` and `10005` → `AUTH_FAILED`; no non-GET request |
 | journal with a crash-cut intent for an alias not in this config, plus one two months old (this revision) | `unresolvedIntents` lists the foreign alias; the two-month-old intent is not listed |
 | Bybit `fetchDeposits`, two records with the same amount and network, different hashes (this revision) | raw status `1` → `pending`, `3` → `ok`, `4` → `fail`; only the hash tells the records apart |
 | two servers, aliases `okx-test` and `okx-sub`, one launch environment | both sign with the same `OK-ACCESS-KEY`; OKX `fetchAccounts` gives `id` = raw `uid`, plus raw `label` and `perm` |

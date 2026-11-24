@@ -21,7 +21,8 @@ operator sets up:
 
 1. **Server.** Install the pinned server ([install](references/ccxt-mcp.md#install)) and create
    one `config.json` per account, starting with `"dryRun": true`
-   ([profile config](references/security.md#profile-configjson)).
+   ([profile config](references/security.md#profile-configjson)). For a Bybit top-up from
+   OKX Wallet, follow the [Bybit deposit profile](references/security.md#bybit-deposit-profile).
 2. **Host.** Register the servers without secrets and pick launch scheme A or B
    ([environment contract](references/security.md#environment-contract),
    [host registration](references/security.md#host-registration)).
@@ -33,8 +34,11 @@ Automatic skill discovery is optional and host-specific; this repository does no
 
 ## What it does
 
-- **OKX Wallet → exchange.** Picks a network from the exchange's live data; the human copies
-  the address from the exchange UI and sends from the wallet by hand. Send amount, network fee
+- **OKX Wallet → exchange.** Picks a network from the exchange's live data. For Bybit the
+  agent reads the address, network and memo from the operator's own Bybit account with a
+  read-only key ([Bybit deposit profile](references/security.md#bybit-deposit-profile)); for
+  other exchanges the human copies the address from the exchange UI. The human sends from
+  the wallet by hand. Send amount, network fee
   (quoted amount or cap, asset and treatment) and expected credit are kept apart. The deposit is matched by transaction
   hash and expected credit.
 - **Exchange A → exchange B** (semi-automatic). Accounts for account modes, available amount
@@ -59,7 +63,8 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
   ([schemes A and B](references/security.md#environment-contract)).
 - **Approvals.** MCP writes run only from a plan with exact arguments and an expiry, after the
   reply `APPROVE <PLAN-ID>`. The first `withdraw` call also needs a separate
-  `WITHDRAW <PLAN-ID>`; a requested deposit-address lookup needs `ADDRESS <PLAN-ID>`. The operator authorizes a manual send by signing or submitting
+  `WITHDRAW <PLAN-ID>`; a requested `get_deposit_address` call, which may create an address,
+  needs `ADDRESS <PLAN-ID>`. The Bybit address read creates nothing and needs no approval. The operator authorizes a manual send by signing or submitting
   the exact transaction on the current sheet before its expiry.
 - **Execution.** No retries on an unknown outcome. A step counts only with an attributable ID
   and a success status, a deposit only by its full on-chain hash and expected credit. Pending
@@ -70,7 +75,8 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
   network and exchange steps. Network, chain, contract, fee and minimums are never guessed.
   API withdrawals run only for offline-verified "exchange + network" pairs; withdrawals to Gate
   and from BingX are manual. The full address, network and memo are checked on the final
-  confirmation screen.
+  confirmation screen against their source (the deposit page, or the Bybit read's tool
+  result), never against text pasted into the chat.
 - **Fresh chats.** Carry the latest operation record forward. An open or unknown send is reconciled read-only. API withdrawals require a native confirmation form; otherwise use the exchange UI.
 - **Crash hold.** A crash-cut entry in the shared ccxt-mcp journal stops all writes on every
   profile that shares it, for good: reads and operator investigation only.
@@ -82,6 +88,7 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
 ```text
 Check which exchange profiles are connected and what they are allowed to do.
 I want to top up Bybit with 150 USDT from OKX Wallet. Which network fits and what should I check before sending?
+Give me my Bybit USDT deposit address for TRC20 so I can paste it into OKX Wallet.
 Make a plan: 300 USDT must arrive on Bybit (UTA) from OKX (trading account), keep a 100 USDT margin reserve on OKX.
 Move 50 USDT from main to trade on KuCoin. Plan first.
 How much free margin and which positions are on Hyperliquid for address 0x…?
@@ -103,12 +110,14 @@ Verified in a scratch environment with no real keys and no live writes: pins, sc
 gates, the approval token (including 60 s expiry) and the 300 s form wait, and the final
 `withdraw` and `transfer` requests on all nine exchanges, built offline without sending;
 transfer proof reads on all nine exchanges, journal crash entries and deposit hash
-matching, all on mocked responses; two same-exchange registrations sharing one key. Also public network data,
+matching, all on mocked responses; the Bybit deposit-address read, key check, tier gates and
+setup errors on mocked responses; two same-exchange registrations sharing one key. Also public network data,
 `call_implicit_get`, the server environment and registration commands on Claude Code 2.1.331
 and Codex 0.172.0 ([details](references/ccxt-mcp.md#verification)).
 
 Not verified: real accounts, modes, available amounts, fee models, exchange responses to
 writes and reads with a real key (the transfer proof table relies on the response shapes in
-ccxt's code), and actual transfers. Network flags and fees are visible only with a key on most
+ccxt's code), whether a read-only Bybit key may read the deposit address, and actual
+transfers. Network flags and fees are visible only with a key on most
 exchanges, so plans are built from live data at request time. The skill gives no execution
 guarantees. Use at your own risk and start with `dryRun`.

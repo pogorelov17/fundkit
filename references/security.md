@@ -115,6 +115,44 @@ server refuses a file with other permissions, and `get_safety_status` shows
 `{"accounts":{"hl-watch":{"exchange":"hyperliquid","walletAddress":"0x…"}}}`. Start with
 `"dryRun": true` and remove it only after the plan has been walked through.
 
+### Bybit deposit profile
+
+One-time setup that lets the agent read the operator's own Bybit deposit address
+([SKILL.md, Bybit deposit address](../SKILL.md#bybit-deposit-address)):
+
+1. **Key.** In Bybit's API management, create a key on the **main** account (Bybit gives
+   deposit addresses only to main-account keys) with **read-only** permission: no withdrawal,
+   no transfer, no trading. Bind your IP. Note your UID shown there.
+2. **Profile** (`chmod 600`). `funds` is needed because ccxt-mcp gates every address read
+   behind it; `dryRun: true` blocks `transfer` and `withdraw`, and the read-only key makes
+   Bybit refuse them as well:
+
+   ```json
+   {
+     "settings": { "strictPermissions": true, "hideDisabledTools": true },
+     "accounts": {
+       "bybit-main": {
+         "exchange": "bybit",
+         "funds": "live",
+         "maxTransferValue": 10,
+         "confirm": "always",
+         "dryRun": true
+       }
+     }
+   }
+   ```
+
+3. **Keys.** Put the key and secret into `BYBIT_APIKEY` and `BYBIT_SECRET` in the environment
+   the server is launched with, by your own means, never in the repository or the chat.
+   Scheme A in Claude Code:
+   `( unset $(compgen -e | grep -vxE 'HOME|PATH|TERM|LANG|BYBIT_APIKEY|BYBIT_SECRET'); exec claude )`.
+   In Codex, also set `env_vars = ["BYBIT_APIKEY", "BYBIT_SECRET"]` in the registration.
+   Scheme B: your launcher sets them.
+4. **Register** the server with `CCXT_MCP_CONFIG` pointing to this profile
+   ([host registration](#host-registration)), restart the host, start a new chat with the
+   skill read. If something fails, the agent follows the
+   [Bybit setup check](../SKILL.md#bybit-setup-check).
+
 ## Trust boundary
 
 - **Same OS user as the agent's shell** (scheme A). The agent can read the server's
@@ -212,6 +250,7 @@ Expect `version: "0.1.3"`, `ccxtVersion: "4.5.84"`, an empty `configProblems`,
 | Profile | Permissions | Required |
 |---|---|---|
 | read-only | read | IP allowlist |
+| Bybit deposit address (Scenario 1) | read-only, main account; profile with `funds` and `dryRun` ([above](#bybit-deposit-profile)) | IP allowlist, no withdrawal, no transfer, no trading |
 | internal transfer | read + internal transfer | IP allowlist, no withdrawal |
 | withdrawal (exchange A) | read + withdrawal (+ transfer) | IP allowlist, address whitelist (the human adds B's address with 2FA), exchange-side withdrawal limit |
 | Hyperliquid | no key needed | public address only |

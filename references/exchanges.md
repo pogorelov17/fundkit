@@ -39,7 +39,8 @@ own `transferId`. Key environment variables are described in [`security.md`](sec
 | KuCoin, fee | `fetchDepositWithdrawFee` with `"params":{"network":"<code>"}` | withdrawal only; without `network` you get the default chain (verified: `chain` is sent only with `network`) | account test |
 | Gate | `call_implicit_get {"exchange":"gate","method":"publicWalletGetCurrencyChains","params":{"currency":"USDT"}}` | `chain`, `is_deposit_disabled`, `is_withdraw_disabled`, `contract_address`, `withdraw_amount_min`, `is_tag`; **no deposit minimum** | verified publicly |
 | Gate, fee | `fetchDepositWithdrawFee` (withdraw status) | withdrawal fees only, no deposit flags | account test |
-| Binance, Bybit, OKX, MEXC | `fetchDepositWithdrawFee ["USDT"] includeInfo` | `AUTH_FAILED` without a key | account test |
+| Bybit | `call_read_method … fetchDepositWithdrawFee ["USDT"] includeInfo` with the Bybit alias | `info.chains[]`: `chain`, `chainType`, `chainDeposit` (`1` normal, `0` suspended), `depositMin`, `contractAddress` (full), `minAccuracy`, `withdrawFee`; **no deposit fee** ([below](#bybit-deposit-address)) | fields per Bybit's coin-info docs, parsed offline; `AUTH_FAILED` without a key |
+| Binance, OKX, MEXC | `fetchDepositWithdrawFee ["USDT"] includeInfo` | `AUTH_FAILED` without a key | account test |
 | BingX | same | public response `null` | account test |
 
 `fetchCurrencies` is not suitable for picking a network. For Gate, Bitget, WhiteBIT and
@@ -54,6 +55,38 @@ withdraws from exchange A's UI with the
 [withdrawal sheet](../SKILL.md#29-manual-withdrawal-in-exchange-as-ui), or sends from the
 wallet (Scenario 1). The agent supplies the `currency_chains` data and reconciles the Gate
 deposit by hash ([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
+
+### Bybit deposit address
+
+How [SKILL.md, Scenario 1](../SKILL.md#bybit-deposit-address) reads the address from the
+operator's own Bybit account (verified offline with mocked responses unless noted):
+
+- `call_read_method` with `fetchDepositAddressesByNetwork` calls only
+  `GET /v5/asset/deposit/query-address` with `coin=USDT` and `chainType` from the network code
+  (`TRC20` → `TRX`, `BEP20` → `BSC`, `ERC20` → `ETH`, `TON` → `TON`). ccxt-mcp's
+  `call_read_method` has no create fallback, and ccxt 4.5.85 has no Bybit
+  `createDepositAddress`, so even `get_deposit_address` only reads on Bybit. Bybit's docs say
+  nothing about creating an address on that query. An empty result means no address on that
+  network: these tools cannot create one.
+- The raw entry has `chainType`, `chain`, `addressDeposit`, `tagDeposit`, `batchReleaseLimit`
+  and `contractAddress` (last 6 characters only, per Bybit's docs). The unified `tag` turns an
+  empty `tagDeposit` into `null`, so read the memo from raw `info.tagDeposit`.
+- Bybit serves this endpoint only to main-account keys (Bybit docs). The address-read tier gate
+  is ccxt-mcp's: `funds` on the account, otherwise `TIER_DISABLED`; without an account,
+  `TIER_DISABLED` too.
+- `privateGetV5UserQueryApi` (`GET /v5/user/query-api`, any key may call it) returns
+  `readOnly`, `permissions`, `ips`, `userID` and `isMaster`. The server replaces the key value
+  in `apiKey` with `[redacted:apiKey]`.
+- Errors: no key in the server process gives `AUTH_FAILED` `bybit requires "apiKey" credential`
+  before any request, and the address read then gives `EXCHANGE_ERROR`
+  `bybit currencies not loaded`. Bybit `retCode` `10003` (invalid key), `10004` (signature),
+  `10010` (IP not bound) and `10005` (permission denied) map to `AUTH_FAILED`; for `10005` ccxt
+  adds a generic text naming "Account Transfer", "Subaccount Transfer" and "Withdrawal".
+- Deposit fee: Bybit states that it charges no fee for on-chain crypto deposits
+  ([Bybit's Fees That You Need to Know](https://www.bybit.com/en/help-center/article/Bybit-Fees-You-Need-to-Know),
+  checked 2026-11-24), so `d = 0` with that page as the source. A credit that differs from
+  the expected `C` still holds the route ([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
+- Not verified: whether a read-only key may read the address with a real Bybit account.
 
 ## Outbound withdraw
 

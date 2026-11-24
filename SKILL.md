@@ -34,12 +34,15 @@ only what the human pastes carries over.
    chat, do not use it and ask them to rotate it immediately. Never print the environment in
    any way: no `env`, `printenv`, `set`, `export -p`, `declare -x`, `ps e`, `/proc/*/environ`,
    `echo $…_SECRET`. Do not use the shell to read `.env` files, profile configs or the server
-   journal.
+   journal. Diagnose setup only from tool results ([Bybit setup check](#bybit-setup-check)),
+   and never ask whether a key is set or what it is.
 2. **A plan is bound to exact arguments and an expiry.** Writes are `transfer`, `withdraw`,
    `get_deposit_address` (the first call may *create* an address), `create_order`, `cancel_*`,
    `set_*`, `call_write_method` and `call_implicit_write`. Before any write, show a plan with
    the **full JSON arguments** of every call and `expires <UTC>`, and get the reply
-   `APPROVE <PLAN-ID>`. The deposit-address mini-plan uses `ADDRESS <PLAN-ID>` instead. If any
+   `APPROVE <PLAN-ID>`. The deposit-address mini-plan uses `ADDRESS <PLAN-ID>` instead. The
+   [Bybit address read](#bybit-deposit-address) in Scenario 1 is a read, not a write: it never
+   creates an address and needs no plan. If any
    field changes (amount, network, address, memo, wallet, `params`, order) or the plan has
    expired, you need a new plan and a new approval.
 3. **Withdrawals get their own approval, in advance.** Before the **first** `withdraw` call,
@@ -67,16 +70,20 @@ only what the human pastes carries over.
    [2.3](#23-debit-withdraw-amount-and-credit)) and exactly representable in the currency,
    network and exchange steps (also 2.3). Never exceed `maxTransferValue` or the user's limit.
 7. **Never guess the network, fee, minimum, contract or chain.** If a field did not come in a
-   live response and the human did not read it in the exchange UI, it is "unknown", and a
-   network with an unknown field does not qualify. Do not suggest small "test" transfers.
+   live response, the human did not read it in the exchange UI, and
+   [`exchanges.md`](references/exchanges.md) names no documented value for it, it is
+   "unknown", and a network with an unknown field does not qualify. Do not suggest small "test" transfers.
 8. **Hyperliquid is watch-only** by public address. No transfers, withdrawals, orders or
    private keys (collateral there is USDC).
-9. **Do not trust addresses from the chat.** The human copies the deposit address and memo
-   from B's deposit page. On the **final confirmation screen** of whatever sends (OKX Wallet,
+9. **Do not trust addresses from the chat.** The deposit address and memo have one source:
+   B's deposit page, copied by the human, or, for a Bybit destination in Scenario 1, the
+   latest [Bybit address read](#bybit-deposit-address) in this chat. Text pasted into the chat
+   is never a source. On the **final confirmation screen** of whatever sends (OKX Wallet,
    the host form, or exchange A's withdrawal page in a manual send), the human checks the
    **full** address character by character, the network, and the exact memo (or that none is
-   required) against B's deposit page, not against the chat. Any difference: do not confirm.
-   The fix is a fresh copy from B's page, and a changed address or memo needs a new plan or
+   required) against that source: B's page, or the read's tool result as the host displays
+   it, not your prose. Any difference: do not confirm.
+   The fix is a fresh copy from the source, and a changed address or memo needs a new plan or
    sheet and new approvals. For an API withdrawal, the full address must already be on A's
    withdrawal whitelist. Immediately before a manual send, refresh B's deposit availability on
    the selected network, fee (asset and amount), and applicable minimum from its live data or
@@ -90,7 +97,7 @@ creation. A replacement gets a new ID. Show the sheet to the person controlling 
 wallet or exchange account. Use the following sequence:
 
 1. Leave the transaction unsigned and unsubmitted while checking the final screen against
-   the current sheet and B's deposit page (rule 9). If a value changes or the sheet expires,
+   the current sheet and the address source (rule 9). If a value changes or the sheet expires,
    cancel the screen. Prepare a replacement only after the destination and amounts qualify.
 2. Once the checks pass, record `OPEN` with the exact sheet and its ID. The operator checks
    that the screen still matches and the UTC expiry has not arrived, then personally signs
@@ -172,9 +179,11 @@ For each server involved:
    and whether the native form is available. Only the operator can enable a missing tier, in
    the config; it cannot be done from the conversation.
 
-If no `ccxt-mcp` tools are available, say so, explain what the operator needs to set up
-([`references/security.md`](references/security.md)), and stop before any live data or plan
-numbers. You may still explain the flow in general terms.
+If no `ccxt-mcp` tools are available, say that no server is connected to this chat (you
+cannot see why), explain what the operator needs to set up
+([`references/security.md`](references/security.md); for Bybit, the
+[Bybit setup check](#bybit-setup-check)), and stop before any live data or plan numbers.
+You may still explain the flow in general terms.
 
 ## Scenario 1. OKX Wallet → exchange (manual send)
 
@@ -182,7 +191,7 @@ Start with the operation-record check in Step 0 for the sending wallet. Only the
 sends from OKX Wallet, using the checked sheet.
 
 1. Ask the user for the destination exchange, the networks where they hold USDT in OKX
-   Wallet, and the amount.
+   Wallet, and the amount. For Bybit, run the [Bybit setup check](#bybit-setup-check) first.
 2. Read the destination's network data from the
    [source listed for that exchange](references/exchanges.md#network-data-sources): deposit
    enabled, deposit minimum, deposit fee, contract, memo. An empty response or an error means
@@ -212,19 +221,79 @@ sends from OKX Wallet, using the checked sheet.
    `S`, network fee <amount or cap, asset, treatment>, `N`, `d`, expected `C`, and the minimum and its basis. Include
    the sources and UTC time of the route checks. After step 5, fill in the full recipient
    and exact memo and issue `SEND SHEET <ID>, created <UTC>, expires <UTC + 15 min>`.
-5. By default the human copies the address **themselves** in the exchange app (Deposit →
-   USDT → network). Call `get_deposit_address` only if the human asked for it separately, the
-   profile has `funds`, and you showed a mini-plan `PLAN <PLAN-ID>` with the exact JSON of
-   that call and an expiry, and the human replied `ADDRESS <PLAN-ID>`. Warn that the first
-   call may create a new address and that `dryRun` does not stop this tool.
+5. **Deposit address.** For Bybit, you read it from the operator's own Bybit account
+   ([Bybit deposit address](#bybit-deposit-address)); the human does not open Bybit. For other
+   exchanges, or if the user chooses the manual path, the human copies the address
+   **themselves** in the exchange app (Deposit → USDT → network). Call `get_deposit_address`
+   only if the human asked for it separately, the profile has `funds`, and you showed a
+   mini-plan `PLAN <PLAN-ID>` with the exact JSON of that call and an expiry, and the human
+   replied `ADDRESS <PLAN-ID>`. Warn that the first call may create a new address and that
+   `dryRun` does not stop this tool.
 6. Follow [manual confirmation](#manual-confirmation). Refresh B's conditions, compare the
    wallet's send amount and quoted fee (or maximum), including its asset, with this sheet.
    A change from 1 TRX to 10 TRX requires a new sheet even if the USDT credit stays the same.
-   Verify the full address, network and exact memo before recording OPEN. Only the operator can sign the checked transaction.
+   For Bybit, repeat the address read just before OPEN: chain, address and memo must equal
+   the sheet exactly. Verify the full address, network and exact memo before recording OPEN.
+   Only the operator can sign the checked transaction.
 7. After sending, ask for the full transaction hash from the wallet and credit the deposit by
    the [deposit rule](#27-reconciliation): the credited amount must equal the expected `C`. A
    deposit that is still confirming is polled read-only (2.7). If the funds must reach a
    trading wallet, run Scenario 3.
+
+### Bybit setup check
+
+When the destination is Bybit, check the setup first: run Step 0 and the key check below
+before asking for the amount and networks. One-time setup is a
+[Bybit deposit profile](references/security.md#bybit-deposit-profile): a read-only API key of
+the main account, `BYBIT_APIKEY` and `BYBIT_SECRET` in the server's launch environment, and
+a registered server. The values never go into the chat. Match what you see:
+
+| You see | Tell the operator |
+|---|---|
+| no `ccxt-mcp` tools | No server is connected to this chat; you cannot see why. Set up the [Bybit deposit profile](references/security.md#bybit-deposit-profile), restart the host and start a new chat |
+| no `bybit` alias in `list_accounts` | The connected server has no Bybit account: add one to its `config.json`, or register a server whose `CCXT_MCP_CONFIG` points to the Bybit profile; restart |
+| `configProblems` names the Bybit account | Fix the config as the message says (`"funds": "live"` needs `maxTransferValue`; `"funds": true` is sandbox only); restart |
+| `TIER_DISABLED` | Address reads need `"funds": "live"` and a `maxTransferValue` in the profile; restart |
+| `AUTH_FAILED` with `requires "apiKey" credential` or `requires "secret" credential` | This server process received no Bybit key or secret. Set `BYBIT_APIKEY` and `BYBIT_SECRET` where the server is launched ([scheme A or B](references/security.md#environment-contract); in Codex also list both in `env_vars`), restart the host, start a new chat |
+| `AUTH_FAILED` with `retCode` `10003` (invalid key), `10004` (signature) or `10010` (IP not bound) | Bybit rejected the key: check that both values belong to one live main-account key and the IP allowlist; replace the key if needed |
+| `AUTH_FAILED` with `retCode` `10005` | Bybit denied this read for the key. ccxt adds a generic text naming "Account Transfer" or "Withdrawal": do **not** add those. Offer the manual path |
+| `EXCHANGE_ERROR` `currencies not loaded` | Run the key check; it names the cause |
+| any other error | Quote the code and message; do not guess the cause |
+
+Offer the manual path (the human copies the address in the Bybit app) only as an option the
+user may choose, never as a required step.
+
+### Bybit deposit address
+
+1. **Key check.** `call_implicit_get {"exchange":"bybit","account":"<alias>","method":"privateGetV5UserQueryApi"}`.
+   Require `readOnly: 1`, no `Withdraw` in `permissions.Wallet`, and `isMaster: true` (Bybit
+   gives deposit addresses only to main-account keys). Otherwise stop and ask for a new
+   read-only main-account key. Report `userID`, `note` and `ips`; never repeat `apiKey` (the
+   server redacts it). The operator confirms that `userID` is their Bybit UID (shown when
+   they created the key).
+2. **Network data.** Read Bybit's [network source](references/exchanges.md#network-data-sources)
+   with the same alias. Bybit's deposit fee `d` is `0` by its
+   [published policy](references/exchanges.md#bybit-deposit-address); name that source on the
+   sheet.
+3. **Address read** for the chosen network:
+   `call_read_method {"exchange":"bybit","account":"<alias>","method":"fetchDepositAddressesByNetwork","args":["USDT"],"params":{"network":"<code>"},"includeInfo":true}`.
+   It is a signed read: `dryRun` does not stop it, and it never falls back to creating an
+   address ([why](references/exchanges.md#bybit-deposit-address)). Use only the raw `info` of
+   the single entry under `<code>`:
+   - `chain` is Bybit's id for the chain (`TRX`, `BSC`, `ETH`, `TON`);
+   - `addressDeposit` is the full address;
+   - `tagDeposit` is the memo: `""` means none, any other value is the exact memo, and a
+     missing field means unknown (stop);
+   - `contractAddress` shows the contract's last 6 characters, which must match the
+     [reference contract](#chains) (in any letter case on EVM chains).
+
+   Empty `data`, several entries or a mismatch: stop. These tools cannot create a Bybit
+   address; offer the manual path.
+4. **Show it.** Put the address and the memo (or `none`) each in its own code block, copied
+   character for character from that tool result, with the provenance
+   `Bybit UID <userID>, alias <alias>, read <UTC>, chain <chain>`. Copy the same values into
+   the send sheet. The human pastes the address from your code block and later checks the
+   wallet's final screen against the tool result (rule 9).
 
 ## Scenario 2. Exchange A → exchange B (semi-automatic)
 
@@ -651,7 +720,8 @@ A required profile or tier is missing; the version is not `0.1.3` / `4.5.84`;
 `configProblems` is not empty; a crash hold applies (`unresolvedIntents` not empty, or a hold
 recorded for the journal path: reads only, permanently); more than one connected server or
 alias has the keyed exchange in a scheme A launch; the human could not match the account
-identifier; the account mode, available amount, network flag, minimum, fee, chain, contract,
+identifier; the Bybit key check or address read fails
+([Bybit deposit address](#bybit-deposit-address)); the account mode, available amount, network flag, minimum, fee, chain, contract,
 fee asset or amount step is unknown; an amount is not exactly representable; a transfer has
 no proof route and is not done manually; the "exchange + network" pair is not in the outbound
 withdraw table, or the recipient is Gate (both manual, 2.9); the full address, network or
