@@ -311,7 +311,9 @@ Use one alias with `"funds": "live"` for every read below.
 2. **Key check.** `call_implicit_get {"exchange":"bybit","account":"<alias>","method":"privateGetV5UserQueryApi"}`.
    Require `readOnly: 1`, no `Withdraw` in `permissions.Wallet`, and `isMaster: true` (Bybit
    gives deposit addresses only to main-account keys). Otherwise stop and ask for a new
-   read-only main-account key. Report `userID`, `note` and `ips`; never repeat `apiKey` (the
+   read-only main-account key. A transfer or trading category can appear in the metadata of
+   a read-only key. The read-only flag must be explicit; keep the separate Withdraw exclusion.
+   Report `userID`, `note` and `ips`; never repeat `apiKey` (the
    server redacts it). The operator confirms that `userID` is their Bybit UID (shown when
    they created the key).
 3. **Gated address read** for the chosen network:
@@ -320,9 +322,9 @@ Use one alias with `"funds": "live"` for every read below.
    only `GET /v5/asset/deposit/query-address` ([details](references/exchanges.md#bybit-deposit-address)).
    `data` must have exactly one key, `<code>`. From its raw `info`:
    - `chain` is Bybit's id for the chain (`TRX`, `BSC`, `ETH`, `TON`) and must be the chosen one;
-   - `addressDeposit` is the full address;
-   - `tagDeposit` is the memo: `""` means none, any other value is the exact memo, and a
-     missing field means unknown (stop);
+   - `addressDeposit` must be a nonempty string containing a full address valid for the chosen chain;
+   - `tagDeposit` must be a string: only `""` means none. Preserve nonempty memo strings exactly,
+     including leading zeros. Hold on missing, null, non-string or whitespace-only fields;
    - `contractAddress` shows the contract's last 6 characters, which must match the
      [reference contract](#chains) (in any letter case on EVM chains).
 4. **Authoritative address response.** ccxt keeps one entry per network, so a second Bybit entry

@@ -124,7 +124,8 @@ start with nothing installed:
 1. **Server.** Install the pinned server once ([install](ccxt-mcp.md#install)).
 2. **Key.** In Bybit's API management, create a key on the **main** account (Bybit gives
    deposit addresses only to main-account keys) with **read-only** permission: no withdrawal,
-   no transfer, no trading. Bind your IP. Note your UID shown there.
+   no transfer or trading write access. Read-only keys may list transfer or trading categories
+   in their metadata. Verify the explicit read-only flag and exclude the Withdraw label. Bind your IP. Note your UID shown there.
 3. **Profile** (`chmod 600`). `funds` is needed because ccxt-mcp gates the address read
    behind it, and `"funds": "live"` requires some `maxTransferValue`. That cap applies only
    to MCP `transfer` and `withdraw` on this account, which `dryRun: true` blocks and the
