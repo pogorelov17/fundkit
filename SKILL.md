@@ -89,7 +89,12 @@ only what the human pastes carries over.
    read (chain, `addressDeposit` and `tagDeposit`). Any difference: do not confirm.
    The fix is a fresh copy from the source, and a changed address or memo needs a new plan or
    sheet and new approvals. For an API withdrawal, the full address must already be on A's
-   withdrawal whitelist. Immediately before a manual send, refresh B's deposit availability on
+   withdrawal whitelist. Before recording OPEN for a wallet send or any withdrawal,
+   refresh the destination network's memo-required flag if the venue publishes one.
+   Hold if a previously available flag is missing, a required memo is empty, or the flag
+   conflicts with the current recipient details. A changed flag requires a fresh plan or sheet
+   and authorization. Where the venue supplies no flag, use the address-specific memo evidence.
+   Immediately before a manual send, refresh B's deposit availability on
    the selected network, fee (asset and amount), and applicable minimum from its live data or
    deposit page (Bybit's deposit fee: its [documented value](references/exchanges.md#bybit-deposit-address),
    unless a live field or the page shows otherwise). Recalculate net credit. If anything changed, cancel, replace the sheet, and
@@ -501,7 +506,7 @@ To approve: APPROVE <PLAN-ID>
      neither holds, the step is manual: the human does it in the exchange UI, and the agent
      does not call `transfer`.
    - **Withdrawal from A** (initial data checks): both networks per 2.2, the full address and
-     memo, fees, minimums and amounts per 2.3. If B's data is only available in B's app, the
+     memo (including rule 9's fresh memo-required check), fees, minimums and amounts per 2.3. If B's data is only available in B's app, the
      operator checks it there before the withdrawal.
 
    If any condition of the step is unknown, stop. If the conditions of the approved plan have
