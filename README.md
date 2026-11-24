@@ -1,8 +1,7 @@
 # fundkit
 
 A Markdown-only Agent Skill that lets an AI agent move USDT between a crypto wallet and
-exchanges with a human approving every write. There is no code: no programs, scripts,
-packages or services. The agent talks to exchanges through the official MCP server
+exchanges with a human approving every write. The agent talks to exchanges through the official MCP server
 [`ccxt-mcp@0.1.3`](https://github.com/ccxt/ccxt/tree/master/mcp), pinned with `ccxt@4.5.85`,
 the last ccxt release with which the server's `withdraw` still passes network, fee and memo
 to the exchange. Works in Claude Code and Codex.
