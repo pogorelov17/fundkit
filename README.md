@@ -36,12 +36,12 @@ Automatic skill discovery is optional and host-specific; this repository does no
 
 - **OKX Wallet → exchange.** Picks a network from the exchange's live data; the human copies
   the address from the exchange UI and sends from the wallet by hand. Send amount, network fee
-  (asset and model) and expected credit are kept apart. The deposit is matched by transaction
+  (quoted amount or cap, asset and treatment) and expected credit are kept apart. The deposit is matched by transaction
   hash and expected credit.
 - **Exchange A → exchange B** (semi-automatic). Accounts for account modes, available amount
   minus margin reserve, and a network enabled on both sides. Debit, withdraw amount and credit
   are computed separately. Then: exact plan for A → approval → separate withdrawal approval →
-  a HANDOFF block with the hash and route evidence → deposit matched in the fresh B chat → a new
+  verified final withdrawal success on A → a HANDOFF block with the source proof and hash → deposit matched in the fresh B chat → a new
   plan and approval for any transfer on B. Routes to Gate and from BingX use a manual
   withdrawal sheet in A's UI, with the same expected-credit and hash checks.
 - **funding ↔ trading/margin** on one exchange.
@@ -58,9 +58,10 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
   account's keys and one enabled registration for that exchange per host launch, or have the
   operator launch each server separately
   ([schemes A and B](references/security.md#environment-contract)).
-- **Approvals.** Writes run only from a plan with exact arguments and an expiry, after the
+- **Approvals.** MCP writes run only from a plan with exact arguments and an expiry, after the
   reply `APPROVE <PLAN-ID>`. The first `withdraw` call also needs a separate
-  `WITHDRAW <PLAN-ID>`; a requested deposit-address lookup needs `ADDRESS <PLAN-ID>`.
+  `WITHDRAW <PLAN-ID>`; a requested deposit-address lookup needs `ADDRESS <PLAN-ID>`. The operator authorizes a manual send by signing or submitting
+  the exact transaction on the current sheet before its expiry.
 - **Execution.** No retries on an unknown outcome. A step counts only with an attributable ID
   and a success status, a deposit only by its full on-chain hash and expected credit. Pending
   records are polled read-only; failed, missing or ambiguous ones hold the route. Internal

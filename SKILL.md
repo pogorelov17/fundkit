@@ -194,11 +194,14 @@ sends from OKX Wallet, using the checked sheet.
    the amounts below clear the minimum. Reject bridged variants and other contracts.
 4. **Amounts.** Keep these apart:
    - `S`: the USDT amount the human enters in the wallet;
-   - the wallet's network fee, as shown on its confirm screen: its **asset** and whether it
+   - the wallet's network fee on its confirmation screen: record the exact quoted amount,
+     its asset, and whether it
      is added on top of `S` or taken out of it. Gas in the chain's native coin (TRX, BNB,
      ETH, TON) is not USDT: it never enters the USDT math, but the wallet must hold enough of
      that coin. A USDT fee taken out of `S` lowers the on-chain amount. If the screen does
-     not make the asset and model clear, stop;
+     not establish the amount, asset and fee treatment, hold the send. For variable gas,
+     record the exact enforceable maximum in the native asset and label it as a cap;
+     an estimate alone cannot bind the operator's maximum debit;
    - `N`: the on-chain USDT amount (`S`, or `S` minus a USDT fee taken out of it);
    - `d`: the exchange's deposit fee, and `C = N − d`: the expected credit.
 
@@ -206,7 +209,7 @@ sends from OKX Wallet, using the checked sheet.
    exchange states it, require `C` ≥ minimum (that covers both). Example: `S = 150`, gas in
    TRX, `d = 1`, minimum 150: `C = 149` fails; `S = 151` gives `C = 150` and passes. Show the
    human a draft send sheet with the source wallet, destination account, network and contract,
-   `S`, fee asset and model, `N`, `d`, expected `C`, and the minimum and its basis. Include
+   `S`, network fee <amount or cap, asset, treatment>, `N`, `d`, expected `C`, and the minimum and its basis. Include
    the sources and UTC time of the route checks. After step 5, fill in the full recipient
    and exact memo and issue `SEND SHEET <ID>, created <UTC>, expires <UTC + 15 min>`.
 5. By default the human copies the address **themselves** in the exchange app (Deposit →
@@ -215,8 +218,9 @@ sends from OKX Wallet, using the checked sheet.
    that call and an expiry, and the human replied `ADDRESS <PLAN-ID>`. Warn that the first
    call may create a new address and that `dryRun` does not stop this tool.
 6. Follow [manual confirmation](#manual-confirmation). Refresh B's conditions, compare the
-   wallet's amount and fee with this send sheet, and verify the full address, network and
-   exact memo before recording OPEN. Only the operator can sign the checked transaction.
+   wallet's send amount and quoted fee (or maximum), including its asset, with this sheet.
+   A change from 1 TRX to 10 TRX requires a new sheet even if the USDT credit stays the same.
+   Verify the full address, network and exact memo before recording OPEN. Only the operator can sign the checked transaction.
 7. After sending, ask for the full transaction hash from the wallet and credit the deposit by
    the [deposit rule](#27-reconciliation): the credited amount must equal the expected `C`. A
    deposit that is still confirming is polled read-only (2.7). If the funds must reach a
@@ -360,7 +364,7 @@ Calls on A (exactly these arguments):
      proof: <API: <read from the transfer proof table> | operator: <A> UI transfer history, access and quiet window confirmed <UTC> | manual: the human transfers in A's UI>
   2. withdraw {"account":"<A>","code":"USDT","amount":<W>,"address":"<full address>","tag":"<memo as a string, only if required>","network":"<code>","params":<per table>}   ← separate WITHDRAW <PLAN-ID>
      proof: fetchWithdrawals record with the call's id, status ok, with a hash
-Then: hand off the verified route and withdrawal hash (2.8); B matches the deposit (2.7) before planning an internal transfer.
+Then: on final source success, hand off the verified route, source proof and hash (2.8); B matches the deposit (2.7) before planning an internal transfer.
 Before each write: expiry and that step's checks (2.5). Both networks are checked before the withdrawal.
 Caps: maxTransferValue A=<…>; user limit <…> | target credit <…>
 To approve: APPROVE <PLAN-ID>
@@ -511,8 +515,10 @@ back as `UNKNOWN_OUTCOME` and cannot be told apart from a failure of the write i
 B's mode, wallets, available amounts, steps and caps are read only in a session that has B's
 key. In scheme A that is a new launch and a new chat
 ([scheme A](references/security.md#scheme-a-one-keyed-account-per-launch)). That chat starts
-by reading this file, and the human pastes the HANDOFF block plus the latest operation record for any previously used account. In scheme B it can be the same chat. Once the withdrawal has a hash, the A session
-writes the block in full:
+by reading this file, and the human pastes the HANDOFF block plus the latest operation record for any previously used account. In scheme B it can be the same chat. For both API and manual withdrawals, issue the block only when the same
+attributable source withdrawal record shows its ID, a final successful status and the full
+on-chain hash (2.7). A hash can appear while the withdrawal is pending: keep OPEN and poll
+read-only. Missing or uncertain status holds the route even if B already displays a deposit.
 
 ```text
 HANDOFF <PLAN-ID> A→B, written <UTC>
@@ -523,11 +529,13 @@ Chain: <name>, EVM chainId <56 | 1 | none>, contract <…>, ccxt code <…>, B n
 Pre-send verification: A <source, observed chain and contract, UTC>; B <source, observed chain and contract, UTC>
 Deposit: address <full address>, memo <none | exact memo>
 A: <exchange> <alias>, withdrawal id <…> (A's namespace), W=<…>, D=<…>, sent <UTC>
-Hash: <full on-chain hash>
+Source proof: <fetchWithdrawals or A withdrawal-history UI>, status <final success value>, checked <UTC>
+Hash: <full on-chain hash from that source record>
 Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | assumed>)
 ```
 
-1. Run Step 0 on B's server. The alias must match the block's `B:` line. Where Step 0 reads
+1. Run Step 0 on B's server. Require the source proof above before advancing; an incomplete
+   handoff is for read-only reconciliation. The alias must match the block's `B:` line. Where Step 0 reads
    an account identifier, it must match the block's identity. Where it cannot, the operator
    confirms that this alias's key belongs to that account. Otherwise stop.
 2. A missing or unreadable field is re-established by a read (B's deposit history, or A's
@@ -578,10 +586,9 @@ User: limit <USDT> | target credit <USDT>
 1. Follow [manual confirmation](#manual-confirmation) on A's withdrawal screen. Refresh B's
    deposit conditions and compare the full address, network and memo with B's page. Verify
    the exact debit, fee and receive amount before OPEN and before any submitting 2FA action.
-2. After sending, the human gives A's withdrawal record ID and the full hash from A's UI.
-   Alternatively, an A session reads `fetchWithdrawals`; a pending record is polled (2.7).
-   The human's word that it was sent is not a status.
-3. Fill in the HANDOFF block (2.8) from the sheet, the record ID and the hash. B's session
+2. Open the attributable withdrawal record in A's history (UI or `fetchWithdrawals`). Read
+   its ID, displayed final status and full hash from that record. While pending, poll read-only.
+3. Only on verified final success, copy the source proof and exact sheet into the HANDOFF (2.8). B's session
    counts the deposit only by hash and the sheet's exact credit (set both bounds to `C`, 2.7).
 
 ## Scenario 3. funding ↔ trading/margin on one exchange
