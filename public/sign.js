@@ -1,8 +1,8 @@
-import { connect, makeApi, report, send, validateIntent } from './signflow.js';
+import { apiBaseFromPath, connect, makeApi, report, send, storedSend, validateIntent } from './signflow.js';
 
 const $ = (id) => document.getElementById(id);
-const intentId = location.pathname.split('/').pop();
-const api = makeApi(`/api/intent/${intentId}`);
+const { api: apiBase } = apiBaseFromPath(location.pathname);
+const api = makeApi(apiBase);
 const provider = window.okxwallet || window.ethereum || null;
 let intent;
 let from;
@@ -12,10 +12,10 @@ function status(msg, cls = '') {
   $('status').className = cls;
 }
 
-async function finish(txHash, from) {
+async function finish(txHash, claimToken) {
   status(`Submitted: ${txHash}. Reporting to helper…`);
   try {
-    await report(api, txHash, from);
+    await report(api, txHash, claimToken);
     status(`Done. Transaction ${txHash} captured; the helper is now verifying it on-chain and on Bybit. You can close this page.`, 'ok');
   } catch (err) {
     status(`Transaction sent (${txHash}) but the helper could not be reached: ${err.message}. Do NOT send again — paste this hash into the chat.`, 'err');
@@ -29,15 +29,17 @@ async function main() {
   $('to').textContent = intent.to;
   $('summary').hidden = false;
 
-  if (intent.txHash) {
-    status(`This transfer was already submitted: ${intent.txHash}. Nothing more to sign.`, 'ok');
-    return;
+  if (intent.txHash) return status(`This transfer was already submitted: ${intent.txHash}. Nothing more to sign.`, 'ok');
+  const mine = storedSend(intent, window.localStorage);
+  if (mine) return finish(mine.txHash, mine.claimToken);
+  if (intent.phase !== 'link_issued') {
+    return status('Signing is already in progress in another tab or device (or this link is closed). Do NOT send from here — check OKX Wallet history and ask in the chat.', 'err');
   }
   if (!provider) {
     $('okx-link').href = intent.mobileLink;
     $('open-in-wallet').hidden = false;
     if (!/Android|iPhone|iPad/i.test(navigator.userAgent)) {
-      $('qr').src = `/api/intent/${intentId}/qr.svg`;
+      $('qr').src = `${apiBase}/qr.svg`;
       $('qr-box').hidden = false;
     }
     return;
@@ -59,13 +61,21 @@ async function main() {
   };
   $('send').onclick = async () => {
     $('send').disabled = true;
+    $('connect').disabled = true;
     try {
-      status('Confirm the transfer in OKX Wallet…');
-      const { txHash } = await send(provider, intent, from, window.localStorage);
-      await finish(txHash, from);
+      status('Re-checking the Bybit route, then confirm the transfer in OKX Wallet…');
+      const { txHash, claimToken } = await send(provider, intent, from, window.localStorage, api);
+      await finish(txHash, claimToken);
     } catch (err) {
-      status(err.code === 4001 ? 'Rejected in wallet. Nothing was sent.' : err.message || String(err), 'err');
-      $('send').disabled = false;
+      if (err.code === 4001) {
+        status('Rejected in wallet. Nothing was sent. You can try again.', 'err');
+        $('send').disabled = false;
+        $('connect').disabled = false;
+      } else if (err.status === 409) {
+        status(`${err.message}. Do NOT send from another tab or device.`, 'err');
+      } else {
+        status(`${err.message || String(err)}. Do NOT retry blindly: check OKX Wallet history; if a transfer is there, paste its hash into the chat.`, 'err');
+      }
     }
   };
 }
