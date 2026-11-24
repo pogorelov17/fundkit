@@ -89,7 +89,11 @@ only what the human pastes carries over.
    read (chain, `addressDeposit` and `tagDeposit`). Any difference: do not confirm.
    The fix is a fresh copy from the source, and a changed address or memo needs a new plan or
    sheet and new approvals. For an API withdrawal, the full address must already be on A's
-   withdrawal whitelist. Before recording OPEN for a wallet send or any withdrawal,
+   withdrawal whitelist. On every plan or sheet for a send, record the destination network's
+   memo requirement (required, optional, or no published flag), its source and the UTC check time.
+   If the source publishes this field but omits it or returns an unknown value, hold even on
+   the first lookup. Use "no published flag" only when the venue supplies no such field and
+   the address-specific evidence establishes the memo. Before recording OPEN for a wallet send or any withdrawal,
    refresh the destination network's memo-required flag if the venue publishes one.
    Hold if a previously available flag is missing, a required memo is empty, or the flag
    conflicts with the current recipient details. A changed flag requires a fresh plan or sheet
@@ -477,6 +481,7 @@ Available on A: <field>=<value>, reserve <R>, transferable <T>
 Amounts: D=<…>, W=<…>, C=<…> (fee model: <on top | deducted | unconfirmed>); f=<…> <asset>, d=<…> <asset>
 Amount steps: currency <…>, network <…>, exchange <…> (<source>); W and transfer amounts are multiples of all, ≤ 15 significant digits, ≥ 0.000001
 B deposit: address <full address>, memo <none | exact memo>, copied by the human from B's UI, on A's whitelist (full match): yes
+Memo requirement: <required | optional | no published flag>; evidence <source, UTC>
 Expected on B: C=<C_min>…<C_max> USDT, lands in <B wallet> (source: <B UI | typical, unverified>)
 Calls on A (exactly these arguments):
   1. transfer {"account":"<A>","code":"USDT","amount":<…>,"fromAccount":"<…>","toAccount":"<…>","params":<{} | per transfer proof table>}
@@ -696,6 +701,7 @@ WITHDRAWAL SHEET <PLAN-ID>, created <UTC>, expires <UTC + 15 min>
 From: <A exchange> <wallet>; A's UI label <…> = chain <…>, contract <…>
 Route evidence: A <source, observed chain/contract, UTC>; B <source, observed chain/contract, UTC>
 To: <B exchange>, address <full address>, memo <none | exact memo> (from B's deposit page)
+Memo requirement: <required | optional | no published flag>; evidence <source, UTC>
 Enter: W=<…> (multiple of A's UI step, ≥ A's withdrawal minimum <…>)
 Fee: f=<…> <asset>, model <on top | deducted>; exact debit D=<…>; exact receive amount on A's preview <…>
 Expected on B: exact C=<…> USDT after deposit fee d=<…> <asset>, B deposit minimum <…> (<stated | assumed>)
