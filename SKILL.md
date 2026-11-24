@@ -255,6 +255,18 @@ sends from OKX Wallet, using the checked sheet.
    - `N`: the on-chain USDT amount (`S`, or `S` minus a USDT fee taken out of it);
    - `d`: the exchange's deposit fee, and `C = N − d`: the expected credit.
 
+   For Bybit, after the unsigned preview establishes `N` and before issuing the sheet,
+   record the chain's `batchReleaseLimit` on the sheet. Bybit documents the string `"-1"`
+   as unlimited. For a finite nonnegative decimal limit, verify that the incoming USDT amount
+   `N` fits within the remaining credit allowance, accounting for other deposits in the
+   applicable period and releases of older pending deposits against the same cap. Use
+   verified remaining capacity after those releases; today's deposits alone do not establish it.
+   A missing or malformed limit, unknown remaining allowance, or amount
+   above it holds the sheet. Repeat this check before OPEN; a changed limit requires a new
+   sheet. On the user-selected UI path, obtain the equivalent limit from Bybit's deposit
+   details. Excess deposits can remain pending. [Address response](https://bybit-exchange.github.io/docs/v5/asset/deposit/master-deposit-addr)
+   · [Deposit limits](https://www.bybit.com/en/help-center/article/Bybit-Deposit-FAQ)
+
    Exchanges rarely say whether the deposit minimum applies to `N` or to `C`. Unless the
    exchange states it, require `C` ≥ minimum (that covers both). Example: `S = 150`, gas in
    TRX, `d = 1`, minimum 150: `C = 149` fails; `S = 151` gives `C = 150` and passes. Show the
@@ -342,16 +354,8 @@ Use one alias with `"funds": "live"` for every read below.
    establish how many raw rows Bybit returned on that earlier request. Use only the unique
    raw row from step 4 as the address source. Empty data, multiple raw rows, a wrong chain
    or any conflicting field: stop. The client sends GETs only.
-   Record the chain's `batchReleaseLimit` on the sheet. Bybit documents the string `"-1"`
-   as unlimited. For a finite nonnegative decimal limit, verify that the incoming USDT amount
-   `N` fits within the remaining credit allowance, accounting for other deposits in the
-   applicable period and releases of older pending deposits against the same cap. Use
-   verified remaining capacity after those releases; today's deposits alone do not establish it.
-   A missing or malformed limit, unknown remaining allowance, or amount
-   above it holds the sheet. Repeat this check before OPEN; a changed limit requires a new
-   sheet. On the user-selected UI path, obtain the equivalent limit from Bybit's deposit
-   details. Excess deposits can remain pending. [Address response](https://bybit-exchange.github.io/docs/v5/asset/deposit/master-deposit-addr)
-   · [Deposit limits](https://www.bybit.com/en/help-center/article/Bybit-Deposit-FAQ)
+   Capture the raw limit for the later amount check. Show the verified recipient now so
+   the operator can prepare the unsigned preview.
 5. **Show it.** Put the address and the memo (or `none`) each in its own code block, copied
    character for character from the unique raw row in step 4, with the provenance
    `Bybit UID <userID>, alias <alias>, read <UTC>, chain <chain>`. Copy the same values into
@@ -642,6 +646,10 @@ back as `UNKNOWN_OUTCOME` and cannot be told apart from a failure of the write i
     the plan's, and the status complete (`ok`). The credited amount must be unambiguous and
     match the expectation: within the `C` bounds of the plan, handoff or sheet (Scenario 2)
     or equal to the send sheet's `C` (Scenario 1). Network gas is never part of it.
+  - For both scenarios, match the full credited recipient and the exact memo on the send
+    sheet or handoff. Preserve leading zeros. If history omits a field, use corroborating
+    evidence tied to that transaction, such as its destination-chain record or exchange
+    receipt. Missing evidence or a mismatch holds settlement, even with the right hash and amount.
   - A record with the right hash that is still confirming is pending (poll as above). No
     hash, several candidates, no visible credited amount, a credit outside the expectation,
     or a record that changed after reconciliation is ambiguous: hold, report, and take no
