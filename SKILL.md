@@ -54,13 +54,14 @@ only what the human pastes carries over.
    and overrides the request, and it is visible neither in the preview nor in the form. For
    example, `params.chain` on Bybit replaced BSC with ETH (verified). If the pair is not in the
    table, or the exchange is marked "manual only", the human withdraws in the exchange UI.
-5. **No retries until non-execution is proven.** On `UNKNOWN_OUTCOME`, a host timeout, a
+5. **Reconcile before considering another attempt.** On `UNKNOWN_OUTCOME`, a host timeout, a
    dropped connection, no response, or any error that is not on the
    [not-sent list](#26-responses-what-was-definitely-not-sent), retry nothing. Non-execution is
    proven **only** by a code from that list, or by an explicit operator finding from the
    exchange's own records (UI or support) covering the window from the snapshot to now. An
    empty API history, an empty `unresolvedIntents` and an unchanged balance are not proof. A
-   retry is possible only as a new plan.
+   new attempt requires a fresh plan or sheet and fresh authorization. For a dispatched
+   operation that later failed, follow the refund evidence rule in 2.7.
 6. **Amounts are explicit.** Do not accept "all", "max" or "the rest" without a number. Every
    amount is a USDT number labeled with its meaning (debit, call argument or credit, see
    [2.3](#23-debit-withdraw-amount-and-credit)) and exactly representable in the currency,
@@ -77,7 +78,10 @@ only what the human pastes carries over.
    required) against B's deposit page, not against the chat. Any difference: do not confirm.
    The fix is a fresh copy from B's page, and a changed address or memo needs a new plan or
    sheet and new approvals. For an API withdrawal, the full address must already be on A's
-   withdrawal whitelist.
+   withdrawal whitelist. Immediately before a manual send, refresh B's deposit availability on
+   the selected network, fee (asset and amount), and applicable minimum from its live data or
+   deposit page. Recalculate net credit. If anything changed, cancel, replace the sheet, and
+   get fresh approval; if a field is unavailable or the minimum is missed, hold the send.
 
 ## Call syntax
 
@@ -103,11 +107,14 @@ With ccxt-mcp 0.1.3 and ccxt 4.5.85, `call_implicit_get` accepts only camelCase 
 
 ## Step 0. Preflight (read-only)
 
-Before the first write in a fresh chat, ask the operator for the latest operation record
-from the previous chat for this account (see [journal line](#journal-line-in-the-chat)).
+Before preparing a plan or sheet in any fresh chat, including a manual wallet or exchange
+UI send, ask the operator for the latest operation record for that source account or wallet
+(see [journal line](#journal-line-in-the-chat)).
 On first use, have them confirm there was no prior attempt. In either case, confirm that
 no other send is outstanding and nobody else is acting on the route. If there is an
-`OPEN` step, reconcile it first. Lost, stale or uncertain state means reads only.
+`OPEN` step, reconcile it first. Lost, stale or uncertain state means reads only. A carried record
+serves as evidence for reconciliation. After recovery, any remaining action requires a fresh
+plan or sheet and fresh authorization; a previous approval does not carry forward.
 
 For each server involved:
 
@@ -151,7 +158,8 @@ numbers. You may still explain the flow in general terms.
 
 ## Scenario 1. OKX Wallet → exchange (manual send)
 
-OKX Wallet is a non-custodial wallet. Only the human sends from it, by hand.
+Start with the operation-record check in Step 0 for the sending wallet. Only the human
+sends from OKX Wallet, using the checked sheet.
 
 1. Ask the user for the destination exchange, the networks where they hold USDT in OKX
    Wallet, and the amount.
@@ -184,8 +192,9 @@ OKX Wallet is a non-custodial wallet. Only the human sends from it, by hand.
    profile has `funds`, and you showed a mini-plan `PLAN <PLAN-ID>` with the exact JSON of
    that call and an expiry, and the human replied `ADDRESS <PLAN-ID>`. Warn that the first
    call may create a new address and that `dryRun` does not stop this tool.
-6. On the wallet's final confirmation screen, the human checks the full address, the network
-   and the exact memo per rule 9, and that `S` and the fee match the send sheet. Any
+6. Apply rule 9, including the fresh destination check. Record the step as OPEN before
+   the human confirms. On the wallet screen, compare the full address, network, exact memo,
+   `S` and the fee against the destination page and the send sheet. Any
    mismatch: cancel, copy the address again from the exchange page, and make a new send
    sheet.
 7. After sending, ask for the full transaction hash from the wallet and credit the deposit by
@@ -224,7 +233,8 @@ OKX Wallet is a non-custodial wallet. Only the human sends from it, by hand.
    unknown, the network does not qualify. Infer nothing from the network name.
 3. For **every route**, verify that A allows withdrawal and B allows deposit on the same
    [reference chain and USDT contract](#chains). Record each venue's network ID or UI label,
-   the source and UTC time of each check, and its limits. Use the deposit or withdrawal page
+   the source and UTC time of each check, and all applicable minima and maxima. Compare
+   EVM contract addresses by their full 20-byte value, regardless of letter case. Use the deposit or withdrawal page
    for missing API fields. Check the full recipient and memo per rule 9.
    - **API withdrawal:** require a native form, API withdrawals enabled on A, and an
      [outbound table](references/exchanges.md#outbound-withdraw) entry whose wire value
@@ -362,7 +372,7 @@ To approve: APPROVE <PLAN-ID>
    read. Before a withdrawal, also save the latest IDs from `fetchWithdrawals` on A and the
    balance of the debited wallet. Before a transfer, also save both wallets' balances (they
    only locate funds; they prove nothing). After the withdrawal, find its record by ID and
-   write the hash into the chat. Before dispatch, publish the OPEN record below.
+   write the hash into the chat. Before dispatch, publish the [OPEN record](#journal-line-in-the-chat).
 4. **Call with exactly the plan's arguments.**
    - `elicitationSupported: true`: the call opens the host's form. The form shows only a
      preview (amount, wallets or address and network, memo, environment) and one `confirm`
@@ -378,8 +388,8 @@ To approve: APPROVE <PLAN-ID>
      steps only via a new plan with fresh data and new `APPROVE` (and `WITHDRAW`).
    - Form response lost or unknown (host timeout, dropped connection, no response): the write
      may have gone out. Reconcile per 2.7 only; do not repeat the call.
-   - `elicitationSupported: false`: route withdrawals to the exchange UI (2.9) before
-     calling `withdraw`. For an approved internal `transfer`, compare the returned preview
+   - `elicitationSupported: false`: use only the exchange UI (2.9) for withdrawals. Never call
+     `withdraw` in token mode. For an approved internal `transfer`, compare the returned preview
      with the plan and redeem its 60-second token with the identical arguments. Keep the
      token out of the chat record.
 5. Only for an internal transfer: a confirmed pre-dispatch token rejection permits a new
@@ -429,9 +439,12 @@ back as `UNKNOWN_OUTCOME` and cannot be told apart from a failure of the write i
     confirming): poll read-only, at most once a minute. Re-read the same record by the same
     ID or hash. Do no write and take no next step. If it is still pending after the time the
     exchange states, the operator checks the UI, and polling continues.
-  - **failed** (`failed`, `fail`, `canceled`, `rejected`): hold. A new attempt is a new plan.
-    It comes only after the operator confirms from the exchange's records that the funds are
-    back where they started.
+  - **failed** (`failed`, `fail`, `canceled`, `rejected`): keep OPEN until the operator
+    identifies the terminal failure and shows from attributable exchange or chain records
+    how the debit was reversed or released. Record the returned amount and any retained fee.
+    Close as FAILED-RECONCILED with the operation ID/hash, proof references and UTC time.
+    An unexplained shortfall, pending refund or balance change alone keeps the step OPEN.
+    Any further attempt needs a new plan or sheet and fresh authorization.
   - **missing** (the ID is not in the read, OKX returns all fields `null`, or the list is
     empty): this proves neither success nor non-execution. Poll read-only for a few minutes,
     then hold and ask the operator.
@@ -500,7 +513,7 @@ Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | as
 2. A missing or unreadable field is re-established by a read (B's deposit history, or A's
    `fetchWithdrawals` in an A session), or by the operator reading it in the exchange UI.
    Never infer a missing value. Keep the pre-send A/B chain and token verification with
-   its sources and times. Recover lost evidence from the original chat or transaction-specific
+   its sources and times, which must precede the send. Recover lost evidence from the original chat or transaction-specific
    exchange or on-chain evidence. Today's coin listing alone cannot identify a past transfer.
 3. Match one completed B deposit per 2.7: full hash, USDT, chain, receiving address, memo
    (when required), and unambiguous credit within the expected bounds. On Bybit the address
@@ -522,8 +535,9 @@ Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | as
 
 ### 2.9 Manual withdrawal in exchange A's UI
 
-Use this path for BingX outbound, Gate inbound, a network outside the outbound API table,
-a host without a native confirmation form, or a user-requested manual send. The human
+Apply Step 0 to the source account before preparing a sheet. Use this path for BingX
+outbound, Gate inbound, a network outside the outbound API table, a host without a native
+confirmation form, or a user-requested manual send. The human
 selects the verified chain in A's UI. Keep the sheet in draft until A's preview gives the
 exact debit, fee and amount sent to B; calculate the exact net credit after B's fee.
 Check the UI step, limits, reserve, budget or target, and B's deposit minimum before sending.
@@ -541,8 +555,9 @@ Expected on B: exact C=<…> USDT after deposit fee d=<…> <asset>, B deposit m
 User: limit <USDT> | target credit <USDT>
 ```
 
-1. On A's final confirmation screen, before any 2FA code, the human checks the full address,
-   network and memo per rule 9, plus the amount, fee and receive amount from the sheet. If
+1. Refresh B's deposit conditions per rule 9 and record OPEN before the human confirms.
+   On A's final confirmation screen, before any 2FA code, check the full address, network
+   and memo against B's deposit page, and the amount, fee and receive amount against the sheet. If
    the UI rounds the amount, changes the fee, or the sheet has expired, cancel and make a
    new sheet.
 2. After sending, the human gives A's withdrawal record ID and the full hash from A's UI.
@@ -591,9 +606,10 @@ OPEN <plan/step> | <journal path or manual wallet, exchange/account identity> | 
 Keep it current on every response. Pending, missing, lost or ambiguous results keep the step
 OPEN across chats, including when the server records an error and lists no unresolved intent.
 Only reconcile read-only until the operator can establish the outcome under 2.7. Close the
-record as DONE with attributable proof of completion or NOT SENT with proof under rule 5.
-For a deposit-address request use the verified address response; a confirmed dry run is NOT
-SENT. A completed step must never be sent again. Retain the latest record for Step 0; a crash
+record as DONE with attributable proof of completion, NOT SENT with proof of non-execution
+under rule 5, or FAILED-RECONCILED with the failure and return evidence specified in 2.7.
+For a deposit-address request use the verified address response. For `transfer` and
+`withdraw`, an explicit `dryRun: true` result closes the step as NOT SENT. A completed step must never be sent again. Retain the latest record for Step 0; a crash
 hold on the server journal still applies even after the exchange outcome is known.
 
 Chat records depend on the operator carrying the latest state. They cannot lock parallel

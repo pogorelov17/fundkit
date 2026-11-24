@@ -68,7 +68,7 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
   and MEXC; on Gate, WhiteBIT, KuCoin and Bitget UTA only operator evidence agreed in advance,
   or the transfer is manual. Amounts are explicit and exact multiples of the currency,
   network and exchange steps. Network, chain, contract, fee and minimums are never guessed.
-  Withdrawals run only for offline-verified "exchange + network" pairs; withdrawals to Gate
+  API withdrawals run only for offline-verified "exchange + network" pairs; withdrawals to Gate
   and from BingX are manual. The full address, network and memo are checked on the final
   confirmation screen.
 - **Fresh chats.** Carry the latest operation record forward. An open or unknown send is reconciled read-only. API withdrawals require a native confirmation form; otherwise use the exchange UI.
