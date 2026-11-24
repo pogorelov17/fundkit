@@ -1,79 +1,90 @@
-# Биржи: возможности ccxt-mcp vs тест на аккаунте
+# Биржи: кошельки, сети, режимы (ccxt 4.5.94)
 
-**Возможность** = метод есть в ccxt 4.5.9x под `ccxt-mcp@0.1.3` (проверено
-`describe_exchange`, оффлайн, без ключей). **Тест на аккаунте** = то, что можно узнать
-только с ключами конкретного пользователя: режим аккаунта, права ключа, включённые сети,
-реальные комиссии/минимумы, откуда разрешён вывод и куда зачисляется депозит. Ячейки
-«типично» — ориентир, а не факт; в плане они должны быть подтверждены чтением на аккаунте.
+**Проверено** — без ключей: по коду ccxt 4.5.94 или публичным ответом через ccxt-mcp.
+**Тест на аккаунте** — то, что видно только с ключом пользователя: режим аккаунта, права ключа,
+включённость сетей, реальные комиссии и минимумы, поле доступной суммы. Пока такой тест не
+сделан, всё это **неизвестно**.
 
-## Сводная таблица
+## Кошельки для `transfer` (`options.accountsByType`)
 
-| Биржа (`exchange`) | Секреты (env) | sandbox | `transfer` кошельки (`fromAccount`/`toAccount`) | Адрес депозита | `fetchTransfers` | Сети USDT публично |
-|---|---|---|---|---|---|---|
-| Binance (`binance`) | `BINANCE_APIKEY`, `BINANCE_SECRET` | да | `spot`/`main`, `funding`, `margin`/`cross`, `linear`/`swap` (USDⓈ-M), `inverse`, `option` | fetch | да | нет (нужен ключ) |
-| Bybit (`bybit`) | `BYBIT_APIKEY`, `BYBIT_SECRET` | да | `funding`/`fund`, `unified` (UTA), `spot`, `contract`/`swap`/`future` (classic), `option`, `investment` | fetch, по сетям | да | нет (нужен ключ) |
-| Gate (`gate`) | `GATE_APIKEY`, `GATE_SECRET` | да | `spot`, `funding`, `margin`, `cross_margin`/`cross`, `isolated`, `swap`/`futures`, `delivery`, `options` | fetch, по сетям | нет | не подтверждено |
-| OKX (`okx`) | `OKX_APIKEY`, `OKX_SECRET`, `OKX_PASSWORD` (passphrase) | да | `funding` (6), `trading` (18; также `spot`/`swap`/`margin`…) | fetch, по сетям | да | нет (нужен ключ) |
-| Bitget (`bitget`) | `BITGET_APIKEY`, `BITGET_SECRET`, `BITGET_PASSWORD` | нет | `spot`, `funding`, `swap` (USDT-M), `usdc_swap`, `future`, `cross`, `isolated`, `p2p`, `uta`/`unified` | fetch | да | да (`fetchDepositWithdrawFee`) |
-| WhiteBIT (`whitebit`) | `WHITEBIT_APIKEY`, `WHITEBIT_SECRET` | нет | `main`/`funding`, `spot`/`trade`, `margin` (collateral) | fetch + create | нет | да (`fetchDepositWithdrawFee`) |
-| BingX (`bingx`) | `BINGX_APIKEY`, `BINGX_SECRET` | да | `funding`, `spot`, `swap`/`linear`/`future`, `inverse` | fetch, по сетям | да | пусто без ключа |
-| MEXC (`mexc`) | `MEXC_APIKEY`, `MEXC_SECRET` | нет | `spot` ↔ `swap`/`future` (FUTURES) | fetch + create, по сетям | да | нет (нужен ключ) |
-| KuCoin (`kucoin`) | `KUCOIN_APIKEY`, `KUCOIN_SECRET`, `KUCOIN_PASSWORD` | нет | `main`/`funding`, `spot`/`trade`, `margin`/`cross`, `isolated`, `future`/`contract`/`swap`, `hf`, `uta`/`unified` | fetch + create, по сетям | да | частично (`fetchCurrencies` большой, усекается) |
-| Hyperliquid (`hyperliquid`) | **нет секретов в навыке**; в конфиге только публичный `walletAddress` | да | — (в ccxt: только USDC `spot`↔`swap` и main↔sub, требует private key — **запрещено навыком**) | нет | нет | — |
+Слева имя, которое передаётся в `fromAccount`/`toAccount`, справа id кошелька на бирже.
+Разные имена с одним id — **алиасы одного кошелька**.
 
-Все 9 CEX и Hyperliquid сообщают `fetchBalance`, `fetchPositions`, `fetchDeposits`,
-`fetchWithdrawals`, `withdraw`, `transfer`; `fetchDepositWithdrawFees` есть у всех 9 CEX.
-`fetchLedger` нет у WhiteBIT, BingX, MEXC. `certified: false` только у WhiteBIT.
+| Биржа (`exchange`) | Имена → id кошелька |
+|---|---|
+| Binance (`binance`) | `main`,`spot`→MAIN · `funding`→FUNDING · `margin`,`cross`→MARGIN · `linear`,`swap`→UMFUTURE (USDⓈ-M) · `inverse`→CMFUTURE · `option`→OPTION |
+| Bybit (`bybit`) | `funding`,`fund`→FUND · `unified`→UNIFIED (UTA) · `spot`,`margin`→SPOT · `contract`,`swap`,`future`→CONTRACT (classic) · `option` · `investment` |
+| Gate (`gate`) | **`funding`,`spot`→spot** (отдельного funding нет) · `margin`,`isolated`→margin · `cross_margin`,`cross`→cross_margin · `swap`,`futures`→futures · `future`,`delivery`→delivery · `option`,`options`→options |
+| OKX (`okx`) | `funding`→6 · `trading`,`spot`,`swap`,`future`,`futures`,`margin`,`option`→18 (торговый) |
+| Bitget (`bitget`) | **`funding`,`spot`→spot** · `swap`→usdt_futures (USDT-M) · `usdc_swap`→usdc_futures · `future`→coin_futures (**не** USDT-M) · `cross`→crossed_margin · `isolated`→isolated_margin · `p2p` · `uta`,`unified`→uta |
+| WhiteBIT (`whitebit`) | `funding`,`main`→main · `spot`,`trade`→spot · `margin`→collateral |
+| BingX (`bingx`) | `funding`→fund · `spot`→spot · **`future`→stdFutures** (стандартные фьючерсы) · **`swap`,`linear`→USDTMPerp** (USDT-M perpetual) · `inverse`→coinMPerp |
+| MEXC (`mexc`) | `spot`→SPOT · `swap`,`future`→FUTURES |
+| KuCoin (`kucoin`) | `funding`,`main`→main · `spot`→trade · `hf`→trade_hf · `margin`,`cross`,`marginV2`→margin · `isolated` · `future`,`swap`,`contract`→contract · `uta`,`unified`→unified · `mining`→pool |
+| Hyperliquid | не используется (только мониторинг) |
 
-Имена переменных строятся сервером как `(exchange + '_' + credential).toUpperCase()`;
-`password` — это API passphrase. Для `gate` используйте id `gate` (env `GATE_*`), не алиас.
+Env-переменные сервера: `<EXCHANGE>_APIKEY`, `<EXCHANGE>_SECRET`, а для OKX, Bitget и KuCoin
+ещё `<EXCHANGE>_PASSWORD` (API passphrase). Для Gate id — `gate` (`GATE_*`); алиаса `gateio` в
+4.5.94 нет.
 
-## Режим аккаунта и маршрут денег (тест на аккаунте)
+## Сети USDT: где лежат поля
 
-Сначала найди точное имя эндпоинта: `describe_method {"query":"<слово>","exchange":"<id>"}`;
-затем читай через `call_implicit_get` (только GET) или `call_read_method`.
+Пользуйся `fetchDepositWithdrawFee` с `args:["USDT"]` и `includeInfo:true`. В unified-части
+есть только `networks.<NET>.withdraw.fee` и `deposit.fee`, остальное ищи в `info`.
 
-| Биржа | Как узнать режим | Депозит зачисляется (типично) | Вывод идёт из (типично) |
+| Биржа | Поля в `info` | Статус |
+|---|---|---|
+| Bitget | `chains[]`: `withdrawable`, `rechargeable`, `minWithdrawAmount`, `minDepositAmount`, `withdrawFee`, `extraWithdrawFee`, `contractAddress`, `needTag`, `withdrawMinScale` | проверено публично |
+| WhiteBIT | `"USDT (<NET>)"`: `is_withdrawal`, `is_api_withdrawal`, `is_depositable`, `is_api_depositable`, `withdraw.min_amount/max_amount/fixed/flex` (`flex` — процентная часть), `deposit.min_amount`; **контракта нет** | проверено публично |
+| BingX | публичный ответ пуст | тест на аккаунте |
+| Binance, Bybit, OKX, Gate, KuCoin, MEXC | без ключа `AUTH_FAILED` | тест на аккаунте |
+
+Если биржа не отдаёт контракт (как WhiteBIT), напиши в плане «контракт не подтверждён
+<биржей>» и попроси человека сверить его в интерфейсе. Не додумывай.
+
+`fetchCurrencies` для выбора сети не годится: ответ целиком заменяется маркером усечения. Без
+ключа так было у Bitget, WhiteBIT, KuCoin и Gate, а Binance, Bybit, OKX, MEXC и BingX вернули
+`{}`.
+
+## Модель комиссии вывода
+
+По умолчанию она **не подтверждена** (см. SKILL.md, 2.3). Что известно из кода ccxt 4.5.94:
+
+- KuCoin отправляет `feeDeductType: "INTERNAL"` только при `params.includeFee: true`; иначе
+  действует умолчание биржи;
+- OKX сам подставляет `fee` из кэша валют, если его нет в `params`;
+- WhiteBIT `flex` — процентная составляющая.
+
+Ни одно из этого не делает модель подтверждённой.
+
+## Режим аккаунта и доступная сумма (тест на аккаунте)
+
+Raw-эндпоинты (`call_implicit_get`) в закреплённой связке недоступны, поэтому режим и доступную
+сумму читай unified-методами с `includeInfo: true` и цитируй найденное поле в плане.
+
+| Биржа | Откуда режим | Откуда доступная сумма | Депозит / вывод (типично, проверить) |
 |---|---|---|---|
-| Binance | classic vs Portfolio Margin — по кабинету и `fetchBalance` по типам (`spot`, `funding`, `linear`) | `spot` (настраивается на `funding`) | `spot` (или `funding` через параметр) |
-| Bybit | v5 account info (`unifiedMarginStatus`): UTA → `unified`+`funding`; classic → `spot`/`contract`/`funding` | `funding` | `funding` (UTA — проверить) |
-| Gate | unified mode endpoint (`unified`/classic) | `spot` | `spot` |
-| OKX | `privateGetAccountConfig` → `acctLv` (1 спот, 2 single-currency margin, 3 multi-currency, 4 portfolio); макс. вывод — `privateGetAccountMaxWithdrawal` | `funding` | `funding` |
-| Bitget | classic vs UTA (`uta`) по кабинету/балансам | `spot` | `spot` |
-| WhiteBIT | — (main/trade/collateral) | `main` | `main` |
-| BingX | балансы `funding`/`spot`/`swap` | проверить | проверить |
-| MEXC | — (spot/futures) | `spot` | `spot` |
-| KuCoin | classic vs UTA по балансам `main`/`trade`/`unified` | `main` | `main` |
+| Binance | `fetchBalance` по `type` (`spot`, `funding`, `linear`); Portfolio Margin — по кабинету | raw `fetchBalance` нужного кошелька | spot / spot |
+| Bybit | raw `fetchBalance` (UTA или classic) | raw `fetchBalance` `type: unified|funding` | funding / funding |
+| Gate | raw `fetchBalance` (classic или unified) | raw `fetchBalance` | spot / spot |
+| OKX | `fetchAccounts` (raw `acctLv`) | raw `fetchBalance` `type: funding|trading` | funding / funding |
+| Bitget | raw `fetchBalance` (classic или `uta`) | raw `fetchBalance` | spot / spot |
+| WhiteBIT | — | raw `fetchBalance` | main / main |
+| BingX | raw `fetchBalance` по кошелькам | raw `fetchBalance` | проверить / проверить |
+| MEXC | — | raw `fetchBalance` | spot / spot |
+| KuCoin | `fetchAccounts` (classic или UTA) | raw `fetchBalance` | main / main |
 
-Типовой маршрут A → B: A `transfer <trading> → <кошелёк вывода>` → A `withdraw` →
-депозит в `<кошелёк зачисления B>` → B `transfer → <торговый кошелёк>`.
+Если в ответе нет поля, которое биржа документирует как доступное к переводу или выводу в этом
+режиме, — стоп. `free` таким полем не считается.
 
-## Свободная маржа и «доступно к переводу»
-
-- Деривативный кошелёк: доступное к переводу ≠ `free`. Используй биржевое поле, если оно
-  есть (`includeInfo: true` в `fetchBalance`, OKX `maxWithdrawal`, Bybit UTA
-  transferable/withdrawable в `info`), и всегда вычитай резерв пользователя.
-- Открытые позиции (`get_positions`) и ордера (`get_orders`) уменьшают доступное;
-  перевод «впритык» может сдвинуть ликвидацию.
+Типовой маршрут: A `transfer` из торгового кошелька в кошелёк вывода → A `withdraw` →
+зачисление в кошелёк депозита B → B `transfer` в торговый кошелёк.
+`fetchTransfers` отсутствует у Gate и WhiteBIT. `fetchLedger` отсутствует у WhiteBIT, BingX и
+MEXC. `certified: false` только у WhiteBIT.
 
 ## Hyperliquid (только мониторинг)
 
-Проверено публично: `fetchBalance` (perp, коллатерал USDC), `fetchBalance` с
-`params.type: "spot"`, `fetchPositions` — с публичным адресом (`params.user` или аккаунт с
-одним `walletAddress`) работают без подписи. `fetchDepositAddress` без funds-аккаунта →
-`TIER_DISABLED`; `transfer` на read-аккаунте → `TIER_DISABLED`. `fetchDepositWithdrawFee`
-не поддерживается. USDT-маршрутов нет.
-
-## Что проверено, а что нет (2026-11-24)
-
-| Биржа | `describe_exchange` | публичные сети/комиссии USDT | аккаунт-тест |
-|---|---|---|---|
-| Binance, Bybit, OKX, MEXC | да | `fetchCurrencies` → `{}` без ключа, `fetchDepositWithdrawFee` → `AUTH_FAILED` | не выполнялся (нет ключей по условию) |
-| Gate | да | `fetchDepositWithdrawFee` → `AUTH_FAILED`; `fetchCurrencies` заблокирован тестовым guard'ом (публичный заголовок `X-Gate-Channel-Id`) — не подтверждено | не выполнялся |
-| Bitget, WhiteBIT | да | да: сети и комиссии вывода USDT | не выполнялся |
-| BingX | да | `fetchDepositWithdrawFee` → пусто, `fetchCurrencies` → `{}` | не выполнялся |
-| KuCoin | да | `fetchCurrencies` есть, но усечён по размеру; `fetchDepositWithdrawFee` → `AUTH_FAILED` | не выполнялся |
-| Hyperliquid | да | — | публичное чтение маржи/позиций по синтетическому адресу — да |
-
-Вывод для плана: на большинстве бирж включённость сетей и комиссии **нельзя** взять
-публично — нужен read-профиль с ключом, и только живые данные на момент плана.
+Публичные чтения по `walletAddress` или `params.user` работают без подписи. Это
+`fetchBalance` (perp, USDC), `fetchBalance` с `type: "spot"` и `fetchPositions`. Поля маржи
+(`marginSummary`, `crossMarginSummary`, `crossMaintenanceMarginUsed`, `withdrawable`) приходят
+только с `includeInfo: true`. `fetchDepositWithdrawFee` не поддерживается, USDT-маршрутов нет.

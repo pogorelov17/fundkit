@@ -1,122 +1,130 @@
-# ccxt-mcp 0.1.3 — версия, инструменты, гейты, ограничения
+# ccxt-mcp 0.1.3: пин, инструменты, гейты, проверки
 
-Всё ниже проверено по опубликованному пакету `ccxt-mcp@0.1.3` (исходник `js/`), README
-пакета, wiki `ccxt/ccxt` (`wiki/MCP.md`) и живому прогону по stdio (см. «Проверено»).
+Всё ниже проверено на опубликованном `ccxt-mcp@0.1.3` (исходник `js/`) и в живом прогоне
+по stdio. Подробности прогона — в разделе «Проверено».
 
-## Закрепление версии
+## Пин
 
 | Что | Значение |
 |---|---|
-| npm | `ccxt-mcp@0.1.3` (dist-tag `latest`; опубликованы 0.1.0, 0.1.2, 0.1.3) |
-| tarball sha1 / integrity | `b583b93e9fcecb6cc0700b48863dc7cbcb6ed99b` / `sha512-XGU7T/lXphackbxtukik6te2LfxuQsFUxshCUAXkaKnOKQFlwFJkaPjpZLZT/dSeScA6Wq2ipMhGhE2uxvrbqg==` |
-| provenance | SLSA v1, `github.com/ccxt/ccxt`, `.github/workflows/mcp-release.yml`, `refs/heads/master`; gitHead `e0eaca51b25377491120ce9ca2943c71800d0d44` |
-| исходник | `github.com/ccxt/ccxt/tree/master/mcp` (README в тарболе совпадает с `mcp/README.md` на gitHead) |
-| зависимости | `@modelcontextprotocol/sdk ^1.29.0`, `ccxt ^4.5.75`, `zod ^3.25.76` — диапазоны, не пины |
-| bin | `ccxt-mcp` → `js/server.js`, Node ≥ 18 (`--env-file` из fallback-лаунчера требует Node ≥ 20.6) |
+| npm | `ccxt-mcp@0.1.3` (опубликованы 0.1.0, 0.1.2, 0.1.3) |
+| integrity / sha1 | `sha512-XGU7T/lXphackbxtukik6te2LfxuQsFUxshCUAXkaKnOKQFlwFJkaPjpZLZT/dSeScA6Wq2ipMhGhE2uxvrbqg==` / `b583b93e9fcecb6cc0700b48863dc7cbcb6ed99b` |
+| provenance | SLSA v1, `github.com/ccxt/ccxt`, `.github/workflows/mcp-release.yml`, gitHead `e0eaca51b25377491120ce9ca2943c71800d0d44` |
+| зависимости пакета | `@modelcontextprotocol/sdk ^1.29.0`, `ccxt ^4.5.75`, `zod ^3.25.76` — это диапазоны, их нужно закрепить отдельно |
+| закрепляем | `ccxt@4.5.94`, `@modelcontextprotocol/sdk@1.32.2`, `zod@3.25.76` |
+| версия в `get_safety_status` | `version: "0.1.3"`, `ccxtVersion: "4.5.93"` — внутренняя строка ccxt 4.5.94 |
 
-Проверка перед установкой (в доверенном аккаунте):
-
-```bash
-npm view ccxt-mcp@0.1.3 dist.integrity dist.shasum gitHead
-npm view ccxt-mcp versions
-```
-
-Установка с точным пином и lockfile (не `npx -y ccxt-mcp` при каждом старте — он берёт
-`latest` и скачивает код заново):
+Установка в отдельный каталог оператора (не `npx -y`: он каждый раз берёт `latest`):
 
 ```bash
-npm --prefix /srv/fundkit-mcp/app install --save-exact --ignore-scripts ccxt-mcp@0.1.3
-npm --prefix /srv/fundkit-mcp/app audit signatures
+npm view ccxt-mcp@0.1.3 dist.integrity gitHead
+npm --prefix <APP_DIR> install --save-exact --ignore-scripts \
+  ccxt-mcp@0.1.3 ccxt@4.5.94 @modelcontextprotocol/sdk@1.32.2 zod@3.25.76
+npm --prefix <APP_DIR> ls ccxt            # одна копия ccxt@4.5.94 (deduped)
+npm --prefix <APP_DIR> audit signatures   # проверка подписей и attestations
 ```
 
-Транзитивные версии фиксирует `package-lock.json` в каталоге приложения; при обновлении
-сравни `get_safety_status.version`/`ccxtVersion` с ожидаемыми. Пример наблюдения: при
-`ccxt` 4.5.94 сервер сообщает `ccxtVersion: "4.5.93"` (внутренняя строка версии ccxt).
+## Инструменты (32; с `hideDisabledTools: true` видны только доступные тиры)
 
-## Инструменты (32 по умолчанию)
+| Тир | Инструменты |
+|---|---|
+| market | `list_exchanges`, `describe_exchange`, `describe_method`, `search_markets`, `get_tickers`, `get_orderbook`, `get_ohlcv`, `get_trades`, `search_events`, `call_read_method`, `call_implicit_get`, `get_safety_status`, `watch_*` (4) |
+| read | `list_accounts`, `get_balance`, `get_orders`, `get_my_trades`, `get_positions` |
+| trading (запись) | `create_order`, `edit_order`, `cancel_order`, `cancel_all_orders`, `set_leverage`, `set_margin_mode`, `call_write_method` |
+| funds (запись) | `transfer`, `withdraw`, `get_deposit_address` |
+| implicitWrites (запись) | `call_implicit_write` |
 
-| Тир | Инструменты | Тип |
-|---|---|---|
-| market (всегда) | `list_exchanges`, `describe_exchange`, `describe_method`, `search_markets`, `get_tickers`, `get_orderbook`, `get_ohlcv`, `get_trades`, `search_events`, `call_read_method`, `call_implicit_get`, `get_safety_status`, `watch_subscribe`, `watch_read`, `watch_unsubscribe`, `watch_list` | чтение |
-| read (есть аккаунт) | `list_accounts`, `get_balance`, `get_orders`, `get_my_trades`, `get_positions` | чтение |
-| trading | `create_order`, `edit_order`, `cancel_order`, `cancel_all_orders`, `set_leverage`, `set_margin_mode`, `call_write_method` | запись |
-| funds | `transfer`, `withdraw`, `get_deposit_address` | запись |
-| implicitWrites | `call_implicit_write` | запись (сырые POST/PUT/DELETE) |
+Схемы (из `tools/list`, обязательные поля **жирным**):
 
-Схемы записей (точно из `tools/list`):
+- `call_read_method {`**`exchange`**`, `**`method`**` ^(fetch|load), args?, account?, includeInfo?, marketType?, prediction?, params?}`.
+  Если указан `account`, используется биржа аккаунта, но `exchange` всё равно обязателен.
+  `args` принимает только скаляры и `null`.
+- `call_implicit_get {`**`exchange`**`, `**`method`**`, account?, params?}`.
+- `get_balance {`**`account`**`, nonzeroOnly?, marketType?, params?}` — `includeInfo` нет,
+  поэтому raw-поля читай через `call_read_method fetchBalance`.
+- `transfer {`**`account, code, amount>0, fromAccount, toAccount`**`, params?, confirm?}`.
+- `withdraw {`**`account, code, amount>0, address`**`, tag?, network?, params?, confirm?}`.
+  Сервер кладёт `network` в `params.network`, а ccxt затем объединяет `params` с запросом, так
+  что лишний ключ в `params` (например, `chain`) переопределит сеть. WhiteBIT передаёт
+  `network` на биржу без перевода в свой код.
+- `get_deposit_address {`**`account, code`**`, network?, params?}` — без `confirm`. Если
+  `fetchDepositAddress` не сработал, сервер вызывает `createDepositAddress`.
 
-- `transfer {account, code, amount>0, fromAccount, toAccount, params?, confirm?}`
-- `withdraw {account, code, amount>0, address, tag?, network?, params?, confirm?}`
-- `get_deposit_address {account, code, network?, params?}` — **нет** `confirm`.
-- `call_read_method {exchange, method ^(fetch|load), args?, account?, includeInfo?, marketType?, prediction?, params?}`
-  — `args` только скаляры (string/number/bool/null).
+## Гейты и подтверждение
 
-Полезные вызовы для навыка:
+- Тиры включаются **только** в конфиге оператора. `funds: true` и `trading: true` работают
+  лишь в `sandbox`/`demo`; на live сервер понижает их и пишет `configProblems`. Для
+  `funds: "live"` нужен `maxTransferValue` (USD), при превышении — `TRANSFER_VALUE_CAP`.
+- Адресные методы (`/deposit.?address|withdraw.?address|withdrawal.?whitelist/i`) требуют
+  `funds` везде.
+- `withdraw`, `transfer` и `call_implicit_write` всегда требуют подтверждения, если
+  `confirm` ≠ `"never"`.
+  - **Хост с elicitation.** Первый же вызов показывает форму. В ней текст preview и одно поле
+    `confirm: boolean`; `params` не показаны. На `accept` с `true` запись **сразу**
+    отправляется, на `decline` приходит `CONFIRM_DECLINED`. Если форма не открылась —
+    `CONFIRM_UNAVAILABLE`; в режим токена сервер при этом не переходит.
+  - **Хост без elicitation.** Возвращается preview и `confirmToken`: UUID, HMAC от точного
+    payload вместе с `params`, одноразовый, живёт 60 с. Ошибки погашения —
+    `CONFIRM_INVALID`, `CONFIRM_EXPIRED`, `CONFIRM_MISMATCH`. Токен может погасить и модель.
+- Порядок проверок: гейт тира → лимиты → подтверждение → `dryRun` → `intent` (fsync) → вызов
+  биржи → `result` или `error`. Всё, что отвергнуто до `intent`, гарантированно не отправлено.
+- `UNKNOWN_OUTCOME` приходит, когда после отправки случился таймаут или сетевая ошибка. Его
+  подсказка ссылается на `get_orders`; для переводов и выводов вместо этого сверяйся через
+  `fetchTransfers`, `fetchWithdrawals`, `fetchDeposits` и балансы.
 
-```text
-get_safety_status {}
-list_accounts {}
-describe_exchange {"exchange":"okx"}                       # requiredCredentials, методы, sandbox
-describe_method {"method":"transfer","exchange":"okx"}     # сигнатура
-call_read_method {"exchange":"okx","account":"okx-main","method":"fetchCurrencies"}
-call_read_method {"exchange":"okx","account":"okx-main","method":"fetchDepositWithdrawFee","args":["USDT"]}
-call_read_method {"exchange":"okx","account":"okx-main","method":"fetchBalance","params":{"type":"funding"},"includeInfo":true}
-call_read_method {"exchange":"okx","account":"okx-main","method":"fetchWithdrawals","args":["USDT"]}
-call_read_method {"exchange":"bybit","account":"bybit-main","method":"fetchDeposits","args":["USDT"]}
-transfer {"account":"okx-main","code":"USDT","amount":25,"fromAccount":"trading","toAccount":"funding"}
-```
+## Журнал
 
-## Гейты (из `safety.js`, `config.js`, `funds.js`)
+- Путь: `$XDG_CACHE_HOME/ccxt-mcp/journal/YYYY-MM.jsonl`, по умолчанию
+  `~/.cache/ccxt-mcp/journal/YYYY-MM.jsonl` пользователя, под которым работает сервер.
+  **Журнал общий** для всех профилей этого пользователя.
+- Дневной лимит (`maxDailyValue`) и intents привязаны к **алиасу**. Поэтому алиасы должны быть
+  уникальны среди всех профилей, иначе лимиты и записи смешаются.
+- `unresolvedIntents` — это intents без `result` или `error`, то есть только оборванные падением
+  процесса, причём на всех алиасах. `UNKNOWN_OUTCOME` и таймаут хоста туда не попадают.
 
-- Тиры включаются **только** в конфиг-файле оператора; инструмента для правки конфига нет.
-- `funds: true` / `trading: true` работают только для `sandbox`/`demo`; на live аккаунте
-  сервер понижает их до `false` и пишет `configProblems`.
-- `funds: "live"` требует `maxTransferValue` (USD; `null` = осознанный отказ от лимита —
-  не рекомендуем). Превышение → `TRANSFER_VALUE_CAP`, запись в журнал `rejected`.
-- `get_deposit_address` и любые методы/эндпоинты, совпадающие с
-  `/deposit.?address|withdraw.?address|withdrawal.?whitelist/i`, требуют `funds` — и в
-  `call_read_method`, и в `call_implicit_get`. `get_deposit_address` при неудаче
-  `fetchDepositAddress` вызывает `createDepositAddress` (может **создать** адрес на бирже).
-- Подтверждение записей `withdraw`/`transfer`/`call_implicit_write` обязательно, пока
-  `confirm` ≠ `"never"`. Без elicitation: preview + `confirmToken` (UUID, HMAC от точного
-  payload, одноразовый, TTL 60 с). **Важно:** такой токен может погасить и сама модель —
-  поэтому человеческое подтверждение плана в чате обязательно до погашения.
-- Поток записи: `intent` (fsync) → вызов → `result`/`error`; таймаут после отправки =
-  `UNKNOWN_OUTCOME`, без авто-повтора. Журнал: `<cache>/ccxt-mcp/journal/YYYY-MM.jsonl`
-  у пользователя, под которым работает сервер; `get_safety_status.unresolvedIntents`.
-- Секреты не принимаются ни одним инструментом; результаты и логи проходят редактор
-  секретов; `info` вырезается, пока не запрошен `includeInfo`.
+## Ограничения
 
-## Ограничения `dryRun`
+- `dryRun: true` соблюдают только `withdraw`, `transfer`, `create_order` и `edit_order`.
+  `get_deposit_address` на dryRun-аккаунте отправил настоящий подписанный запрос (в тесте его
+  остановил guard). dryRun-ответ — локальный preview, биржа не проверяет ни баланс, ни
+  кошельки, ни минимумы.
+- Ответ больше 80 000 символов: массив обрезается, а объект (например, `fetchCurrencies`)
+  целиком заменяется на `{"truncated":true,…}`.
+- `call_implicit_get` и `call_implicit_write` с ccxt 4.5.94 неприменимы. Raw-эндпоинты в ccxt
+  стали собственными свойствами в snake_case, а camelCase-версии лежат в прототипе. Проверка
+  `isImplicitMethod` (собственное свойство + camelCase-глагол) отвергает обе формы с
+  `UNKNOWN_ENDPOINT`, а `describe_method {"query":"…"}` возвращает `implicit: []`.
+- `describe_method withdraw` модель комиссии не показывает (`paramsKeys: null`).
+- Переменные `<EXCHANGEID>_<CREDENTIAL>` заполняют **все** аккаунты этой биржи в процессе,
+  поэтому на один сервер — один аккаунт ([`security.md`](security.md)).
+- В README: «Unregistered tiers do not even appear» верно только при `hideDisabledTools: true`.
+  `mcp/server.json` на gitHead 0.1.3 указывает версию 0.1.2.
 
-`dryRun: true` в аккаунте соблюдают **только** `withdraw`, `transfer`, `create_order`,
-`edit_order`. Не соблюдают: `get_deposit_address` (может создать адрес),
-`cancel_order`, `cancel_all_orders`, `set_leverage`, `set_margin_mode`,
-`call_write_method`, `call_implicit_write`. dryRun-ответ — локальный preview: он **не**
-проверяет на бирже баланс, права ключа, имена кошельков, минимумы, whitelist. Перед
-dryRun всё равно загружаются рынки (публичная сеть) и требуется подтверждение.
+## Проверено (2026-11-24, scratch, без ключей, без live-записей)
 
-## Неточности публичной документации (на 0.1.3)
+Окружение: изолированные `HOME`/`XDG_*` и синтетические значения `SYNTHETIC-…`. Сеть
+ограничивал guard (preload `undici`), который до сокета блокирует любой подписанный запрос
+и любой не-GET, кроме публичного `POST /info` Hyperliquid. Ни один подписанный запрос из
+процесса не ушёл.
 
-- README: «Unregistered tiers do not even appear in the tool list» — верно только при
-  `"settings": {"hideDisabledTools": true}`; по умолчанию все 32 инструмента видны, а
-  вызов отключённого тира возвращает `TIER_DISABLED` (проверено).
-- `mcp/server.json` на gitHead релиза 0.1.3 указывает версию `0.1.2` (метаданные реестра
-  отстают от npm).
-- Переменные `<EXCHANGEID>_<CREDENTIAL>` заполняют **все** аккаунты одной биржи в
-  процессе — два аккаунта одной биржи в одном сервере без ключей в файле получат один и
-  тот же ключ (см. `security.md`, «Профили»).
+| Проверка | Результат |
+|---|---|
+| установка пина, `npm ls`, `audit signatures` | одна копия `ccxt@4.5.94`; 24 пакета с подтверждёнными attestations |
+| `tools/list` (SDK 1.32.2) | 32 инструмента; у `call_read_method` обязательны `["exchange","method"]` |
+| `call_read_method` без `exchange` | `-32602 … Required at exchange` |
+| `get_safety_status` | `0.1.3` / `ccxtVersion 4.5.93`; без elicitation `false`, с elicitation `true` |
+| `withdraw` без `confirm` (sandbox, dryRun) | preview + токен 60 с; preview с `params.chain` совпадает с preview без него |
+| погашение токена | другой `params` → `CONFIRM_MISMATCH`; повтор → `CONFIRM_INVALID`; через 61,5 с → `CONFIRM_EXPIRED`; идентичный → `dryRun: true` |
+| лимит | 100 > 50 → `TRANSFER_VALUE_CAP`, запись `rejected` |
+| отправка в обход dryRun (подпись блокирует guard) | `UNKNOWN_OUTCOME`; журнал `intent` + `error`; `unresolvedIntents: []` |
+| elicitation: `decline` / `accept` при первом вызове | `CONFIRM_DECLINED` / запись сразу отправлена (`UNKNOWN_OUTCOME` от guard); в схеме формы только `confirm: boolean` |
+| таймаут хоста 3 с при зависшей отправке, затем kill | клиент получает `-32001 Request timed out`; профиль с другим алиасом на том же кэше видит intent убитого профиля |
+| `get_deposit_address` на dryRun-аккаунте | ушёл бы подписанный `GET /api/v5/asset/deposit-address` (заблокирован) |
+| публично `fetchCurrencies` | Bitget, WhiteBIT, KuCoin, Gate → маркер усечения; Binance, Bybit, OKX, MEXC, BingX → `{}` |
+| публично `fetchDepositWithdrawFee USDT includeInfo` | Bitget и WhiteBIT: флаги, минимумы, комиссии в `info`; BingX пусто; остальные `AUTH_FAILED` |
+| `call_implicit_get` (`publicGetTime` и др.) | `UNKNOWN_ENDPOINT` для camelCase и snake_case |
+| Hyperliquid `fetchBalance` | `info.marginSummary`, `crossMaintenanceMarginUsed`, `withdrawable` есть только с `includeInfo` |
+| хосты | Claude Code 2.1.331 и Codex 0.172.0 находят навык и подключают сервер без секретов в конфиге, оба объявляют `elicitation.form` ([`security.md`](security.md)) |
 
-## Проверено (2026-11-24, изолированный HOME, синтетические данные, без ключей)
-
-- Официальный клиент `@modelcontextprotocol/sdk` 1.32.2 по stdio и
-  `@modelcontextprotocol/inspector` 2.16.0 `--cli --method tools/list` → 32 инструмента;
-  `serverInfo` `ccxt-mcp 0.1.3`.
-- `describe_exchange` для всех 10 бирж (оффлайн) — см. таблицу в `exchanges.md`.
-- Синтетический конфиг: `TIER_DISABLED` для `transfer`/`withdraw`/`get_deposit_address`/
-  `fetchDepositAddress` на read-профиле; понижение `funds: true` на live и `funds: "live"`
-  без лимита; `TRANSFER_VALUE_CAP` (100 > 50); `CONFIRM_MISMATCH` (сумма 6 вместо 5),
-  `CONFIRM_INVALID` (повтор токена); dryRun-`transfer` → `dryRun: true`, intent в журнал не
-  пишется; `call_implicit_write` без `implicitWrites` → `TIER_DISABLED`;
-  `createDepositAddress` через `call_read_method` → `NOT_A_READ_METHOD`.
-- Сетевой guard в тестовом процессе: 0 подписанных запросов ушло на биржи.
+Не проверено (нет ключей по условию): реальные аккаунты, режимы, поля доступной суммы,
+модели комиссий, whitelist, фактические выводы и депозиты.
