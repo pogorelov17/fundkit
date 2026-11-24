@@ -254,7 +254,7 @@ Expect `version: "0.1.3"`, `ccxtVersion: "4.5.84"`, an empty `configProblems`,
 | Profile | Permissions | Required |
 |---|---|---|
 | read-only | read | IP allowlist |
-| Bybit deposit address (Scenario 1) | read-only, main account; profile with `funds` and `dryRun` ([above](#bybit-deposit-profile)) | IP allowlist, no withdrawal, no transfer, no trading |
+| Bybit deposit address (Scenario 1) | read-only, main account; profile with `funds` and `dryRun` ([above](#bybit-deposit-profile)) | IP allowlist, no Withdraw label, no transfer or trading write access |
 | internal transfer | read + internal transfer | IP allowlist, no withdrawal |
 | withdrawal (exchange A) | read + withdrawal (+ transfer) | IP allowlist, address whitelist (the human adds B's address with 2FA), exchange-side withdrawal limit |
 | Hyperliquid | no key needed | public address only |

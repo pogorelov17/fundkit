@@ -90,7 +90,7 @@ only what the human pastes carries over.
    The fix is a fresh copy from the source, and a changed address or memo needs a new plan or
    sheet and new approvals. For an API withdrawal, the full address must already be on A's
    withdrawal whitelist. On every plan or sheet for a send, record the destination network's
-   memo requirement (required, optional, or no published flag), its source and the UTC check time.
+   memo requirement (required, not required, or no published flag), its source and the UTC check time.
    If the source publishes this field but omits it or returns an unknown value, hold even on
    the first lookup. Use "no published flag" only when the venue supplies no such field and
    the address-specific evidence establishes the memo. Before recording OPEN for a wallet send or any withdrawal,
@@ -257,7 +257,7 @@ sends from OKX Wallet, using the checked sheet.
    exchange states it, require `C` ≥ minimum (that covers both). Example: `S = 150`, gas in
    TRX, `d = 1`, minimum 150: `C = 149` fails; `S = 151` gives `C = 150` and passes. Show the
    human a draft send sheet with the source wallet, destination account, network and contract,
-   `S`, network fee <amount or cap, asset, treatment>, `N`, `d`, expected `C`, and the minimum and its basis. Include
+   `S`, network fee <amount or cap, asset, treatment>, `N`, `d`, expected `C`, the minimum and its basis, and the recorded memo requirement. Include
    the sources and UTC time of the route checks. Include the full recipient
    and exact memo and issue `SEND SHEET <ID>, created <UTC>, expires <UTC + 15 min>`.
 6. Follow [manual confirmation](#manual-confirmation). Refresh B's conditions, compare the
@@ -340,6 +340,14 @@ Use one alias with `"funds": "live"` for every read below.
    establish how many raw rows Bybit returned on that earlier request. Use only the unique
    raw row from step 4 as the address source. Empty data, multiple raw rows, a wrong chain
    or any conflicting field: stop. The client sends GETs only.
+   Record the chain's `batchReleaseLimit` on the sheet. Bybit documents the string `"-1"`
+   as unlimited. For a finite nonnegative decimal limit, verify that the incoming USDT amount
+   `N` fits within the remaining credit allowance, accounting for other deposits in the
+   applicable period. A missing or malformed limit, unknown remaining allowance, or amount
+   above it holds the sheet. Repeat this check before OPEN; a changed limit requires a new
+   sheet. On the user-selected UI path, obtain the equivalent limit from Bybit's deposit
+   details. Excess deposits can remain pending. [Address response](https://bybit-exchange.github.io/docs/v5/asset/deposit/master-deposit-addr)
+   · [Deposit limits](https://www.bybit.com/en/help-center/article/Bybit-Deposit-FAQ)
 5. **Show it.** Put the address and the memo (or `none`) each in its own code block, copied
    character for character from the unique raw row in step 4, with the provenance
    `Bybit UID <userID>, alias <alias>, read <UTC>, chain <chain>`. Copy the same values into
@@ -483,12 +491,12 @@ Available on A: <field>=<value>, reserve <R>, transferable <T>
 Amounts: D=<…>, W=<…>, C=<…> (fee model: <on top | deducted | unconfirmed>); f=<…> <asset>, d=<…> <asset>
 Amount steps: currency <…>, network <…>, exchange <…> (<source>); W and transfer amounts are multiples of all, ≤ 15 significant digits, ≥ 0.000001
 B deposit: address <full address>, memo <none | exact memo>, copied by the human from B's UI, on A's whitelist (full match): yes
-Memo requirement: <required | optional | no published flag>; evidence <source, UTC>
+Memo requirement: <required | not required | no published flag>; evidence <source, UTC>
 Expected on B: C=<C_min>…<C_max> USDT, lands in <B wallet> (source: <B UI | typical, unverified>)
 Calls on A (exactly these arguments):
   1. transfer {"account":"<A>","code":"USDT","amount":<…>,"fromAccount":"<…>","toAccount":"<…>","params":<{} | per transfer proof table>}
      proof: <API: <read from the transfer proof table> | operator: <A> UI transfer history, access and quiet window confirmed <UTC> | manual: the human transfers in A's UI>
-  2. withdraw {"account":"<A>","code":"USDT","amount":<W>,"address":"<full address>","tag":"<memo as a string, only if required>","network":"<code>","params":<per table>}   ← separate WITHDRAW <PLAN-ID>
+  2. withdraw {"account":"<A>","code":"USDT","amount":<W>,"address":"<full address>","tag":"<memo as a string, preserve every character when the verified recipient supplies a memo; omit tag when it supplies none>","network":"<code>","params":<per table>}   ← separate WITHDRAW <PLAN-ID>
      proof: fetchWithdrawals record with the call's id, status ok, with a hash
 Then: on final source success, hand off the verified route, source proof and hash (2.8); B matches the deposit (2.7) before planning an internal transfer.
 Before each write: expiry and that step's checks (2.5). Both networks are checked before the withdrawal.
@@ -703,7 +711,7 @@ WITHDRAWAL SHEET <PLAN-ID>, created <UTC>, expires <UTC + 15 min>
 From: <A exchange> <wallet>; A's UI label <…> = chain <…>, contract <…>
 Route evidence: A <source, observed chain/contract, UTC>; B <source, observed chain/contract, UTC>
 To: <B exchange>, address <full address>, memo <none | exact memo> (from B's deposit page)
-Memo requirement: <required | optional | no published flag>; evidence <source, UTC>
+Memo requirement: <required | not required | no published flag>; evidence <source, UTC>
 Enter: W=<…> (multiple of A's UI step, ≥ A's withdrawal minimum <…>)
 Fee: f=<…> <asset>, model <on top | deducted>; exact debit D=<…>; exact receive amount on A's preview <…>
 Expected on B: exact C=<…> USDT after deposit fee d=<…> <asset>, B deposit minimum <…> (<stated | assumed>)
