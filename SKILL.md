@@ -209,7 +209,7 @@ sends from OKX Wallet, using the checked sheet.
    Wallet, and the amount. For Bybit, run the [Bybit setup check](#bybit-setup-check) first.
 2. Read the destination's network data from the
    [source listed for that exchange](references/exchanges.md#network-data-sources): deposit
-   enabled, deposit minimum, deposit fee, contract, memo. An empty response or an error means
+   enabled, deposit minimum, deposit fee and contract. Obtain the memo with the address in step 4. An empty response or an error means
    "no data", not "network disabled". If the source lacks a field (for example the Gate
    deposit minimum), the human reads it on the exchange's deposit page, and the plan says
    "source: human, <exchange> UI". Bybit's deposit fee is the exception: it comes from Bybit's
@@ -219,7 +219,16 @@ sends from OKX Wallet, using the checked sheet.
 3. A network qualifies if its chain is in the [chain table](#chains), deposits are enabled,
    the USDT contract on that chain matches both the wallet's contract and the reference, and
    the amounts below clear the minimum. Reject bridged variants and other contracts.
-4. **Amounts.** Keep these apart:
+4. **Deposit address and memo.** For Bybit, you read it from the operator's own Bybit account
+   ([Bybit deposit address](#bybit-deposit-address)); the human does not open Bybit. For other
+   exchanges, or if the user chooses the manual path, the human copies the address
+   **themselves** in the exchange app (Deposit → USDT → network). Call `get_deposit_address`
+   only if the human asked for it separately, the profile has `funds`, and you showed a
+   mini-plan `PLAN <PLAN-ID>` with the exact JSON of that call and an expiry, and the human
+   replied `ADDRESS <PLAN-ID>`. Warn that the first call may create a new address and that
+   `dryRun` does not stop this tool.
+   Give the operator these details before asking them to prepare the unsigned wallet preview.
+5. **Amounts.** Keep these apart:
    - `S`: the USDT amount the human enters in the wallet;
    - the wallet's network fee on its confirmation screen: record the exact quoted amount,
      its asset, and whether it
@@ -237,22 +246,14 @@ sends from OKX Wallet, using the checked sheet.
    TRX, `d = 1`, minimum 150: `C = 149` fails; `S = 151` gives `C = 150` and passes. Show the
    human a draft send sheet with the source wallet, destination account, network and contract,
    `S`, network fee <amount or cap, asset, treatment>, `N`, `d`, expected `C`, and the minimum and its basis. Include
-   the sources and UTC time of the route checks. After step 5, fill in the full recipient
+   the sources and UTC time of the route checks. Include the full recipient
    and exact memo and issue `SEND SHEET <ID>, created <UTC>, expires <UTC + 15 min>`.
-5. **Deposit address.** For Bybit, you read it from the operator's own Bybit account
-   ([Bybit deposit address](#bybit-deposit-address)); the human does not open Bybit. For other
-   exchanges, or if the user chooses the manual path, the human copies the address
-   **themselves** in the exchange app (Deposit → USDT → network). Call `get_deposit_address`
-   only if the human asked for it separately, the profile has `funds`, and you showed a
-   mini-plan `PLAN <PLAN-ID>` with the exact JSON of that call and an expiry, and the human
-   replied `ADDRESS <PLAN-ID>`. Warn that the first call may create a new address and that
-   `dryRun` does not stop this tool.
 6. Follow [manual confirmation](#manual-confirmation). Refresh B's conditions, compare the
    wallet's send amount and quoted fee (or maximum), including its asset, with this sheet.
    A change from 1 TRX to 10 TRX requires a new sheet even if the USDT credit stays the same.
-   For Bybit, repeat both address reads (steps 3 and 4 of the
+   If MCP supplied the Bybit address, repeat both address reads (steps 3 and 4 of the
    [Bybit flow](#bybit-deposit-address)) just before OPEN: chain, address and memo must equal
-   the sheet exactly. Verify the full address, network and exact memo before recording OPEN.
+   the sheet exactly. For a user-selected UI address, refresh it on the same deposit page. Verify the full address, network and exact memo before recording OPEN.
    Only the operator can sign the checked transaction.
 7. After sending, ask for the full transaction hash from the wallet and credit the deposit by
    the [deposit rule](#27-reconciliation): the credited amount must equal the expected `C`. A
@@ -277,7 +278,7 @@ you see:
 | `TIER_DISABLED` | Address reads need `"funds": "live"` and a `maxTransferValue` in the profile; restart |
 | `AUTH_FAILED` with `requires "apiKey" credential` or `requires "secret" credential` | This server process received no Bybit key or secret. Set `BYBIT_APIKEY` and `BYBIT_SECRET` where the server is launched ([scheme A or B](references/security.md#environment-contract); in Codex also list both in `env_vars`), restart the host, start a new chat |
 | `AUTH_FAILED` with `retCode` `10003` (invalid key), `10004` (signature) or `10010` (IP not bound) | Bybit rejected the key: check that both values belong to one live main-account key and the IP allowlist; replace the key if needed |
-| `AUTH_FAILED` with `retCode` `10005` on the network data read (step 1) | Bybit denied this key its coin list (`/v5/asset/coin/query-info`). The server loads that list with the key before the first Bybit call, and after a denial every Bybit call in this server process returns the same `10005`, so the key check has not run. Check the key in Bybit's API management, then restart the host |
+| `AUTH_FAILED` with `retCode` `10005` on the network data read (step 1) | Bybit denied this key its coin list (`/v5/asset/coin/query-info`). The key identity is still unverified. If the initial market load failed, subsequent calls in this process repeat that error. A later coin-info denial alone does not establish that the initial load failed. Check the key in Bybit's API management, then restart the host |
 | `AUTH_FAILED` with `retCode` `10005` on the key check (step 2) after step 1 succeeded | Bybit denied the key check itself, so the key's rights are unknown: stop the Bybit read |
 | any other error | Quote the code and message; do not guess the cause |
 
@@ -312,7 +313,7 @@ Use one alias with `"funds": "live"` for every read below.
      missing field means unknown (stop);
    - `contractAddress` shows the contract's last 6 characters, which must match the
      [reference contract](#chains) (in any letter case on EVM chains).
-4. **Raw check of the same read.** ccxt keeps one entry per network, so a second Bybit entry
+4. **Authoritative address response.** ccxt keeps one entry per network, so a second Bybit entry
    for the same chain silently replaces the first in step 3 (verified offline). Only after
    step 3 succeeded, on the same alias, call
    `call_implicit_get {"exchange":"bybit","account":"<alias>","method":"privateGetV5AssetDepositQueryAddress","params":{"coin":"USDT","chainType":"<chain>"}}`
@@ -321,10 +322,12 @@ Use one alias with `"funds": "live"` for every read below.
    `result.chains`, whose `chain`, `addressDeposit`, `tagDeposit` and `contractAddress` equal
    step 3's `info`.
 
-   Empty `data` or `chains`, several entries, a wrong chain or any difference: stop. These
-   tools cannot create a Bybit address.
+   Step 3 establishes permission and supplies a comparison value. Its normalized output cannot
+   establish how many raw rows Bybit returned on that earlier request. Use only the unique
+   raw row from step 4 as the address source. Empty data, multiple raw rows, a wrong chain
+   or any conflicting field: stop. The client sends GETs only.
 5. **Show it.** Put the address and the memo (or `none`) each in its own code block, copied
-   character for character from step 3, with the provenance
+   character for character from the unique raw row in step 4, with the provenance
    `Bybit UID <userID>, alias <alias>, read <UTC>, chain <chain>`. Copy the same values into
    the send sheet. The human pastes the address from your code block and later checks the
    wallet's final screen against the tool result itself (rule 9), not your prose. To see the
