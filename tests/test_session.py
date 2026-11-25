@@ -662,6 +662,35 @@ class SessionTests(Base):
         self.assertTrue(err)
         self.assertIn("outcome is unknown", r["message"])
 
+    def test_13_install_registers_hosts_and_links_skill(self):
+        # Pinned packages faked by version files only (npm is not run when they match).
+        app = os.path.join(self.tmp, "app")
+        pins = {"ccxt-mcp": "0.1.3", "ccxt": "4.5.85", "@modelcontextprotocol/sdk": "1.32.2", "zod": "3.25.76"}
+        for name, v in pins.items():
+            d = os.path.join(app, "node_modules", name)
+            os.makedirs(d)
+            json.dump({"name": name, "version": v}, open(os.path.join(d, "package.json"), "w"))
+        env = dict(self.host_env)
+        run = lambda *a: subprocess.run([NODE, FUNDKIT, *a], env=env, capture_output=True, text=True, timeout=120)
+        p = run("install", "--app-dir", app)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for link in (".claude/skills/usdt-funding", ".agents/skills/usdt-funding"):
+            self.assertEqual(os.path.realpath(os.path.join(self.home, link)), ROOT)
+        info = json.load(open(os.path.join(self.home, ".config/fundkit/install.json")))
+        self.assertEqual(info["appDir"], app)
+        if shutil.which("claude"):
+            self.assertIn('registered user-scope server "fundkit"', p.stdout)
+            lst = subprocess.run(["claude", "mcp", "list"], env=env, capture_output=True, text=True, timeout=120)
+            self.assertRegex(lst.stdout, r"fundkit: .*fundkit\.mjs mcp - . Connected")
+        if shutil.which("codex"):
+            g = subprocess.run(["codex", "mcp", "get", "fundkit"], env=env, capture_output=True, text=True, timeout=60)
+            self.assertIn("tool_timeout_sec: 420", g.stdout)
+            self.assertIn("env: -", g.stdout)
+        p2 = run("install", "--app-dir", app)
+        self.assertIn("left unchanged", p2.stdout)
+        self.assertEqual(self.doppler.requests, [])      # install never touches Doppler
+        self.assertFalse(os.path.exists(os.path.join(self.run_dir, "session.sock")))
+
 
 SHIM = r"""
 import fs from 'node:fs';
