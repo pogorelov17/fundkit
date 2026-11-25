@@ -53,9 +53,13 @@ only what the human pastes carries over.
 3. **Withdrawals get their own approval, in advance.** Before the **first** `withdraw` call,
    show its exact JSON and get a separate `WITHDRAW <PLAN-ID>` from the human. **Every money
    move (`withdraw` and `transfer`) is confirmed by the human in the host's native form.** The
-   call opens the form, and accepting it sends the write immediately. A server that reports
-   `elicitationSupported: false` gets no MCP money move at all, because its confirmation token
-   could be redeemed by the model. Never redeem a `confirmToken`. Use the exchange UI instead.
+   call opens the form, and accepting it sends the write immediately. The server enforces only
+   that answer: the form shows no `params`, no PLAN-ID and no expiry, so checking the full
+   arguments and the clock against the plan is your and the human's procedure (2.5). A server
+   that reports `elicitationSupported: false` gets no MCP money move at all, because its
+   confirmation token could be redeemed by the model. Never redeem a `confirmToken`. Hold the
+   move; the human may use the exchange UI instead. The skill assumes a cooperative, trusted
+   host, operator and agent ([trust model](references/security.md#trust-model)).
 4. **API withdrawals require a native confirmation form and a verified request.** The pair "exchange A + network" must appear in
    the [outbound withdraw table](references/exchanges.md#outbound-withdraw). Pass `network` at
    the top level and the memo only in `tag`. Put exactly what the table requires for that
@@ -211,13 +215,14 @@ For each server involved:
    than one connected server or alias has the keyed exchange, stop until the operator leaves
    exactly one registration enabled
    ([one registration](references/security.md#one-registration-per-keyed-exchange)).
-   **Money-moving profiles** (a source A that withdraws, a destination B that runs a
-   settlement transfer) must be operator-owned: the server and its credential file run as
-   another OS user than the agent's shell
-   ([operator-owned launch](references/security.md#operator-owned-money-profiles)). The
-   tool-visible check is the server's `journal` and `configPath` from `get_safety_status`. Both
-   must equal the [setup record](references/security.md#setup-record), and the journal must not
-   sit under the agent user's home. Otherwise that profile is read-only for this launch.
+   **Money-moving registrations** (a source A that withdraws, a settlement registration on B)
+   are the ones the [setup record](references/security.md#setup-record) names with that role
+   ([money-moving registrations](references/security.md#money-moving-registrations)). The
+   tool-visible check is the server's `journal` and `configPath` from `get_safety_status`: both
+   must equal the setup record. Otherwise that profile is read-only for this launch. Which OS
+   user or container runs a server is host configuration. The skill neither relies on it nor
+   can verify it, and a fixed `sudo` rule or a separate user is not a boundary against the
+   agent ([trust model](references/security.md#trust-model)).
 4. **Account identity and key scope.** An alias is a label and does not prove which exchange
    account the key belongs to. Before the first write or recipient read in a launch, run the
    venue's key check from [`recipients.md`](references/recipients.md) and report the account
@@ -254,10 +259,12 @@ sends from OKX Wallet, using the checked sheet.
    "no data", not "network disabled". The deposit fee `d` comes from a live field or the
    venue's documented policy in the
    [destination status table](references/recipients.md#status-by-destination-venue), so the
-   human does not open the exchange for it. If a field has neither (the Binance, MEXC and Gate
-   deposit minimum, the KuCoin deposit fee, the WhiteBIT contract), hold and name the missing
-   field. If ccxt's id for the chain differs from the venue's live id (Bitget BEP20), that
-   network does not qualify: pick another one. The user may then choose to read that one value on the exchange's deposit
+   human does not open the exchange for it. If a field has neither (the Binance, MEXC and BingX
+   deposit minimum, the Gate minimum unless the address response lists the chosen chain alone,
+   the KuCoin deposit fee), hold and name the missing field. The WhiteBIT contract comes only
+   from the operator's one-time pinned setup evidence, named as such on the sheet. If ccxt's id
+   for the chain differs from the venue's live id on a call ccxt builds (Bitget BEP20 outbound),
+   that network does not qualify: pick another one. The user may then choose to read that one value on the exchange's deposit
    page, and the sheet says "source: human, <exchange> UI, <UTC>". If a live field or a page
    the user chose to check disagrees with the documented value, `d` is unknown: hold.
 3. A network qualifies if its chain is in the [chain table](#chains), deposits are enabled,
@@ -435,14 +442,14 @@ destination profile for B (read-only key, `funds` for the recipient read), and, 
 move the credit, a separate settlement registration for the same B account (read + internal
 transfer, no withdrawal), each in its own server with its own credentials
 ([scheme C](references/security.md#scheme-c-per-profile-credential-files-two-profile-session)).
-Every profile that moves money runs [operator-owned](references/security.md#operator-owned-money-profiles)
-under another OS user, and both registrations match the
-[setup record](references/security.md#setup-record) (Step 0).
+Every profile that moves money is a
+[money-moving registration](references/security.md#money-moving-registrations), and every
+registration matches the [setup record](references/security.md#setup-record) (Step 0).
 You do the preparation: both preflights, both networks, B's recipient by its
 [native read](references/recipients.md), fees and amounts, the plan, the withdrawal, the
 proof on A, the deposit match on B and any settlement transfer on B. The user approves the
-plan with `APPROVE`, approves the withdrawal with `WITHDRAW`, and then confirms each money
-move in its native form; a reply in the chat never replaces the form, and the form never
+plan with `APPROVE`, approves the withdrawal with `WITHDRAW`, approves any settlement transfer
+on B with its own `APPROVE <PLAN-ID>-B`, and then confirms each money move in its native form; a reply in the chat never replaces the form, and the form never
 replaces the reply. The agent asks only for facts that no tool result and no setup record
 supplies, and names each one. A route is native only when every gate below passes on live data; the
 [destination status table](references/recipients.md#status-by-destination-venue) and the
@@ -494,8 +501,12 @@ fact is missing, and those routes hold. Without a B profile in this session (sch
      attempt to bypass that step. The plan records the evidence from the
      [whitelist evidence table](references/exchanges.md#withdrawal-whitelist-evidence): the
      saved-address row on Binance and Gate, otherwise the setup record entry and its UTC.
-     Binance sources also need the travel-rule entity in the setup record, and BingX sources a
-     non-KOR jurisdiction ([outbound table](references/exchanges.md#outbound-withdraw)).
+     Binance sources also need the travel-rule line in the setup record: a named entity that
+     is not one of Binance's listed local entities, "questionnaire not required", and its
+     evidence. A questionnaire-required, unknown, conflicting or missing line holds before any
+     money call ([Binance travel rule](references/exchanges.md#binance-travel-rule)). BingX
+     sources need a non-KOR jurisdiction, and WhiteBIT accounts a non-EEA, non-Turkey entity
+     ([outbound table](references/exchanges.md#outbound-withdraw)).
      If B is Bybit, apply the [Bybit inbound cap](references/recipients.md#bybit-inbound-cap).
    - **Manual withdrawal:** qualify the network using the UI labels, chain, contract,
      availability and the UI amount step. Confirm exact amounts from A's preview in
@@ -590,12 +601,13 @@ Route: <A-alias> (<mode>) → <B exchange> (B's mode, wallets and caps are read 
 Chain: <Tron mainnet | BNB Smart Chain 56 | Ethereum 1 | TON mainnet>, contract <…> (A: <source, UTC>, B: <source, UTC>)
 Network: A network=<ccxt code> → outbound <field>=<value> = id in A's response <…>; B network id <…> (<source>)
 Candidates: <network / A withdraw / B deposit / fee / min / field source>
-Available on A: <field>=<value>, reserve <R>, transferable <T>
+Available on A: <field>=<value>, reserve <R>, transferable <T>; needs D_max + R
 Amounts: D=<…>, W=<…>, C=<…> (fee model: <on top | deducted | unconfirmed>); f=<…> <asset>, d=<…> <asset>
 Amount steps: currency <…>, network <…>, exchange <…> (<source>); W and transfer amounts are multiples of all, ≤ 15 significant digits, ≥ 0.000001
 Registrations: A <registration> / <alias> / UID <id> / <environment> / journal <path>; B <same>  (each equal to the setup record)
 B deposit: address <full address>, memo <none | exact memo>, source <native read: <venue> UID <id>, alias <B alias>, read <UTC> | B's UI, by the human>; address check <EVM format | TON OK>
-Whitelist on A: <saved-address row: <fields> | setup record <UTC>>; travel rule / jurisdiction: <Binance entity | BingX non-KOR | n/a>
+Whitelist on A: <saved-address row: <fields> | setup record <UTC>>; travel rule / jurisdiction: <Binance entity, not required, evidence | BingX non-KOR | WhiteBIT non-EEA | n/a>
+Operator setup evidence used: <none | WhiteBIT contract pinned <UTC> | value read by the human in <venue> UI <UTC>>
 Memo requirement: <required | not required | no published flag>; evidence <source, UTC>
 Bybit inbound cap: <batchReleaseLimit "-1" (unlimited), read <UTC> | n/a>
 Expected on B: C=<C_min>…<C_max> USDT, lands in <B wallet> (source: <recipient read | typical, unverified>); d=<…> (<live field | documented policy URL>)
@@ -604,7 +616,7 @@ Calls on A (exactly these arguments):
      proof: <API: <read from the transfer proof table> | operator: <A> UI transfer history, access and quiet window confirmed <UTC> | manual: the human transfers in A's UI>
   2. withdraw {"account":"<A>","code":"USDT","amount":<W>,"address":"<full address>","tag":"<memo as a string, preserve every character when the verified recipient supplies a memo; omit tag when it supplies none>","network":"<code>","params":<per table>}   ← separate WITHDRAW <PLAN-ID>
      proof: fetchWithdrawals record with the call's id, status ok, with a hash
-Then: on final source success, B's profile in this session matches the deposit by hash (2.7, 2.8) before planning an internal transfer (HANDOFF only without a B profile).
+Then: on final source success, B's profile in this session matches the deposit by hash (2.7, 2.8); any transfer on B is a separate plan <PLAN-ID>-B with its own approval (HANDOFF only without a B profile).
 Before each write: expiry and that step's checks (2.5). Both networks are checked before the withdrawal.
 Caps: maxTransferValue A=<…>; user limit <…> | target credit <…>
 To approve: APPROVE <PLAN-ID>
@@ -626,9 +638,15 @@ To approve: APPROVE <PLAN-ID>
      confirmed access to the exchange's transfer history and the quiet window (2.7). If
      neither holds, the step is manual: the human does it in the exchange UI, and the agent
      does not call `transfer`.
-   - **Withdrawal from A** (initial data checks): both networks per 2.2, the full address and
-     memo (including rule 9's fresh memo-required check), fees, minimums and amounts per 2.3. If B's data is only available in B's app, the
-     operator checks it there before the withdrawal.
+   - **Withdrawal from A**, immediately before the call, with fresh reads: A's network row
+     (withdraw enabled, id, fee, withdrawal minimum, steps, contract), B's network row (deposit
+     enabled, id, deposit minimum, deposit fee, contract, memo-required flag), B's recipient
+     read (address, memo, unique row, Bybit `batchReleaseLimit`, Gate's top-level minimum and
+     its single-chain condition, WhiteBIT `required`), A's available field against
+     `D_max + reserve`, and `maxTransferValue` from `list_accounts`. Every value must equal the
+     approved plan. A Bybit limit that is no longer `"-1"`, or any other difference, means zero
+     dispatch: do not call `withdraw`, and make a new plan with new approvals. If B's data is
+     only available in B's app, the operator checks it there before the withdrawal.
 
    If any condition of the step is unknown, stop. If the conditions of the approved plan have
    changed, recompute the remaining steps and get a new approval.
@@ -737,13 +755,18 @@ back as `UNKNOWN_OUTCOME` and cannot be told apart from a failure of the write i
     Any other difference (a suffix, a truncated value) is not a match; treat it as ambiguous
     and have the operator check.
   - A deposit counts only if there is **exactly one** record with that hash. The hash must
-    equal A's withdrawal hash (or the hash from the wallet), the asset must be USDT, the chain
-    the plan's, and the status complete: unified `ok` **and** the venue's raw success value
+    equal A's withdrawal hash (or the hash from the wallet). On **both** venues (A's withdrawal
+    record and B's deposit record) the asset must be USDT in the unified and the raw field, the
+    unified network must be the plan's ccxt code and the raw chain field the venue's id for that
+    chain (compare raw with raw ids, unified with unified codes), and the status terminal
+    success: unified `ok` **and** the venue's raw success value
     (BingX: raw `status` `6` only, because ccxt maps BingX's "not credited" `1` to `ok`). The credited amount must be unambiguous and
     match the expectation: within the `C` bounds of the plan, handoff or sheet (Scenario 2)
     or equal to the send sheet's `C` (Scenario 1). Network gas is never part of it.
   - For both scenarios, match the full credited recipient and the exact memo on the send
-    sheet or handoff. Preserve leading zeros. If history omits a field, use corroborating
+    sheet or handoff. Preserve leading zeros. A withdrawal that was authorized and sent but
+    whose receipt names another chain, another asset or another recipient is held: no onward
+    step of any kind, reads and operator investigation only. If history omits a field, use corroborating
     evidence tied to that transaction, such as its destination-chain record or exchange
     receipt. Missing evidence or a mismatch holds settlement, even with the right hash and amount.
   - A record with the right hash that is still confirming is pending (poll as above). No
@@ -805,16 +828,24 @@ Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | as
    2.1. A balance change only locates funds; the hash attributes them. If it is not clear
    which wallet holds the credit, the human checks B's UI.
 5. If the block's `then` asks for a transfer, make a **new plan** with one `transfer`, its
-   own PLAN-ID (`<PLAN-ID>-B`), expiry and proof route (2.5). The transfer runs on B's
-   **settlement registration**, never on the deposit-only profile: a read-only key cannot
-   transfer (Bybit `readOnly: 1` is refused with `10005`). The settlement registration must be
-   operator-owned, show no withdrawal right and an internal-transfer right in its key check,
-   and report the same account UID as the deposit-only profile and the setup record. Without
-   such a registration, finish as credited and report that the transfer is held. If no onward
-   transfer was requested, the route ends with the credit. Its amount is at most the
-   attributed credit, the holding wallet's available field and the user's limit, and no more
-   than the target needs. It must be a multiple of B's steps (2.3) and within B's
-   `maxTransferValue`. Then `APPROVE <PLAN-ID>-B` → 2.5 → 2.7.
+   own PLAN-ID (`<PLAN-ID>-B`), a new expiry and its proof route (2.5). The A plan's approvals
+   do not cover it. The transfer runs on B's **settlement registration**, never on the
+   deposit-only profile: a read-only key cannot transfer (Bybit `readOnly: 1` is refused with
+   `10005`). The settlement registration must be a separate registration with role
+   `settlement` in the setup record, show no withdrawal right and an internal-transfer right in
+   its key check, and report the same account UID as the deposit-only profile's key check and
+   the setup record. Without such a registration, finish as credited and report that the
+   transfer is held. If no onward transfer was requested, the route ends with the credit.
+   Immediately before the plan, re-read B's deposit by the same hash (fresh credit: still one
+   record, same amount and status) and the holding wallet's available field on the settlement
+   registration. The amount is at most the attributed credit, that available field and the
+   user's limit, and no more than the target needs. It must be a multiple of B's steps (2.3)
+   and within the settlement registration's `maxTransferValue`. Then the human replies
+   `APPROVE <PLAN-ID>-B` (a missing reply or another plan's ID holds), you check the expiry
+   (2.5), and the human accepts the native form. A declined or expired form means nothing was
+   sent. Prove the transfer by its ID per 2.7; the proof record must show USDT, the planned
+   amount and both planned wallets. No funds in the holding wallet, a changed credit or any
+   failed check: send nothing.
 
 ### 2.9 Manual withdrawal in exchange A's UI
 
@@ -917,8 +948,12 @@ user or lacks the native form; the account mode, available amount, network flag,
 fee asset or amount step is unknown; an amount is not exactly representable; a transfer has
 no proof route and is not done manually; the "exchange + network" pair is not in the outbound
 withdraw table, or a gate in the destination or outbound table holds (missing minimum, fee or
-contract; Bybit's finite release limit; no whitelist evidence; Binance entity or BingX
-jurisdiction not in the setup record; a provisioning read without consent); a TON address fails
+contract; Bybit's finite release limit, also when it changes before dispatch; no whitelist
+evidence; a Binance travel-rule line that is missing, unknown, conflicting or requires a
+questionnaire; BingX KOR or WhiteBIT EEA; a provisioning read without consent); any value
+changed between the plan and the recheck before dispatch; a receipt on either venue with
+another asset or chain; a settlement plan without its own approval, expiry, funds, fresh credit
+or same-UID registration; a TON address fails
 its check; the full address, network or
 memo differs anywhere; the preview, form or exchange confirmation screen does not match the
 plan or sheet; the plan has expired; there was no explicit `APPROVE` or `WITHDRAW`; the

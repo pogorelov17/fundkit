@@ -45,20 +45,23 @@ on a real account are an account test.
 | Bybit | `call_read_method … fetchDepositWithdrawFee ["USDT"] includeInfo` with the Bybit alias | `info.chains[]`: `chain`, `chainType`, `chainDeposit` (`1` normal, `0` suspended), `chainWithdraw`, `depositMin`, `withdrawMin`, `contractAddress` (full), `minAccuracy`, `withdrawFee`; **no deposit fee** ([below](#bybit-deposit-address)) | fields per Bybit's coin-info docs; offline; `AUTH_FAILED` without a key |
 | OKX | `call_implicit_get {"exchange":"okx","account":"<alias>","method":"privateGetAssetCurrencies","params":{"ccy":"USDT"}}` | one raw row per chain: `chain`, `canDep`, `canWd`, `minDep`, `minWd`, `fee`, `wdTickSz`, `ctAddr`, `needTag`. Not `fetchDepositWithdrawFee`: its `info` keeps only the last chain's row (verified offline) | offline; key required |
 | Binance, MEXC | `fetchDepositWithdrawFee ["USDT"] includeInfo` | `info.networkList[]` (Binance: `withdrawEnable`, `withdrawFee`, `withdrawMin`, `withdrawIntegerMultiple`, `depositEnable`, `contractAddress`, `withdrawTag`; MEXC: `netWork`, `network`, `withdrawEnable`, `withdrawFee`, `withdrawMin`, `withdrawIntegerMultiple`, `depositEnable`, `contract`) | offline; `AUTH_FAILED` without a key |
-| BingX | same | `info["<code>"].info`: `network`, `withdrawEnable`, `withdrawFee`, `withdrawMin`, `withdrawPrecision`, `depositEnable`, `depositMin`, `contractAddress`, `needTagOrMemo` | offline; public response `null` |
+| BingX | same | `info["<code>"].info`: `network`, `withdrawEnable`, `withdrawFee`, `withdrawMin`, `withdrawPrecision`, `depositEnable`, `contractAddress`, `needTagOrMemo`. A `depositMin` field may appear, but BingX's published wallet reference does not document it, so it is not used: BingX's deposit minimum is unknown | offline; public response `null` |
 | all nine, recipient side | [native recipient reads](recipients.md) | address, memo, chain, landing wallet where returned; deposit fee and minimum sources per venue | offline |
 
 `fetchCurrencies` is not suitable for picking a network. For Gate, Bitget, WhiteBIT and
 KuCoin the whole response is replaced by the truncation marker, and Binance, Bybit, OKX, MEXC
 and BingX returned `{}` without a key.
 
-### Gate as recipient (hold)
+### Gate as recipient
 
 Gate's address response has a currency-level `min_deposit_amount`. It counts as the chain's
-minimum only when the response lists the chosen chain alone ([recipients.md, Gate](recipients.md#gate)).
-The deposit fee is `withdraw_status.deposit`. So the agent never calls `withdraw` to Gate.
-The agent reads the full address and memo natively (a provisioning read,
-[setup consent](recipients.md#provisioning-reads)). If the user chooses to read the missing values
+minimum only when the **unfiltered** `multichain_addresses` list has exactly one row, that row
+is the chosen chain and it is eligible (`obtain_failed: 0`)
+([recipients.md, Gate](recipients.md#gate)). The deposit fee is `withdraw_status.deposit`. With
+a single-chain response an API withdrawal to Gate may run (verified offline). With a
+multi-chain response, the usual case, the route holds on `min`, and the agent does not call
+`withdraw` to Gate. The agent reads the full address and memo natively (a provisioning read,
+[setup consent](recipients.md#provisioning-reads)). If the user chooses to read the minimum
 on Gate's deposit page, the send is the
 [withdrawal sheet](../SKILL.md#29-manual-withdrawal-in-exchange-as-ui) or Scenario 1. The agent
 reconciles the Gate deposit by hash ([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
@@ -131,9 +134,9 @@ verified**, so withdrawals there are manual only.
 | Gate | `chain=TRX` | `BSC` | `ETH` | `TON` | `memo` | `{}` |
 | OKX | `chain=USDT-TRC20` | `USDT-BSC` | `USDT-ERC20` | `USDT-TON` | `toAddr=<address>:<memo>` | `{"fee":"<exact f>"}` (sent as `fee`) |
 | Bitget | `chain=TRC20` | `BSC`³ | `ERC20` | `TON` | `tag` | `{"uta":true}` or `{"uta":false}` per the verified mode; without it ccxt assumes classic on any probe error |
-| WhiteBIT | `network=` the exact string passed: pass `<NET>` from the `"USDT (<NET>)"` key (`TRC20`, `BEP20`, `ERC20`, `TON`) | | | | `memo` | `{}`. Routes from WhiteBIT still hold on the contract ([recipients.md](recipients.md#whitebit)) |
+| WhiteBIT | `network=` the exact string passed: pass `<NET>` from the `"USDT (<NET>)"` key (`TRC20`, `BEP20`, `ERC20`, `TON`) | | | | `memo` | `{}`. The contract comes from the operator's pinned setup evidence ([recipients.md](recipients.md#whitebit)); routes from WhiteBIT still hold because its available amount is not visible ([account mode table](#account-mode-and-available-amount)) |
 | BingX | `network=TRC20`² | `BEP20`² | `ERC20`² | `TON`² | `addressTag` | `{"type":"fund"}`, sent as `walletType=1` (the fund account). Not `{"walletType":…}`: ccxt drops that key and sends its default `15` (verified) |
-| MEXC | `netWork=TRX` | `BSC`¹ | `ETH` | `TONCOIN`¹ | `memo` | `{}`; the amount goes out unrounded, so the step must come from `withdrawIntegerMultiple` ([steps](#amount-steps)) |
+| MEXC | `netWork=TRX` | `BSC`¹ | `ETH` | `TONCOIN`¹ | `memo` | `{}`; the amount goes out unrounded, so the step must come from a valid live `withdrawIntegerMultiple`; `null` (as in MEXC's reference example) holds that network only ([steps](#amount-steps)) |
 | KuCoin | `chain=trx` | `bsc` | `eth` | `ton` | `memo` | `{}`; `network` is required, without it the default chain is sent |
 
 The outbound value must match that network's id in A's live response. Otherwise, stop.
@@ -155,8 +158,11 @@ or does not say, holds. Proof: `fetchWithdrawals` with `params {"id":"<id>"}` (s
 status `6` is completed, `4` under review and `5` failed.
 
 ³ Bitget's live public coin list names that chain `BEP20`, not `BSC`, and no source shows that
-Bitget accepts `BSC`. Bitget BEP20 therefore holds in both directions
-([recipients.md, Bitget](recipients.md#bitget)). Bitget TRC20, ERC20 and TON send the live id.
+Bitget accepts `BSC`. Bitget BEP20 **outbound** therefore holds: ccxt builds the withdrawal, and
+overriding its chain with `params` would be invisible in the form. Inbound Bitget BEP20 is
+native: the recipient read is Bitget's raw, funds-gated endpoint, sent with the live id `BEP20`
+([recipients.md, Bitget](recipients.md#bitget)). Bitget TRC20, ERC20 and TON send the live id
+in both directions.
 
 ### Withdrawal whitelist evidence
 
@@ -169,11 +175,29 @@ memo on that chain. The agent never adds or changes a whitelist entry.
 | Gate | `call_implicit_get {"exchange":"gate","account":"<A>","method":"privateWalletGetSavedAddress","params":{"currency":"USDT","chain":"<id>"}}` (`GET /wallet/saved_address`) | exactly one row with the full address, that `chain`, `tag` equal to the memo and `verified: "1"` |
 | all others | none in ccxt 4.5.85 (MEXC's `capital/withdraw/address` lists an address book without a whitelist status) | the [setup record](security.md#setup-record) holds alias, full address, memo, chain and the UTC of the operator's 2FA step |
 
-Binance travel rule: Binance's local entities that require a travel-rule questionnaire withdraw
-through `/sapi/v1/localentity/withdraw/apply`, and their requirement read
-(`/sapi/v1/localentity/questionnaire-requirements`) is not in ccxt 4.5.85. A Binance source
-therefore qualifies only when its setup record names an entity whose withdrawals take no
-questionnaire. Otherwise, hold.
+### Binance travel rule
+
+Binance's local entities that require a travel-rule questionnaire withdraw through
+`/sapi/v1/localentity/withdraw/apply`, and their requirement read
+(`/sapi/v1/localentity/questionnaire-requirements`) is not in ccxt 4.5.85 (no `localentity`
+endpoint in its Binance API). Binance's travel-rule pages
+([withdraw questionnaire](https://developers.binance.com/docs/wallet/travel-rule/withdraw-questionnaire),
+read 2026-11-25) list these local entities: Japan, Kazakhstan, New Zealand, Bahrain, UAE,
+India, EU (Poland, France), South Africa, Australia and Brazil.
+
+A Binance source proceeds only when the setup record's Binance line names the entity, says
+the withdrawal questionnaire is "not required", and names its evidence (for example the
+operator's reading of the account's withdrawal screen, with UTC). The line holds before any
+money call when it is missing, names no entity, says "required" or "unknown", has no evidence,
+or names one of the listed local entities while saying "not required" (a conflict). Binance's
+pages do not state which entities need no questionnaire, so "not required" is the operator's
+established fact for an ordinary account, not a documented value.
+
+WhiteBIT: its compliance page states that EEA accounts cannot deposit or withdraw USDT since
+2024-12-30, and that EEA and Turkey deposits can be frozen for the travel rule
+([docs.whitebit.com, compliance](https://docs.whitebit.com/institutional/compliance), read
+2026-11-25). A WhiteBIT route, in either direction, needs a setup-record entity of
+"non-EEA, non-Turkey"; any other or missing entity holds.
 
 ## Amount steps
 

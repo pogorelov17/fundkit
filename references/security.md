@@ -30,10 +30,9 @@ with separate credentials.
 
 The launch environment holds keys for **only one** account, and exactly one enabled server
 uses that exchange ([below](#one-registration-per-keyed-exchange)); other servers run
-without keys (for example Hyperliquid). The agent's shell sees that environment, so a scheme A
-server is read-only for the skill. A withdrawal or transfer in step 1 or 2 below needs an
-[operator-owned](#operator-owned-money-profiles) server; otherwise it is done in the exchange
-UI. An A → B route is two separate launches, each with a fresh chat that starts with
+without keys (for example Hyperliquid). The agent's shell sees that environment. A withdrawal
+or transfer in step 1 or 2 below needs a [money-moving registration](#money-moving-registrations)
+with the native form; otherwise it is done in the exchange UI. An A → B route is two separate launches, each with a fresh chat that starts with
 `Read SKILL.md …` ([loading the skill](#loading-the-skill)):
 
 1. **Launch with A's key (initial checks and withdrawal).** Check both networks, with B's
@@ -71,8 +70,8 @@ than one connected server or alias has the keyed exchange, and has the human mat
 identifier (OKX: UID and API key label from `fetchAccounts`) against the exchange UI.
 
 The agent in such a launch can technically read that key (same OS user; rule 1 of
-[`SKILL.md`](../SKILL.md#hard-rules) forbids it), so exchange-side restrictions are
-mandatory.
+[`SKILL.md`](../SKILL.md#hard-rules) forbids it). The skill relies on the agent following that
+rule ([trust model](#trust-model)), and exchange-side restrictions are mandatory.
 
 The operator loads the values into their own shell by their own means, then starts the host
 with only the allowed variables left (bash):
@@ -85,12 +84,12 @@ For Codex, end with `exec codex` instead. Values never reach argv. Verified on C
 with a dummy server that records names only: other `BYBIT_*` and unrelated variables did not
 reach the servers. If the host needs its own variable to sign in, add its name to the list.
 
-### Scheme B: operator-owned launch per server
+### Scheme B: operator launcher per server
 
-In the host config, `command` points to an operator launcher outside the repository that the
-agent can neither read nor change (for example another OS user with a fixed launch rule). The
+In the host config, `command` points to an operator launcher outside the repository. The
 launcher starts ccxt-mcp with only its own account's variables. Neither the host environment
-nor its config contains secrets. How to store secrets and what to launch with is the
+nor its config contains secrets. This separates credentials between profiles. It is not a
+boundary against the agent ([trust model](#trust-model)). How to store secrets and what to launch with is the
 operator's choice: the skill does not prescribe it, and the repository contains no code for
 it.
 
@@ -116,35 +115,30 @@ the host environment carried another account's `OKX_*` values. ccxt-mcp register
 credentials for redaction, so a key echoed by an exchange read comes back as
 `[redacted:…]`. `list_accounts` shows only which credential fields are set.
 
-What scheme C isolates: each server process loads only its own file, so one profile's key
-never signs another profile's requests. What it does not isolate: the agent's shell runs as
-the same OS user and could read the files (rule 1 of [`SKILL.md`](../SKILL.md#hard-rules)
-forbids it). That is acceptable only for read-only profiles. Money-moving profiles must be
-[operator-owned](#operator-owned-money-profiles). Either way the exchange-side restrictions
-below are mandatory.
+What scheme C separates: each server process loads only its own file, so one profile's key
+never signs another profile's requests (verified offline). What it does not do: keep the files
+from the agent. The agent's shell runs as the same OS user and could read them (rule 1 of
+[`SKILL.md`](../SKILL.md#hard-rules) forbids it). The skill relies on the agent following that
+rule ([trust model](#trust-model)). The exchange-side restrictions below are mandatory.
 
-### Operator-owned money profiles
+### Money-moving registrations
 
-A profile that can move money (a source A with a withdrawal key, a destination B with an
-internal-transfer key) runs as a **separate OS user** that the agent's shell cannot act as. That
-user owns the profile directory, its `chmod 600` `config.json` with the credentials, and its
-journal (`~/.cache/ccxt-mcp/journal` of that user). The host's `command` is an operator-owned
-launcher outside the repository. It starts ccxt-mcp as that user and does nothing else. The agent
-cannot read or change the launcher. Examples are a fixed `sudo -u fundkit-ops` rule for exactly
-one command, or a system service the host connects to. How to build it is the operator's
-choice. The repository contains no launcher.
+A registration that can move money is a source A with a withdrawal key, or a settlement
+registration on B with an internal-transfer key. The skill moves money through it only when all
+of these hold:
 
-Why: a native form is a human confirmation only if the agent cannot start its own copy of the
-server. A server the agent starts has no form, issues a `confirmToken`, and the model could
-redeem the token itself. The skill therefore never redeems tokens and refuses money moves on a
-server without `elicitationSupported: true`. The separate OS user keeps the credentials and the
-server out of the agent's reach.
+- the [setup record](#setup-record) names it with role `source` or `settlement`, and Step 0
+  shows the same registration, alias, exchange, environment, `configPath` and `journal`;
+- its key check shows the role's rights and the account UID in the setup record. A settlement
+  registration must show the same UID as B's deposit-only profile;
+- `get_safety_status` reports `elicitationSupported: true`, so every `withdraw` and `transfer`
+  opens the host's native form;
+- the exchange-side limits are in place: IP allowlist, withdrawal whitelist, the venue's
+  withdrawal limit and minimal key rights.
 
-What the agent can check: `get_safety_status` reports `configPath` and `journal`. Both must equal
-the [setup record](#setup-record), and the journal must not sit under the agent user's home.
-What it cannot check from tool results is the launcher itself. That rests on the operator's setup.
-The offline tests simulated the separate user with separate `HOME` directories (no second OS user
-was available there).
+Where the server process runs is the operator's choice: the agent's OS user, another OS user
+reached through a fixed `sudo` rule, a container or a system service. The skill does not depend
+on that choice, and no tool result can show it ([trust model](#trust-model)).
 
 ### Profile `config.json`
 
@@ -243,7 +237,7 @@ Rights by role. Create a separate key per role, each with an IP allowlist:
   `maxTransferValue` because ccxt-mcp gates address reads behind `funds`; keep
   `"dryRun": true`. With a read-only key the exchange also refuses any write.
 - **Destination settlement**: a second registration for the same B account (its own key with
-  read + internal transfer, no withdrawal, same UID), operator-owned, only if the credit must
+  read + internal transfer, no withdrawal, same UID), with role `settlement` in the setup record, only if the credit must
   move from the deposit wallet to another B wallet. The deposit-only recipient key stays
   read-only: a read-only key cannot transfer (Bybit `readOnly: 1` is refused), and the agent
   never uses it for one.
@@ -279,8 +273,8 @@ Two-profile example (scheme C), one file per account:
 ```
 
 The operator fills in the values with an editor, never through the chat or the agent's shell,
-then sets `chmod 600`. The source file (and a destination file whose key can transfer) belongs to
-the [operator-owned](#operator-owned-money-profiles) user. Both examples start with
+then sets `chmod 600`. The source file and a settlement file are
+[money-moving registrations](#money-moving-registrations). Both examples start with
 `"dryRun": true`. Remove it from the source profile only after a plan has been walked through,
 and from the destination profile only if B will run a settlement transfer. Register both servers
 ([host registration](#host-registration)), restart the host, start a new chat with the
@@ -299,29 +293,51 @@ writes it and treats it as the operator's statement, not as a tool result.
 SETUP RECORD, written <UTC> by <operator>
 Profile <registration name>: alias <alias>, exchange <id>, environment <live|sandbox>, role <deposit-only | settlement | source>
   (a settlement registration names the deposit-only registration of the same account UID)
-  configPath <path>, journal <path>, OS user <name> (money-moving: not the agent's user)
+  configPath <path>, journal <path>
   account UID <id> (confirmed on the exchange's API page <UTC>), key rights <as shown there>, IP allowlist <yes>
   provisioning: <allowed | not allowed>            (Gate, WhiteBIT: their address read may create an address)
   BingX permission codes: <code → right>; BingX KYC jurisdiction: <non-KOR | KOR>
-  Binance entity: <entity; withdrawals take no travel-rule questionnaire | questionnaire required>
+  Binance entity: <entity name>; travel-rule questionnaire on withdrawal: <not required | required | unknown>; evidence <source, UTC>
+  WhiteBIT entity: <non-EEA, non-Turkey | EEA | Turkey>; evidence <source, UTC>
+  WhiteBIT contract <TRC20 | BEP20 | ERC20 | TON>: <full contract>, pinned from the explorer linked on WhiteBIT's deposit page <UTC>
   Whitelist on this source: <full address> memo <none | exact> chain <code> → <B venue>, added with 2FA <UTC>
 ```
 
 A missing line means "not established": the gate that needs it holds. A changed key, alias,
-registration or whitelist entry needs a new record line.
+registration, entity, pinned contract or whitelist entry needs a new record line. The Binance
+entity proceeds only when it is named, it is not one of the local entities that Binance lists
+for its travel-rule questionnaire, the line says "not required" and names its evidence
+([outbound table](exchanges.md#withdrawal-whitelist-evidence)). A WhiteBIT contract line is
+the operator's one-time reading, labeled as such on every plan and sheet that uses it; it is not
+an API field.
 
-## Trust boundary
+## Trust model
 
-- **Same OS user as the agent's shell** (schemes A and C). The agent can read the server's
-  environment (`/proc/<pid>/environ`; verified: values are not visible in `ps` but are in
-  `environ`), its files and the journal. Host deny rules are not a boundary. This mode suits
-  read-only profiles only. The skill makes no money move through such a server.
-- **Separate user or container on the operator side** (scheme B, required for money-moving
-  profiles). The agent's shell cannot read the server's environment or files. One risk remains:
-  if the agent can start the server itself, its client has no native form, the server issues a
-  token, and the agent could confirm the write on its own. The skill closes that path: it never
-  redeems a token and makes no money move on a server without the native form.
-- Either way, exchange-side restrictions are mandatory ([table below](#exchange-key-permissions)).
+The skill assumes a **cooperative, trusted** host, operator and agent. Its controls stop
+mistakes and stale data. They are not a security boundary against an agent that decides to
+break the rules.
+
+- **What the server enforces.** In form mode, ccxt-mcp sends a `withdraw` or `transfer` only
+  after the human accepts the host's native form. That is the only outcome it enforces. The
+  form's preview omits `params`, the PLAN-ID and the plan's expiry. Comparing the full
+  arguments with the plan and checking the clock are procedural steps for the agent and the
+  human ([SKILL.md, 2.5](../SKILL.md#25-executing-each-write)).
+- **No tokens.** Without the native form the server issues a `confirmToken` that the model
+  could redeem itself. The skill never redeems a token. Where the form is unavailable, the
+  money move is held and the human uses the exchange UI.
+- **Process placement is not a boundary.** The same OS user, a fixed `sudo -u <user> <command>`
+  rule, a separate `HOME` or a container all run what the host's `command` names. An agent that
+  can run that command, or edit the host config, can start its own server copy. That copy has no
+  native form and issues tokens. Running money-moving servers under another OS user therefore
+  does not stop an uncooperative agent, and the skill does not rely on it.
+- **Host isolation is separate and unverified.** An operator may still configure a separate OS
+  user, a container or the host's own sandbox and permission rules. Whether that keeps the
+  credentials or the server from the agent depends on the host and was not verified here. The
+  offline tests ran each server with its own `HOME` only to keep journals apart. They show
+  nothing about isolation.
+- **What protects the funds** apart from the rules: exchange-side restrictions
+  ([table below](#exchange-key-permissions)), above all the withdrawal whitelist, the IP
+  allowlist, the venue's withdrawal limit, minimal key rights and `maxTransferValue`.
 
 ## Host registration
 
@@ -414,8 +430,8 @@ Expect `version: "0.1.3"`, `ccxtVersion: "4.5.84"`, an empty `configProblems`,
 | read-only | read | IP allowlist |
 | Bybit deposit address (Scenario 1) | read-only, main account; profile with `funds` and `dryRun` ([above](#bybit-deposit-profile)) | IP allowlist, no Withdraw label, no transfer or trading write access |
 | recipient read, any venue (Scenario 1, and B in Scenario 2) | read only; profile with `funds` and `dryRun` ([venue profiles](#venue-profiles)) | IP allowlist, no withdrawal, no transfer or trading write access; Gate and WhiteBIT: provisioning consent in the setup record |
-| internal transfer | read + internal transfer; [operator-owned](#operator-owned-money-profiles) | IP allowlist, no withdrawal |
-| withdrawal (exchange A) | read + withdrawal (+ transfer); [operator-owned](#operator-owned-money-profiles) | IP allowlist, address whitelist (the human adds B's address with 2FA), exchange-side withdrawal limit |
+| internal transfer | read + internal transfer; [money-moving registration](#money-moving-registrations) | IP allowlist, no withdrawal |
+| withdrawal (exchange A) | read + withdrawal (+ transfer); [money-moving registration](#money-moving-registrations) | IP allowlist, address whitelist (the human adds B's address with 2FA), exchange-side withdrawal limit |
 | Hyperliquid | no key needed | public address only |
 
 Also: `maxTransferValue` and `maxDailyValue` in the profile, `implicitWrites` off, `confirm`

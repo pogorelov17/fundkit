@@ -51,9 +51,10 @@ Automatic skill discovery is optional and host-specific; this repository does no
   withdrawal on A, matches the deposit on B by hash and plans any transfer on B for its own
   approval. A HANDOFF block to a second chat is only the fallback without a B profile. A route
   runs only when every documented gate passes on live data. Where a venue documents no value
-  for a needed fact (for example the Binance, MEXC and Gate deposit minimum, the KuCoin and Gate
-  deposit fee, the WhiteBIT contract or the MEXC withdrawal step), the route holds. The user
-  may then read that value in the UI and use the manual sheet.
+  for a needed fact (the Binance, MEXC and BingX deposit minimum, the Gate minimum on a
+  multi-chain address response, the KuCoin deposit fee), the route holds. The user may then
+  read that value in the UI and use the manual sheet. WhiteBIT's token contract exists in no
+  API; it qualifies only from the operator's one-time pinned setup evidence, named as such.
 - **funding ↔ trading/margin** on one exchange.
 - **Hyperliquid**: watch-only margin and position monitoring by public address.
 
@@ -74,8 +75,9 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
   reply `APPROVE <PLAN-ID>`. The first `withdraw` call also needs a separate
   `WITHDRAW <PLAN-ID>`. Every money move (`withdraw`, `transfer`) is confirmed by the human in
   the host's native form. A server without the form gets no money move, and the agent never
-  redeems a confirmation token. Money-moving servers run under an operator-owned OS user,
-  separate from the agent's. `get_deposit_address` is never called, because it can create an
+  redeems a confirmation token. The server enforces only the form's answer; the form shows no
+  `params`, PLAN-ID or expiry, so those checks are procedural. A transfer on B after the credit
+  is a separate plan with its own `APPROVE <PLAN-ID>-B`. `get_deposit_address` is never called, because it can create an
   address on its own even under `dryRun`. The Gate and WhiteBIT address reads may create an
   address, so they run only with provisioning consent in the operator's setup record. The
   operator authorizes a manual send by signing or submitting the exact transaction on the
@@ -96,6 +98,10 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
   profile that shares it, for good: reads and operator investigation only.
 - **Exchange side.** Minimal key permissions, IP allowlist and a withdrawal address whitelist
   ([key permissions](references/security.md#exchange-key-permissions)).
+- **Trust model.** The skill assumes a cooperative, trusted host, operator and agent. Running
+  a money-moving server under another OS user or behind a fixed `sudo` rule is not a boundary
+  against the agent, and host isolation was not verified
+  ([trust model](references/security.md#trust-model)).
 
 ## Example requests
 
@@ -119,7 +125,7 @@ The last withdrawal is stuck. Reconcile what actually happened without repeating
 | [`references/exchanges.md`](references/exchanges.md) | wallets, network data, outbound withdraw table, amount steps, account modes |
 | [`references/security.md`](references/security.md) | environment contract, host registration, loading the skill, smoke check, key permissions |
 | [`references/recipients.md`](references/recipients.md) | native recipient reads (address, memo, landing wallet), deposit fee and minimum sources and hard limits per venue |
-| [`references/prompts.md`](references/prompts.md) | copyable English and Russian prompts for setup, diagnosis, read-only checks and planning |
+| [`references/prompts.md`](references/prompts.md) | copyable prompts for setup, diagnosis, read-only checks and planning (the agent replies in the user's language) |
 
 ## Verification and limits
 

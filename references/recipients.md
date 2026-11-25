@@ -18,19 +18,21 @@ no real key was used. Readiness for a real account is not established by these t
 that no live field or official source supplies, so the agent stops. The user may still choose to
 read that one value in the exchange UI. A field counts only if the venue documents it, or if the
 live field's own name states its meaning (basis "live field"). The agent never derives a field
-from another field or from the address format.
+from another field or from the address format. A source must be specific to the account's
+entity: a value documented for one entity of a venue (for example Binance TH) does not establish
+it for another (Binance.com).
 
 | Destination | Recipient read | Key scope and identity | `d` | `min` | Status |
 |---|---|---|---|---|---|
 | Bybit | [SKILL.md flow](../SKILL.md#bybit-deposit-address) | `query-api`: `readOnly`, `permissions`, `userID`, `isMaster` | 0, [Bybit fees page](https://www.bybit.com/en/help-center/article/Bybit-Fees-You-Need-to-Know) | `depositMin` | native; `batchReleaseLimit` must be `"-1"` ([cap](#bybit-inbound-cap)) |
-| OKX | `selected` row | `account/config`: `perm`, `uid`, `label`, `ip` | 0, [OKX help](https://www.okx.com/en-eu/help/do-i-need-to-pay-fees-for-deposit-and-withdrawal): no fee on deposits above the minimum | `minDep` from the raw currency rows | native |
-| Bitget (classic) | single address object | `spot/account/info`: `userId`, `authorities`, `ips` | 0, [Bitget article](https://www.bitget.com/support/articles/12560603820706): "Bitget does not charge any fees for deposits." | `minDepositAmount` | native on TRC20, ERC20 and TON; BEP20 hold ([id mismatch](#bitget)); UTA: hold |
-| BingX | one row per network in the address list | `apiPermissions` (numeric codes), `uid` | 0, [BingX Learn](https://bingx.com/en/learn/how-to-deposit-crypto-with-bingx): "BingX does not charge fees for crypto deposits." (a venue article, not a fee schedule) | `depositMin` (basis "live field": it is not in BingX's [published wallet reference](https://github.com/bingx-api/api-ai-skills/blob/d40bcc6ab6e91ad7c2d801250425c2a973d2f95a/skills/spot-wallet/api-reference.md)) | native; deposit credit only on raw status `6` |
+| OKX | currency-wide list, filtered to `ccy`, chain and `selected`, then exactly one | `account/config`: `perm`, `uid`, `label`, `ip` | 0, [OKX help](https://www.okx.com/en-eu/help/do-i-need-to-pay-fees-for-deposit-and-withdrawal): no fee on deposits above the minimum | `minDep` from the raw currency rows | native |
+| Bitget (classic) | raw funds-gated address read alone, with the live chain id | `spot/account/info`: `userId`, `authorities`, `ips` | 0, [Bitget article](https://www.bitget.com/support/articles/12560603820706): "Bitget does not charge any fees for deposits." | `minDepositAmount` | native on all four, BEP20 included ([Bitget](#bitget)); UTA: hold |
+| BingX | one row per network in the address list | `apiPermissions` (numeric codes), `uid` | 0, [BingX Learn](https://bingx.com/en/learn/how-to-deposit-crypto-with-bingx): "BingX does not charge fees for crypto deposits." (a venue article, not a fee schedule) | unknown: BingX's [published wallet reference](https://github.com/bingx-api/api-ai-skills/blob/d40bcc6ab6e91ad7c2d801250425c2a973d2f95a/skills/spot-wallet/api-reference.md) documents no deposit minimum, so a live `depositMin` is not used | address native; `min` hold; deposit credit only on raw status `6` |
 | Binance | default row of the address list | `apiRestrictions` flags; `uid` from `/api/v3/account` | 0, [Binance fee page](https://www.binance.com/en/fee/cryptoFee): "Binance does not charge deposit fees." | `depositDust` is not described in Binance's reference (only an example value), so it is not a minimum | address native; `min` hold |
-| MEXC | address list rows for the network | `account`: `canWithdraw`, `permissions`; `uid` | 0, [MEXC Learn, 2026-10-20](https://www.mexc.com/learn/article/mexc-fees-explained-complete-trading-futures-withdrawal-fees-guide/1): "MEXC does not charge to receive crypto deposits" (a venue article, not a fee schedule) | no API field; `depositTips` is free text | address native; `min` hold |
-| KuCoin (classic) | v3 address list | `user/api-key`: `permission`, `uid`, `isMaster` | unknown: KuCoin's v3 currency schema has no deposit-fee field, no read shows a remaining free quota, and KuCoin's pages disagree | `depositMinSize` (`null` = unknown) | address native; `d` hold; UTA: hold |
-| WhiteBIT | address object for the requested network (may provision, [below](#provisioning-reads)) | none in ccxt 4.5.85 | `required.fixedFee` and `required.flexFee` in the same response | `required.minAmount` | contract hold, in both directions ([WhiteBIT](#whitebit)) |
-| Gate | `multichain_addresses` row (may provision, [below](#provisioning-reads)) | `account/detail`: `user_id`, `ip_whitelist` (no permission fields) | `withdraw_status.deposit`, documented as "Deposit fee" (currency-level; there is no per-chain deposit-fee field) | top-level `min_deposit_amount` counts only when the response lists the chosen chain alone ([Gate](#gate)) | address native; `min` hold unless that holds |
+| MEXC | raw funds-gated address list alone, rows matched by the config row's `network` string | `account`: `canWithdraw`, `permissions`; `uid` | 0, [MEXC Learn, 2026-10-20](https://www.mexc.com/learn/article/mexc-fees-explained-complete-trading-futures-withdrawal-fees-guide/1): "MEXC does not charge to receive crypto deposits" (a venue article, not a fee schedule) | no API field; `depositTips` is free text | address native; `min` hold |
+| KuCoin (classic) | v3 address list | `user/api-key`: `permission`, `uid`, `isMaster` | unknown: KuCoin's v3 currency schema has no deposit-fee field, no read shows a remaining free quota, KuCoin's fee pages say part of their content is outdated, and no entity-specific (KuCoin global, EU, TH, TR) deposit-fee statement was found | `depositMinSize` (`null` = unknown) | address native; `d` hold; UTA: hold |
+| WhiteBIT | address object for the requested network (may provision, [below](#provisioning-reads)) | none in ccxt 4.5.85 | `required.fixedFee` and `required.flexFee` in the same response | `required.minAmount` | native with operator setup evidence: the contract is the operator's one-time reading pinned in the setup record, and the entity must be non-EEA, non-Turkey ([WhiteBIT](#whitebit)); without the pin: hold |
+| Gate | `multichain_addresses` row (may provision, [below](#provisioning-reads)) | `account/detail`: `user_id`, `ip_whitelist` (no permission fields) | `withdraw_status.deposit`, documented as "Deposit fee" (currency-level; there is no per-chain deposit-fee field) | top-level `min_deposit_amount` counts only when the unfiltered list has exactly one row, for the chosen chain, eligible ([Gate](#gate)) | address native; `min` hold unless that holds |
 
 Network ids for Bitget, KuCoin, Gate and WhiteBIT were also compared with their keyless public
 endpoints on 2026-11-25. Fee and policy pages were checked on the same day. The sheet or plan names the page as the source of
@@ -56,9 +58,16 @@ read finds no address, the operator creates one once in the exchange app, and th
 3. **Recipient read**: the calls in the venue row. Where the venue has a raw GET, that raw
    row is the address source. ccxt indexes addresses by network and keeps only the last one,
    so duplicates disappear from normalized reads (verified offline on Bybit, OKX, Gate, BingX,
-   MEXC and KuCoin). The raw response must contain **exactly one** eligible row for the
-   chosen chain and no row for another chain. Its address, memo and chain must equal the
-   normalized read where the row lists one.
+   MEXC and KuCoin). How rows are counted depends on the endpoint:
+   - **currency-wide** endpoints (OKX, Gate, BingX, MEXC) list every chain of the currency.
+     First keep only the rows for USDT and the chosen chain (OKX: also `selected: true`; Gate:
+     `obtain_failed: 0`), then require **exactly one**. Rows for other chains are normal there.
+   - **chain-scoped** endpoints (Bybit `chainType`, Binance `network`, Bitget `chain`, KuCoin
+     `chain`) are asked for one chain. Any row for another chain is a wrong row: hold.
+
+   Where a gated normalized read is also made, its address, memo and chain must equal the raw
+   row. On Bitget and MEXC the raw endpoint is itself funds-gated and is used alone, because
+   ccxt's normalized read sends or parses the wrong network id there.
 4. **Address check** ([below](#address-checks)) and [memo check](#memo-absent-versus-empty).
 5. **Show** the address and the memo (or `none`) each in its own code block, copied
    character for character from the source row, with
@@ -133,10 +142,13 @@ there the address row is the evidence.
 - **Venues that add the field only when the currency needs it**: OKX (`tag`, `memo`, `pmtId` or
   `addrEx`), WhiteBIT (its reference: "Memo if currency requires memo"), MEXC (`memo`). A missing
   field means none when the published flag is false. It holds when the flag is true, and on a
-  MEXC TON row, which has no flag. WhiteBIT's live `USDT.is_memo` was `false` on 2026-11-25, so a
+  MEXC TON row, which has no flag.
+- **MEXC `memo: null`.** MEXC's reference and ccxt's parser comment show address rows with
+  `"memo": null`. On MEXC TRC20, BEP20 and ERC20, chains without memos, that `null` means none.
+  This exception covers only those three MEXC chains. A MEXC TON row with `memo: null` holds. WhiteBIT's live `USDT.is_memo` was `false` on 2026-11-25, so a
   WhiteBIT TON address without `memo` is a no-memo address (verified offline: the only stop on
   that route is the contract).
-- On every venue: `null`, a non-string or a whitespace-only memo holds. A memo required by the
+- On every other venue and chain: `null`, a non-string or a whitespace-only memo holds. A memo required by the
   flag but empty holds. Any nonempty memo is preserved exactly, leading zeros included, also
   where the flag says none is needed (live Bitget TON shows `needTag: false`).
 
@@ -195,7 +207,9 @@ withdrawal from exchange A (Scenario 2) and a manual withdrawal in A's UI (2.9).
 qualifies without more evidence. A finite limit requires the remaining allowance for the period,
 after releases of older pending deposits against the same cap. No Bybit read in ccxt 4.5.85 shows
 that allowance, so a finite, missing or malformed limit holds the plan or sheet. Repeat the check
-in the recheck before OPEN. A changed limit needs a new plan or sheet.
+in the recheck before OPEN or before the withdrawal, with a fresh raw read. A limit that was
+`"-1"` at planning and is anything else at the recheck (for example `"1"`) means zero dispatch
+and a new plan or sheet (verified offline).
 
 ## OKX
 
@@ -204,7 +218,7 @@ in the recheck before OPEN. A changed limit needs a new plan or sheet.
 | network data | `call_implicit_get {"exchange":"okx","account":"<alias>","method":"privateGetAssetCurrencies","params":{"ccy":"USDT"}}` | one raw row per chain: `chain` `USDT-TRC20`/`USDT-BSC`/`USDT-ERC20`/`USDT-TON`, `canDep`, `canWd`, `minDep`, `minWd`, `fee`, `wdTickSz`, `ctAddr`, `needTag`. Do not use `fetchDepositWithdrawFee` for OKX: its `info` keeps only one row (the last chain), verified offline |
 | key check | `call_implicit_get {"exchange":"okx","account":"<alias>","method":"privateGetAccountConfig"}` | `data[0].perm` exactly `read_only` for a deposit-only key; report `uid`, `mainUid`, `label`, `ip` |
 | gated read | `call_read_method {"exchange":"okx","account":"<alias>","method":"fetchDepositAddress","args":["USDT"],"params":{"network":"<code>"},"includeInfo":true}` | sends only `GET /api/v5/asset/deposit-address?ccy=USDT`; ccxt keeps only `selected: true` rows and one per network |
-| raw read | `call_implicit_get {"exchange":"okx","account":"<alias>","method":"privateGetAssetDepositAddress","params":{"ccy":"USDT"}}` | `code: "0"`; exactly one row with the chosen `chain` and `selected: true`; equal `addr`, memo and `chain` to the gated `info` |
+| raw read | `call_implicit_get {"exchange":"okx","account":"<alias>","method":"privateGetAssetDepositAddress","params":{"ccy":"USDT"}}` | `code: "0"`; the response lists every chain of the currency: keep rows with `ccy: "USDT"`, the chosen `chain` and `selected: true`, then require exactly one; its `addr`, memo and `chain` equal the gated `info` |
 
 - Memo: OKX returns `tag`, `memo` or `pmtId`, or `addrEx` (TON: `addrEx.comment`). Use the
   field the raw row carries, exactly as a string. If `needTag` is true and no memo field is
@@ -213,7 +227,9 @@ in the recheck before OPEN. A changed limit needs a new plan or sheet.
   contract, and the currency row's full `ctAddr` must equal it.
 - `to` is the landing wallet: `6` funding, `18` trading. Record it as `Lands in`.
 - Rows with `selected: false` are other addresses of the account and are not eligible.
-  Two `selected: true` rows for one chain: ccxt silently kept the last one, so hold.
+  Two `selected: true` rows for one chain: ccxt silently kept the last one, so hold. No
+  selected row for the chain, or a memo that differs between the gated and the raw read:
+  hold (verified offline on a multi-chain response).
 - Offline results: no key gives `AUTH_FAILED requires "apiKey" credential`, and no passphrase
   gives `requires "password" credential`, with nothing sent. A profile without `funds` gets
   `TIER_DISABLED` for both reads. Empty `data` makes the gated read fail with `InvalidAddress`
@@ -226,19 +242,21 @@ in the recheck before OPEN. A changed limit needs a new plan or sheet.
 |---|---|---|
 | network data | `call_read_method {"exchange":"bitget","account":"<alias>","method":"fetchDepositWithdrawFee","args":["USDT"],"includeInfo":true}` (also works without a key) | `info.chains[]`: `chain`, `rechargeable`, `minDepositAmount`, `contractAddress`, `needTag` |
 | key check | `call_implicit_get {"exchange":"bitget","account":"<alias>","method":"privateSpotGetV2SpotAccountInfo"}` | report `userId`, `authorities`, `ips`, `parentId`; deposit-only: no authority naming withdrawal. Other values are compared once with Bitget's API page |
-| gated read | `call_read_method {"exchange":"bitget","account":"<alias>","method":"fetchDepositAddress","args":["USDT"],"params":{"network":"<code>"},"includeInfo":true}` | classic account: `GET /api/v2/spot/wallet/deposit-address?coin=USDT&chain=<id>` |
-| raw read | `call_implicit_get {"exchange":"bitget","account":"<alias>","method":"privateSpotGetV2SpotWalletDepositAddress","params":{"coin":"USDT","chain":"<id>"}}` | `code: "00000"`; `data.chain` is the chosen id; `address` nonempty; `tag` a string; equal to the gated `info` |
+| raw read (alone) | `call_implicit_get {"exchange":"bitget","account":"<alias>","method":"privateSpotGetV2SpotWalletDepositAddress","params":{"coin":"USDT","chain":"<live id>"}}` | `<live id>` is the `chain` of the network-data row whose contract matched the reference (`TRC20`, `BEP20`, `ERC20`, `TON`); `code: "00000"`; `data.chain` equals it, `data.coin` is `USDT`; `address` nonempty; `tag` a string |
 
+- The raw method matches ccxt-mcp's gate pattern, so it is itself funds-gated
+  (`TIER_DISABLED` without `funds`). It is the only recipient read on Bitget classic. Do not use
+  `fetchDepositAddress`: for the code `BEP20` ccxt 4.5.85 sends `chain=BSC` (its source comments
+  `'BEP20': 'BEP20'` out as "different for BEP20"), and Bitget's live public coin list names the
+  chain `BEP20`. With the raw read and the live id, Bitget BEP20 is a native destination
+  (verified offline; the fixture rejects `chain=BSC`, and the read never sent it).
+- **Outbound BEP20 still holds.** A withdrawal from Bitget is built by ccxt, which sends `BSC`,
+  and overriding it with `params.chain` would be invisible in the form
+  ([rule 4](../SKILL.md#hard-rules)). No source shows that Bitget accepts `BSC`. Bitget sources
+  use TRC20, ERC20 or TON ([outbound table](exchanges.md#outbound-withdraw)).
 - Memo: `tag`. `needTag` in the network data is the published flag (live TON: `false`).
-- **BEP20: hold in both directions.** Bitget's live public coin list names the chain `BEP20`
-  (also `TRC20`, `ERC20`, `TON`). ccxt 4.5.85 maps the code `BEP20` to `chain=BSC` for the
-  address read and for `withdraw` (its source comments `'BEP20': 'BEP20'` out as "different for
-  BEP20"). No source shows that Bitget accepts `BSC` for its `BEP20` chain. Overriding the wire
-  value with `params.chain` would be invisible in the form, which [rule 4](../SKILL.md#hard-rules)
-  forbids. So Bitget routes use TRC20, ERC20 or TON, where the ccxt value equals the live id.
-  BEP20 holds (verified offline in both roles).
-- The endpoint returns one object, so it cannot show duplicates. An empty `data` returned
-  `ok: true` with no address in the gated read (verified offline): hold on an empty address.
+- The endpoint returns one object, so it cannot show duplicates. A row for another chain or an
+  empty address: hold.
 - Bitget UTA uses `privateUtaGetV3AccountDepositAddress`, which was not verified: hold, or the
   user chooses the UI.
 - Landing wallet: not in the response; typically Spot.
@@ -247,7 +265,7 @@ in the recheck before OPEN. A changed limit needs a new plan or sheet.
 
 | Step | Call | Check |
 |---|---|---|
-| network data | `call_read_method {"exchange":"bingx","account":"<alias>","method":"fetchDepositWithdrawFee","args":["USDT"],"includeInfo":true}` (public response is `null`) | `info["<code>"].info`: `network`, `depositEnable`, `withdrawEnable`, `depositMin`, `withdrawFee`, `withdrawMin`, `withdrawPrecision`, `contractAddress`, `needTagOrMemo` |
+| network data | `call_read_method {"exchange":"bingx","account":"<alias>","method":"fetchDepositWithdrawFee","args":["USDT"],"includeInfo":true}` (public response is `null`) | `info["<code>"].info`: `network`, `depositEnable`, `withdrawEnable`, `withdrawFee`, `withdrawMin`, `withdrawPrecision`, `contractAddress`, `needTagOrMemo` |
 | key check | `call_implicit_get {"exchange":"bingx","account":"<alias>","method":"accountV1PrivateGetAccountApiPermissions"}` | report `permissions` (numeric codes), `ipAddresses`, `note`. The operator records once in the [setup record](security.md#setup-record) what the codes mean on BingX's API page |
 | identity | `call_implicit_get {"exchange":"bingx","account":"<alias>","method":"accountV1PrivateGetUid"}` | report `data.uid` |
 | raw read | `call_implicit_get {"exchange":"bingx","account":"<alias>","method":"walletsV1PrivateGetCapitalDepositAddress","params":{"coin":"USDT","offset":0,"limit":1000}}` | rows in `data.data[]` with `network` equal to the chosen id: exactly one. The address is `addressWithPrefix` if nonempty, else `address`. EVM addresses must already carry `0x` in the raw row |
@@ -256,6 +274,10 @@ in the recheck before OPEN. A changed limit needs a new plan or sheet.
 - ccxt adds `0x` to an unprefixed EVM address itself (verified offline). A raw row without the
   prefix therefore differs from the unified value: hold.
 - Memo: `tag`. `needTagOrMemo` is the published flag.
+- **Minimum: hold.** BingX's published wallet reference documents `withdrawMin` but no deposit
+  minimum. A `depositMin` that a live response may carry is undocumented, so the minimum is
+  unknown and routes to BingX hold on `min`, unless the user reads it on BingX's deposit page
+  (then the sheet names that source).
 - **Deposit status.** BingX's reference defines deposit status `0` in progress, `1` not credited,
   `2` wrong amount and `6` confirmed. ccxt 4.5.85 maps raw `1` to unified `ok`. Count a BingX
   deposit only on raw `info.status` `6` (verified offline: raw `1` holds).
@@ -273,10 +295,16 @@ in the recheck before OPEN. A changed limit needs a new plan or sheet.
   the gated normalized read is the source. The response does not name a chain. The request's
   `network` is the only chain evidence, and the address format cannot replace it: an EVM address
   looks the same on BSC and Ethereum.
-- **Contract: hold in both directions.** No WhiteBIT API (assets, fee, address) publishes a token
-  contract, and no official WhiteBIT page with the USDT contract per network was verified here.
-  The chain and contract therefore stay unverified. Routes to and from WhiteBIT hold until the
-  user reads the contract on WhiteBIT's deposit or withdrawal page for that network.
+- **Contract: operator setup evidence.** No WhiteBIT API (assets, fee, address) publishes a
+  token contract or an explorer mapping. WhiteBIT's help centre says that the network on the
+  deposit page links to the explorer, where the token contract is shown. The operator reads it
+  there once per network and pins it in the [setup record](security.md#setup-record)
+  (`WhiteBIT contract <NET>: <contract>, pinned <UTC>`). The agent compares that pin with the
+  reference contract. Every plan or sheet that uses it says "operator setup evidence, not an
+  API field". Without a pin, or with a pin that differs from the reference: hold.
+- **Entity.** WhiteBIT's compliance page says EEA accounts cannot deposit or withdraw USDT, and
+  EEA and Turkey deposits can be frozen for the travel rule. The setup record must say
+  "non-EEA, non-Turkey"; otherwise hold.
 - No key-metadata or UID read exists in ccxt 4.5.85, so only the operator's setup record stands
   behind the alias and its scope.
 - `required.minAmount` is `min`. `fixedFee` plus the `flexFee` percentage (bounded by its
@@ -287,19 +315,25 @@ in the recheck before OPEN. A changed limit needs a new plan or sheet.
 
 | Step | Call | Check |
 |---|---|---|
-| network data | `call_read_method {"exchange":"mexc","account":"<alias>","method":"fetchDepositWithdrawFee","args":["USDT"],"includeInfo":true}` | `info.networkList[]`: `network` (long id), `netWork` (short id), `depositEnable`, `contract`; no deposit minimum |
+| network data | `call_read_method {"exchange":"mexc","account":"<alias>","method":"fetchDepositWithdrawFee","args":["USDT"],"includeInfo":true}` | `info.networkList[]`: the row whose `netWork` is `TRX` / `BSC` / `ETH` / `TONCOIN`, with its `network` string, `depositEnable`, `contract`; no deposit minimum |
 | key check | `call_implicit_get {"exchange":"mexc","account":"<alias>","method":"spotPrivateGetAccount"}` | deposit-only: `canWithdraw: false`; report `permissions`, `canTrade` |
 | identity | `call_implicit_get {"exchange":"mexc","account":"<alias>","method":"spotPrivateGetUid"}` | report `uid` |
-| raw read | `call_implicit_get {"exchange":"mexc","account":"<alias>","method":"spotPrivateGetCapitalDepositAddress","params":{"coin":"USDT","network":"<network from the network data>"}}` | rows with that `network`: exactly one; `netWork` is `BSC` / `TRX` / `ETH` / `TONCOIN`; memo in `memo` |
-| gated read | `call_read_method {"exchange":"mexc","account":"<alias>","method":"fetchDepositAddress","args":["USDT"],"params":{"network":"<code>"},"includeInfo":true}` | equal to the raw row |
+| raw read (alone) | `call_implicit_get {"exchange":"mexc","account":"<alias>","method":"spotPrivateGetCapitalDepositAddress","params":{"coin":"USDT","network":"<network string of that row>"}}` | rows with `coin: "USDT"` and `network` equal to that string: exactly one; any other row: hold; memo in `memo` |
 
-- A `TON` row without a `memo` field: hold. A missing `memo` on a non-memo chain means none.
+- MEXC's reference documents the address rows as `coin`, `network`, `address` and `memo`, with
+  no `netWork`, and ccxt's parser comment shows `"memo": null`. ccxt's `fetchDepositAddress`
+  maps the row by `netWork`, which such a row lacks, so it is not used. The raw method is
+  itself funds-gated. The mapping from the chosen chain to the row's `network` string comes from
+  the config row (sourced from the same network data), never from the network name.
+- Memo: on TRC20, BEP20 and ERC20 a `memo: null` means none
+  ([memo rule](#memo-absent-versus-empty)). A TON row without a string memo holds.
 - **Minimum: hold.** MEXC's [API reference](https://mexcdevelop.github.io/apidocs/spot_v3_en/)
   lists no deposit-minimum field for `capital/config/getall`. `depositTips` is free text with no
   defined format, so the skill does not read a minimum from it. The route holds on `min` unless
   the user reads it on MEXC's deposit page.
-- An outdated long id in `netWork` (for example `BNB Smart Chain(BEP20)`) made the gated read
-  fail (verified offline): hold.
+- Outbound: an outdated long id in `netWork` (for example `BNB Smart Chain(BEP20)`) holds the
+  withdrawal. The withdrawal step comes from a valid live `withdrawIntegerMultiple`; `null`, as
+  in MEXC's reference example, holds that network only ([outbound table](exchanges.md#outbound-withdraw)).
 
 ## KuCoin
 
@@ -307,7 +341,7 @@ in the recheck before OPEN. A changed limit needs a new plan or sheet.
 |---|---|---|
 | network data | `call_implicit_get {"exchange":"kucoin","method":"publicGetCurrenciesCurrency","params":{"currency":"USDT"}}` | `data.chains[]`: `chainId`, `isDepositEnabled`, `depositMinSize`, `contractAddress`, `needTag` (the fields of KuCoin's published v3 schema) |
 | key check | `call_implicit_get {"exchange":"kucoin","account":"<alias>","method":"privateGetUserApiKey"}` | deposit-only: `permission` is `General` with no `Withdrawal`; report `uid`, `isMaster`, `ipWhitelist`, `remark` (the server redacts `apiKey`) |
-| raw read | `call_implicit_get {"exchange":"kucoin","account":"<alias>","method":"privateGetDepositAddresses","params":{"currency":"USDT","chain":"<chainId>","version":"v3"}}` | sends only `GET /api/v3/deposit-addresses`; rows with `chainId` equal to the chosen id: exactly one; full `contractAddress` equals the reference; memo in `memo`; `expirationDate` `0` |
+| raw read | `call_implicit_get {"exchange":"kucoin","account":"<alias>","method":"privateGetDepositAddresses","params":{"currency":"USDT","chain":"<chainId>","version":"v3"}}` | sends only `GET /api/v3/deposit-addresses`; chain-scoped: exactly one row, with `chainId` equal to the chosen id and `currency: "USDT"`, and no row for another chain; full `contractAddress` equals the reference; memo in `memo`; `expirationDate` `0` |
 
 - ccxt's `fetchDepositAddress` uses KuCoin's v1 endpoint, which KuCoin lists as abandoned
   ([docs](https://www.kucoin.com/docs-new/abandoned-endpoints/account-funding/get-deposit-addresses-v1)).
@@ -336,15 +370,16 @@ in the recheck before OPEN. A changed limit needs a new plan or sheet.
   funds-gated, so it then stands alone as the source.
 - **Minimum.** Gate's reference (and the official `gate-api` 7.2.184 SDK model) has an optional
   `min_deposit_amount` at the top level of the address response, next to `currency`, not per
-  chain. It counts as the chain's minimum only when `multichain_addresses` lists the chosen chain
-  and no other. Otherwise it is not established for that chain, and the send holds on `min`
-  (verified offline both ways).
+  chain. It counts as the chain's minimum only when the unfiltered `multichain_addresses` list
+  has exactly one row, that row is the chosen chain and it is eligible (`obtain_failed: 0`).
+  A single row for another chain, several rows, or a failed row: the minimum is not established
+  for that chain, and the send holds on `min` (verified offline all three ways).
 - **Deposit fee.** `call_implicit_get {"exchange":"gate","account":"<alias>","method":"privateWalletGetWithdrawStatus","params":{"currency":"USDT"}}`
   returns `deposit`, which Gate's reference and the official SDK model describe as "Deposit fee".
   Gate has no per-chain deposit-fee field, so this currency-level value is `d` (verified offline,
   including a response without the field, which holds).
-- Routes to Gate therefore hold on `min` unless the address response lists the chosen chain
-  alone (then the route qualifies, verified offline). With the user's own UI reading of the
+- Routes to Gate therefore hold on `min` unless the address response is single-chain as above
+  (then the route qualifies, verified offline). With the user's own UI reading of the
   minimum, a send to Gate is the
   [withdrawal sheet](../SKILL.md#29-manual-withdrawal-in-exchange-as-ui) or Scenario 1.
 

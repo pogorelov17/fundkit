@@ -1,8 +1,8 @@
 # Copyable prompts
 
 Paste one into a fresh Claude Code or Codex chat started from the repository root. Replace the
-parts in angle brackets. Each English prompt has a Russian twin below that asks for the same
-thing.
+parts in angle brackets. You may write the request in any language; the agent replies in the
+user's language and keeps the approval keywords (`APPROVE`, `WITHDRAW`) in English.
 
 - Read-only prompts make no writes. They call only `get_safety_status`, `list_accounts`, key
   checks, network data and recipient reads ([`recipients.md`](recipients.md)). On Gate and
@@ -32,11 +32,11 @@ Read SKILL.md. Run Step 0 and the key check for every connected profile. For eac
 ```
 
 ```text
-Read SKILL.md. Here is my setup record: <setup record>. Run Step 0 and the key checks and compare every field with the record: registration, alias, environment, configPath, journal (money-moving profiles must not run as your OS user), UID, role, provisioning consent, whitelist entries (read them from the exchange where a read exists), Binance entity, BingX jurisdiction. Report each difference. Read only, no plan.
+Read SKILL.md. Here is my setup record: <setup record>. Run Step 0 and the key checks and compare every field with the record: registration, alias, environment, configPath, journal, UID, role, provisioning consent, whitelist entries (read them from the exchange where a read exists), Binance entity and travel-rule line, BingX jurisdiction, WhiteBIT entity and pinned contracts. Report each difference. Read only, no plan.
 ```
 
 ```text
-Read SKILL.md. I see no ccxt-mcp tools in this chat. Explain what I have to install and register for a two-profile session with <exchange A> as source and <exchange B> as destination (plus a settlement registration if B must move the credit), which credential fields go into each profile's config.json, which OS user each server runs as, and which key rights each key needs.
+Read SKILL.md. I see no ccxt-mcp tools in this chat. Explain what I have to install and register for a two-profile session with <exchange A> as source and <exchange B> as destination (plus a settlement registration if B must move the credit), which credential fields go into each profile's config.json, which setup-record lines each money-moving registration needs, and which key rights each key needs.
 ```
 
 ## Read-only checks
@@ -56,50 +56,9 @@ Read SKILL.md. Setup record: <setup record>. Operation record: <operation record
 ```
 
 ```text
-Read SKILL.md. Both accounts are connected: <A alias> is the source and <B alias> the destination<, and <B settlement alias> settles on B>. Setup record: <setup record>. Operation record: <operation record>. <amount> USDT must arrive on <exchange B>; keep a <reserve> USDT reserve on <exchange A>. Prepare everything and give me the plan to approve, or name the exact gate that holds. After the withdrawal, match the deposit on B<, then plan the transfer into <B wallet> on the settlement registration>.
+Read SKILL.md. Both accounts are connected: <A alias> is the source and <B alias> the destination<, and <B settlement alias> settles on B>. Setup record: <setup record>. Operation record: <operation record>. <amount> USDT must arrive on <exchange B>; keep a <reserve> USDT reserve on <exchange A>. Prepare everything and give me the plan to approve, or name the exact gate that holds. After the withdrawal, match the deposit on B<, then give me a separate plan for the transfer into <B wallet> on the settlement registration>.
 ```
 
 ```text
 Read SKILL.md. Operation record: <operation record>. The last withdrawal from <A alias> has an unknown outcome. Reconcile it read-only on both accounts without repeating anything, and tell me what is proven.
-```
-
-## Same prompts in Russian
-
-Keep the approval keywords (`APPROVE`, `WITHDRAW`) in English. `<setup record>` and
-`<запись операции>` mean the same as above.
-
-```text
-Прочитай SKILL.md. Проверь мою настройку для <биржа>: какие серверы ccxt-mcp и аккаунты ты видишь, версии, configPath, journal, configProblems, уровни доступа и есть ли нативная форма подтверждения. Если чего-то не хватает, скажи точно, что настроить, не спрашивая ключей. Ничего не планируй.
-```
-
-```text
-Прочитай SKILL.md. Выполни Step 0 и проверку ключа для каждого подключённого профиля. Для каждого алиаса покажи регистрацию, окружение, configPath, journal, UID аккаунта, права ключа, привязку к IP и подходит ли он своей роли (только пополнение, перевод на B или источник). Затем перечисли, какие строки setup record мне ещё нужно записать. Только чтение, без плана.
-```
-
-```text
-Прочитай SKILL.md. Вот мой setup record: <setup record>. Выполни Step 0 и проверки ключей и сравни каждое поле с записью: регистрация, алиас, окружение, configPath, journal (профили с движением денег не должны работать от твоего пользователя ОС), UID, роль, согласие на provisioning, записи белого списка (прочитай их на бирже, где такое чтение есть), entity Binance, юрисдикция BingX. Покажи каждое расхождение. Только чтение, без плана.
-```
-
-```text
-Прочитай SKILL.md. В этом чате нет инструментов ccxt-mcp. Объясни, что установить и зарегистрировать для сессии с двумя профилями: <биржа A> источник, <биржа B> получатель (и регистрация для перевода на B, если зачисление нужно перенести); какие поля учётных данных идут в config.json каждого профиля, от какого пользователя ОС работает каждый сервер и какие права нужны каждому ключу.
-```
-
-```text
-Прочитай SKILL.md. Покажи мой адрес пополнения USDT на <биржа> в сети <TRC20 | BEP20 | ERC20 | TON> из моего аккаунта, с проверкой сырой строки, проверкой адреса, мемо (или его отсутствием), кошельком зачисления и UID аккаунта. Только чтение, без плана.
-```
-
-```text
-Прочитай SKILL.md. Для моего профиля <биржа> перечисли сети USDT: пополнение включено, минимум, контракт, нужен ли мемо и комиссия за пополнение, с источником каждого значения, и скажи, какие сети задержаны и почему. Только чтение, без плана.
-```
-
-```text
-Прочитай SKILL.md. Setup record: <setup record>. Запись операции: <запись операции>. Хочу пополнить <биржа> на <сумма> USDT из OKX Wallet. USDT у меня в сетях <сети>. Выбери сеть, прочитай адрес и мемо из моего аккаунта и подготовь лист отправки или назови точный шлюз, который его задерживает. Я вставлю его в OKX Wallet и подпишу.
-```
-
-```text
-Прочитай SKILL.md. Оба аккаунта подключены: <алиас A> источник, <алиас B> получатель<, а <алиас перевода на B> делает перевод на B>. Setup record: <setup record>. Запись операции: <запись операции>. На <биржа B> должно прийти <сумма> USDT, на <биржа A> оставь резерв <резерв> USDT. Подготовь всё и дай план на утверждение или назови точный шлюз, который держит маршрут. После вывода сверь зачисление на B<, затем подготовь план перевода в <кошелёк B> через регистрацию для перевода>.
-```
-
-```text
-Прочитай SKILL.md. Запись операции: <запись операции>. Результат последнего вывода с <алиас A> неизвестен. Сверь его только чтением на обоих аккаунтах, ничего не повторяя, и скажи, что доказано.
 ```

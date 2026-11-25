@@ -108,7 +108,9 @@ Schemas from `tools/list` (required fields in **bold**):
   `status: "ok"` means only `retCode 0`, and KuCoin's is filled in by ccxt
   ([transfer proof](exchanges.md#transfer-proof)).
 - The form has no PLAN-ID and no plan expiry, so the skill shows them before the call
-  ([SKILL.md, 2.5](../SKILL.md#25-executing-each-write)).
+  ([SKILL.md, 2.5](../SKILL.md#25-executing-each-write)). The server enforces only the form's
+  answer; argument and expiry checks are procedural
+  ([trust model](security.md#trust-model)).
 
 ## Journal
 
@@ -136,8 +138,12 @@ Schemas from `tools/list` (required fields in **bold**):
   `fetchBalance` returns no `info` at all, and its raw balance read is a POST, so WhiteBIT's
   available field is not visible through these tools.
 - ccxt maps some codes to a fixed wire id that the venue no longer lists (Bitget `BEP20` →
-  `BSC`, while Bitget's live list says `BEP20`). The skill requires that the id ccxt sends
-  equal the venue's live id.
+  `BSC`, while Bitget's live list says `BEP20`). For calls ccxt builds (withdrawals, gated
+  reads) the skill requires that the id ccxt sends equal the venue's live id. Bitget's and
+  MEXC's recipient reads therefore use their raw, funds-gated endpoints with the venue's own
+  id ([recipients.md](recipients.md#bitget)).
+- MEXC address rows follow MEXC's reference (`coin`, `network`, `address`, `memo`, no
+  `netWork`); ccxt's `fetchDepositAddress` maps rows by `netWork`, so it is not used there.
 - `withdraw` on BingX: a `walletType` key in `params` is dropped, and ccxt sends its default
   `15`. `params {"type":"fund"}` sends `walletType=1` (verified offline).
 - A response over 80,000 characters: an array is truncated, and an object (for example
