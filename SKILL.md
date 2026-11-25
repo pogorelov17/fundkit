@@ -255,8 +255,9 @@ sends from OKX Wallet, using the checked sheet.
    venue's documented policy in the
    [destination status table](references/recipients.md#status-by-destination-venue), so the
    human does not open the exchange for it. If a field has neither (the Binance, MEXC and Gate
-   deposit minimum, the KuCoin and Gate deposit fee, the WhiteBIT contract), hold and name the
-   missing field. The user may then choose to read that one value on the exchange's deposit
+   deposit minimum, the KuCoin deposit fee, the WhiteBIT contract), hold and name the missing
+   field. If ccxt's id for the chain differs from the venue's live id (Bitget BEP20), that
+   network does not qualify: pick another one. The user may then choose to read that one value on the exchange's deposit
    page, and the sheet says "source: human, <exchange> UI, <UTC>". If a live field or a page
    the user chose to check disagrees with the documented value, `d` is unknown: hold.
 3. A network qualifies if its chain is in the [chain table](#chains), deposits are enabled,
@@ -264,7 +265,9 @@ sends from OKX Wallet, using the checked sheet.
    the amounts below clear the minimum. Reject bridged variants and other contracts.
 4. **Deposit address and memo.** Read them from the operator's own destination account with
    the venue's [native recipient read](references/recipients.md) (for Bybit, the
-   [Bybit deposit address](#bybit-deposit-address) flow). This works on all nine exchanges.
+   [Bybit deposit address](#bybit-deposit-address) flow). Each of the nine exchanges has such a
+   read; whether the network qualifies is decided by the gates in the
+   [status table](references/recipients.md#status-by-destination-venue).
    The human does not open the exchange. Only if the user chooses the manual path do they
    copy the address and any required memo **themselves** in the exchange app
    (Deposit → USDT → network). If the read finds no address, the operator creates it once in
@@ -428,8 +431,9 @@ Use one alias with `"funds": "live"` for every read below.
 
 **Two profiles, one session.** The default setup connects both accounts to the same host
 session: a source profile for A (read + withdrawal, IP-bound, B's address whitelisted) and a
-destination profile for B (read-only, `funds` for the recipient read; plus internal transfer
-only if B must move the credit), each in its own server with its own credentials
+destination profile for B (read-only key, `funds` for the recipient read), and, only if B must
+move the credit, a separate settlement registration for the same B account (read + internal
+transfer, no withdrawal), each in its own server with its own credentials
 ([scheme C](references/security.md#scheme-c-per-profile-credential-files-two-profile-session)).
 Every profile that moves money runs [operator-owned](references/security.md#operator-owned-money-profiles)
 under another OS user, and both registrations match the
@@ -437,8 +441,10 @@ under another OS user, and both registrations match the
 You do the preparation: both preflights, both networks, B's recipient by its
 [native read](references/recipients.md), fees and amounts, the plan, the withdrawal, the
 proof on A, the deposit match on B and any settlement transfer on B. The user approves the
-plan, approves the withdrawal and confirms each native form; nothing else is asked of them
-on a native route. A route is native only when every gate below passes on live data; the
+plan with `APPROVE`, approves the withdrawal with `WITHDRAW`, and then confirms each money
+move in its native form; a reply in the chat never replaces the form, and the form never
+replaces the reply. The agent asks only for facts that no tool result and no setup record
+supplies, and names each one. A route is native only when every gate below passes on live data; the
 [destination status table](references/recipients.md#status-by-destination-venue) and the
 [outbound table](references/exchanges.md#outbound-withdraw) name the venues where a documented
 fact is missing, and those routes hold. Without a B profile in this session (scheme A), use the
@@ -799,7 +805,13 @@ Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | as
    2.1. A balance change only locates funds; the hash attributes them. If it is not clear
    which wallet holds the credit, the human checks B's UI.
 5. If the block's `then` asks for a transfer, make a **new plan** with one `transfer`, its
-   own PLAN-ID (`<PLAN-ID>-B`), expiry and proof route (2.5). Its amount is at most the
+   own PLAN-ID (`<PLAN-ID>-B`), expiry and proof route (2.5). The transfer runs on B's
+   **settlement registration**, never on the deposit-only profile: a read-only key cannot
+   transfer (Bybit `readOnly: 1` is refused with `10005`). The settlement registration must be
+   operator-owned, show no withdrawal right and an internal-transfer right in its key check,
+   and report the same account UID as the deposit-only profile and the setup record. Without
+   such a registration, finish as credited and report that the transfer is held. If no onward
+   transfer was requested, the route ends with the credit. Its amount is at most the
    attributed credit, the holding wallet's available field and the user's limit, and no more
    than the target needs. It must be a multiple of B's steps (2.3) and within B's
    `maxTransferValue`. Then `APPROVE <PLAN-ID>-B` → 2.5 → 2.7.

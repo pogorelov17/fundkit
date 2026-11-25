@@ -55,8 +55,8 @@ and BingX returned `{}` without a key.
 ### Gate as recipient (hold)
 
 Gate's address response has a currency-level `min_deposit_amount`. It counts as the chain's
-minimum only when the response lists the chosen chain alone, and no Gate deposit-fee source was
-verified ([recipients.md, Gate](recipients.md#gate)). So the agent never calls `withdraw` to Gate.
+minimum only when the response lists the chosen chain alone ([recipients.md, Gate](recipients.md#gate)).
+The deposit fee is `withdraw_status.deposit`. So the agent never calls `withdraw` to Gate.
 The agent reads the full address and memo natively (a provisioning read,
 [setup consent](recipients.md#provisioning-reads)). If the user chooses to read the missing values
 on Gate's deposit page, the send is the
@@ -130,7 +130,7 @@ verified**, so withdrawals there are manual only.
 | Bybit | `chain=TRX` | `BSC` | `ETH` | `TON` | `tag` | `{"accountType":"FUND"}` or `{"accountType":"UTA"}`, the wallet holding the USDT; without it ccxt picks UTA or SPOT from its own mode query |
 | Gate | `chain=TRX` | `BSC` | `ETH` | `TON` | `memo` | `{}` |
 | OKX | `chain=USDT-TRC20` | `USDT-BSC` | `USDT-ERC20` | `USDT-TON` | `toAddr=<address>:<memo>` | `{"fee":"<exact f>"}` (sent as `fee`) |
-| Bitget | `chain=TRC20` | `BSC` | `ERC20` | `TON` | `tag` | `{"uta":true}` or `{"uta":false}` per the verified mode; without it ccxt assumes classic on any probe error |
+| Bitget | `chain=TRC20` | `BSC`³ | `ERC20` | `TON` | `tag` | `{"uta":true}` or `{"uta":false}` per the verified mode; without it ccxt assumes classic on any probe error |
 | WhiteBIT | `network=` the exact string passed: pass `<NET>` from the `"USDT (<NET>)"` key (`TRC20`, `BEP20`, `ERC20`, `TON`) | | | | `memo` | `{}`. Routes from WhiteBIT still hold on the contract ([recipients.md](recipients.md#whitebit)) |
 | BingX | `network=TRC20`² | `BEP20`² | `ERC20`² | `TON`² | `addressTag` | `{"type":"fund"}`, sent as `walletType=1` (the fund account). Not `{"walletType":…}`: ccxt drops that key and sends its default `15` (verified) |
 | MEXC | `netWork=TRX` | `BSC`¹ | `ETH` | `TONCOIN`¹ | `memo` | `{}`; the amount goes out unrounded, so the step must come from `withdrawIntegerMultiple` ([steps](#amount-steps)) |
@@ -153,6 +153,10 @@ documents `walletType` `1` fund, `2` standard futures and `3` perpetual futures.
 not collect those, so a BingX source whose [setup record](security.md#setup-record) says KOR,
 or does not say, holds. Proof: `fetchWithdrawals` with `params {"id":"<id>"}` (sent as `id`). Raw
 status `6` is completed, `4` under review and `5` failed.
+
+³ Bitget's live public coin list names that chain `BEP20`, not `BSC`, and no source shows that
+Bitget accepts `BSC`. Bitget BEP20 therefore holds in both directions
+([recipients.md, Bitget](recipients.md#bitget)). Bitget TRC20, ERC20 and TON send the live id.
 
 ### Withdrawal whitelist evidence
 

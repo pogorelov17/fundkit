@@ -36,9 +36,10 @@ Automatic skill discovery is optional and host-specific; this repository does no
 
 ## What it does
 
-- **OKX Wallet → exchange.** Picks a network from the exchange's live data. On all nine
+- **OKX Wallet → exchange.** Picks a network from the exchange's live data. On each of the nine
   exchanges the agent reads the address, network and memo from the operator's own account
-  with a read-only key ([native recipient reads](references/recipients.md)). The operator
+  with a read-only key ([native recipient reads](references/recipients.md)). Whether a network
+  qualifies depends on the documented facts per venue (some hold). The operator
   enters the amount, pastes the verified address and memo into OKX Wallet and signs. Send amount, network fee
   (quoted amount or cap, asset and treatment) and expected credit are kept apart. The deposit is matched by transaction
   hash and expected credit.
@@ -102,7 +103,7 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
 Check which exchange profiles are connected and what they are allowed to do.
 I want to top up Bybit with 150 USDT from OKX Wallet. Which network fits and what should I check before sending?
 Give me my Bybit USDT deposit address for TRC20 so I can paste it into OKX Wallet.
-Both accounts are connected: move 300 USDT from okx-src to bybit-dst and settle it into the unified wallet.
+Both accounts are connected: move 300 USDT from okx-src to bybit-dst, then settle it into the unified wallet with bybit-settle.
 Make a plan: 300 USDT must arrive on Bybit (UTA) from OKX (trading account), keep a 100 USDT margin reserve on OKX.
 Move 50 USDT from main to trade on KuCoin. Plan first.
 How much free margin and which positions are on Hyperliquid for address 0x…?

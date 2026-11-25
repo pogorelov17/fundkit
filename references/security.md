@@ -242,8 +242,11 @@ Rights by role. Create a separate key per role, each with an IP allowlist:
 - **Destination (B) recipient profile**: read only. The profile needs `"funds": "live"` and a
   `maxTransferValue` because ccxt-mcp gates address reads behind `funds`; keep
   `"dryRun": true`. With a read-only key the exchange also refuses any write.
-- **Destination settlement**: read + internal transfer, no withdrawal, only if the credit must
-  move from the deposit wallet to another B wallet.
+- **Destination settlement**: a second registration for the same B account (its own key with
+  read + internal transfer, no withdrawal, same UID), operator-owned, only if the credit must
+  move from the deposit wallet to another B wallet. The deposit-only recipient key stays
+  read-only: a read-only key cannot transfer (Bybit `readOnly: 1` is refused), and the agent
+  never uses it for one.
 - **Source (A)**: read + withdrawal (+ internal transfer when A moves funds into its
   withdrawal wallet), an exchange-side withdrawal limit and B's address on A's withdrawal
   whitelist. The operator adds that address once in A's security settings with 2FA; the agent
@@ -295,6 +298,7 @@ writes it and treats it as the operator's statement, not as a tool result.
 ```text
 SETUP RECORD, written <UTC> by <operator>
 Profile <registration name>: alias <alias>, exchange <id>, environment <live|sandbox>, role <deposit-only | settlement | source>
+  (a settlement registration names the deposit-only registration of the same account UID)
   configPath <path>, journal <path>, OS user <name> (money-moving: not the agent's user)
   account UID <id> (confirmed on the exchange's API page <UTC>), key rights <as shown there>, IP allowlist <yes>
   provisioning: <allowed | not allowed>            (Gate, WhiteBIT: their address read may create an address)
