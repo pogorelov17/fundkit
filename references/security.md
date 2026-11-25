@@ -1,7 +1,8 @@
 # Secrets, host setup, key permissions
 
-The agent sees only aliases and tool results. The operator passes keys to the server through
-the launch environment. No values belong in the repository, host configs, argv or the chat.
+The agent sees only aliases and tool results. The operator gives each server its keys either
+in that profile's own `chmod 600` `config.json` (scheme C) or through the launch environment
+(schemes A and B). No values belong in the repository, host configs, argv or the chat.
 
 ## Environment contract
 
@@ -21,7 +22,9 @@ launch environment to every MCP server (verified), so prefixed names such as `OK
 the agent's shell. Codex passes a server only the names in its `env_vars` (verified), but the
 values still sit in the host environment, and two servers listing the same names get the same
 values. Whether the agent's shell can see them depends on Codex settings and was not tested
-here, so assume it can. Two launch schemes are supported.
+here, so assume it can. Three launch schemes are supported. Scheme C is the recommended one
+for exchange A → exchange B, because both accounts can then be connected in the same session
+with separate credentials.
 
 ### Scheme A: one keyed account per launch
 
@@ -88,9 +91,39 @@ nor its config contains secrets. How to store secrets and what to launch with is
 operator's choice: the skill does not prescribe it, and the repository contains no code for
 it.
 
+### Scheme C: per-profile credential files (two-profile session)
+
+ccxt-mcp 0.1.3 reads credentials from the account entry in `config.json` (`apiKey`, `secret`,
+`password`), the way its own README describes. A value set there is never overridden by
+`<EXCHANGE>_*` variables; those only fill fields the config leaves out (`js/pools.js`). So:
+
+1. One profile directory per account, each with its own `config.json` holding exactly one
+   account with **all** of the venue's required credential fields
+   ([venue profiles](#venue-profiles)). A missing field would be filled from the environment.
+2. `chmod 600`, owned by the server's user, and `"strictPermissions": true`: the server
+   refuses a file readable by others (`REFUSED (strictPermissions)` in `configProblems`,
+   verified).
+3. One registered server per profile, each with only `CCXT_MCP_CONFIG` in its `env`
+   ([host registration](#host-registration)). No `<EXCHANGE>_*` variables in the host
+   launch environment.
+
+Verified offline (two servers in one MCP session, synthetic keys): every request of each
+server was signed with its own config's key, also for two OKX profiles side by side and when
+the host environment carried another account's `OKX_*` values. ccxt-mcp registers config
+credentials for redaction, so a key echoed by an exchange read comes back as
+`[redacted:…]`. `list_accounts` shows only which credential fields are set.
+
+What scheme C isolates: each server process loads only its own file, so one profile's key
+never signs another profile's requests. What it does not isolate: the agent's shell runs as
+the same OS user and could read the files (rule 1 of [`SKILL.md`](../SKILL.md#hard-rules)
+forbids it). For isolation from the agent as well, keep the profile directories under another
+OS user and launch the servers through scheme B. Either way the exchange-side restrictions
+below are mandatory.
+
 ### Profile `config.json`
 
-No secrets; only the operator edits it.
+In schemes A and B it holds no secrets; in scheme C it also holds the account's credentials
+([venue profiles](#venue-profiles)). Only the operator edits it.
 
 ```json
 {
@@ -146,7 +179,9 @@ start with nothing installed:
    }
    ```
 
-4. **Keys.** Put the key and secret into `BYBIT_APIKEY` and `BYBIT_SECRET` in the environment
+4. **Keys.** Scheme C: add `"apiKey"` and `"secret"` to the account entry in this profile's
+   `config.json` ([scheme C](#scheme-c-per-profile-credential-files-two-profile-session)).
+   Otherwise put the key and secret into `BYBIT_APIKEY` and `BYBIT_SECRET` in the environment
    the server is launched with, by your own means, never in the repository or the chat.
    Scheme A in Claude Code:
    `( unset $(compgen -e | grep -vxE 'HOME|PATH|TERM|LANG|BYBIT_APIKEY|BYBIT_SECRET'); exec claude )`.
@@ -156,6 +191,70 @@ start with nothing installed:
    ([host registration](#host-registration)), restart the host, start a new chat with the
    skill read. If something fails, the agent follows the
    [Bybit setup check](../SKILL.md#bybit-setup-check).
+
+### Venue profiles
+
+One-time setup per account, from a cold start with nothing installed. Install the pinned
+server once ([install](ccxt-mcp.md#install)); then, per account:
+
+| Venue (`exchange`) | Credential fields (scheme C `config.json`) | Variables (schemes A and B) | What the [key check](recipients.md) must show for a deposit-only profile |
+|---|---|---|---|
+| Binance (`binance`) | `apiKey`, `secret` | `BINANCE_APIKEY`, `BINANCE_SECRET` | `enableReading: true`, `enableWithdrawals: false`, `ipRestrict: true`; `uid` |
+| Bybit (`bybit`) | `apiKey`, `secret` | `BYBIT_APIKEY`, `BYBIT_SECRET` | `readOnly: 1`, no `Withdraw`, `isMaster: true` (main-account key); `userID` |
+| OKX (`okx`) | `apiKey`, `secret`, `password` (API passphrase) | `OKX_APIKEY`, `OKX_SECRET`, `OKX_PASSWORD` | `perm: "read_only"`; `uid` |
+| Bitget (`bitget`) | `apiKey`, `secret`, `password` | `BITGET_APIKEY`, `BITGET_SECRET`, `BITGET_PASSWORD` | no withdrawal authority; `userId` |
+| BingX (`bingx`) | `apiKey`, `secret` | `BINGX_APIKEY`, `BINGX_SECRET` | permission codes confirmed once on BingX's API page; `uid` |
+| WhiteBIT (`whitebit`) | `apiKey`, `secret` | `WHITEBIT_APIKEY`, `WHITEBIT_SECRET` | no key read exists: the operator confirms the scope once |
+| MEXC (`mexc`) | `apiKey`, `secret` | `MEXC_APIKEY`, `MEXC_SECRET` | `canWithdraw: false`; `uid` |
+| KuCoin (`kucoin`) | `apiKey`, `secret`, `password` | `KUCOIN_APIKEY`, `KUCOIN_SECRET`, `KUCOIN_PASSWORD` | `permission: "General"` (no `Withdrawal`); `uid` |
+| Gate (`gate`) | `apiKey`, `secret` | `GATE_APIKEY`, `GATE_SECRET` | the read has no permission fields: the operator confirms the scope once; `user_id` |
+| Hyperliquid | none: `walletAddress` only | none | watch-only |
+
+Rights by role. Create a separate key per role, each with an IP allowlist:
+
+- **Destination (B) recipient profile**: read only. The profile needs `"funds": "live"` and a
+  `maxTransferValue` because ccxt-mcp gates address reads behind `funds`; keep
+  `"dryRun": true`. With a read-only key the exchange also refuses any write.
+- **Destination settlement**: read + internal transfer, no withdrawal, only if the credit must
+  move from the deposit wallet to another B wallet.
+- **Source (A)**: read + withdrawal (+ internal transfer when A moves funds into its
+  withdrawal wallet), an exchange-side withdrawal limit and B's address on A's withdrawal
+  whitelist. The operator adds that address once in A's security settings with 2FA; the agent
+  never does and never asks to skip it.
+
+Two-profile example (scheme C), one file per account:
+
+```json
+{
+  "settings": { "strictPermissions": true, "hideDisabledTools": true },
+  "accounts": {
+    "okx-src": {
+      "exchange": "okx", "apiKey": "<from OKX>", "secret": "<from OKX>", "password": "<passphrase>",
+      "funds": "live", "maxTransferValue": 300, "maxDailyValue": 600, "confirm": "always"
+    }
+  }
+}
+```
+
+```json
+{
+  "settings": { "strictPermissions": true, "hideDisabledTools": true },
+  "accounts": {
+    "bybit-dst": {
+      "exchange": "bybit", "apiKey": "<from Bybit>", "secret": "<from Bybit>",
+      "funds": "live", "maxTransferValue": 300, "confirm": "always", "dryRun": true
+    }
+  }
+}
+```
+
+The operator fills in the values with an editor, never through the chat or the agent's shell,
+then sets `chmod 600`. Remove `"dryRun": true` from the source profile only after a plan has
+been walked through, and from the destination profile only if B will run a settlement
+transfer. Register both servers ([host registration](#host-registration)),
+restart the host, start a new chat with the [setup prompt](prompts.md#setup-and-diagnosis),
+and have the agent run Step 0 and the key checks. Record each reported account identifier
+with its alias outside the chat; the agent compares later chats against it.
 
 ## Trust boundary
 
@@ -188,8 +287,10 @@ No secrets. Substitute your own `<APP_DIR>` (install directory, see
 }
 ```
 
-The server takes keys from the launch environment (scheme A) or from the launcher (scheme
-B). Servers from a project `.mcp.json` must be approved once in interactive `claude`.
+The server takes keys from its profile's `config.json` (scheme C), the launch environment
+(scheme A) or the launcher (scheme B). For a two-profile session, add one entry per profile
+(for example `ccxt-okx-src` and `ccxt-bybit-dst`), each with only its own `CCXT_MCP_CONFIG`.
+Servers from a project `.mcp.json` must be approved once in interactive `claude`.
 
 **Codex**: `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`):
 
@@ -203,6 +304,8 @@ startup_timeout_sec = 30
 tool_timeout_sec = 420
 ```
 
+In scheme C omit `env_vars`: the credentials are in the profile file, and each further
+profile gets its own `[mcp_servers.<name>]` table with its own `CCXT_MCP_CONFIG`.
 `tool_timeout_sec` must be longer than the server's 300 s wait for the confirmation form
 plus the exchange call ([gates](ccxt-mcp.md#gates-and-approval)). With a shorter timeout,
 the host can report a timeout while the server is still waiting on the form. The server
@@ -255,6 +358,7 @@ Expect `version: "0.1.3"`, `ccxtVersion: "4.5.84"`, an empty `configProblems`,
 |---|---|---|
 | read-only | read | IP allowlist |
 | Bybit deposit address (Scenario 1) | read-only, main account; profile with `funds` and `dryRun` ([above](#bybit-deposit-profile)) | IP allowlist, no Withdraw label, no transfer or trading write access |
+| recipient read, any venue (Scenario 1, and B in Scenario 2) | read only; profile with `funds` and `dryRun` ([venue profiles](#venue-profiles)) | IP allowlist, no withdrawal, no transfer or trading write access |
 | internal transfer | read + internal transfer | IP allowlist, no withdrawal |
 | withdrawal (exchange A) | read + withdrawal (+ transfer) | IP allowlist, address whitelist (the human adds B's address with 2FA), exchange-side withdrawal limit |
 | Hyperliquid | no key needed | public address only |

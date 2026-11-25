@@ -1,43 +1,86 @@
 # Copyable prompts
 
-Paste one into a fresh Claude Code or Codex chat started from the repository root. The
-read-only smoke checks make no writes: they call only `get_safety_status`, `list_accounts`,
-key-metadata and address reads.
+Paste one into a fresh Claude Code or Codex chat started from the repository root. Replace the
+parts in angle brackets. Read-only prompts make no writes: they call only `get_safety_status`,
+`list_accounts`, key checks, network data and recipient reads
+([`recipients.md`](recipients.md)). Prompts that end in a send stop at the plan or sheet: the
+user still approves with the keywords from [`SKILL.md`](../SKILL.md#hard-rules) and confirms
+the native form or signs in the wallet.
+
+## Setup and diagnosis
+
+Use these first, on a host where nothing has worked yet.
+
+```text
+Read SKILL.md. Check my setup for <exchange>: which ccxt-mcp servers and accounts you see, the versions, configProblems, tiers and whether a native confirmation form is available. If something is missing, tell me exactly what to set up, without asking for any key. Do not plan anything.
+```
+
+```text
+Read SKILL.md. Run Step 0 and the key check for every connected profile. For each alias report the account UID, the key's permissions and IP binding, and whether it fits its role (deposit-only or source). Read only, no plan.
+```
+
+```text
+Read SKILL.md. I see no ccxt-mcp tools in this chat. Explain what I have to install and register for a two-profile session with <exchange A> as source and <exchange B> as destination, which credential fields go into each profile's config.json, and which key rights each key needs.
+```
 
 ## Read-only smoke checks
 
 ```text
-Read SKILL.md. Run Step 0 only: report version, configProblems, accounts, tiers and whether a native confirmation form is available. Do not plan anything.
+Read SKILL.md. Show my <exchange> USDT deposit address for <TRC20 | BEP20 | ERC20 | TON> from my own account, with the venue's raw-row check, the memo (or none), the landing wallet and the account UID. Read only, no plan.
 ```
 
 ```text
-Read SKILL.md. For my OKX profile, run the key check and show the account UID and key permission scope. Read only, no plan.
+Read SKILL.md. For my <exchange> profile, list the USDT networks with deposit enabled, minimum, contract, memo requirement and deposit fee, with the source of each value. Read only, no plan.
+```
+
+## Planning
+
+```text
+Read SKILL.md. I want to top up <exchange> with <amount> USDT from OKX Wallet. I hold USDT on <networks>. Pick the network, read the address and memo from my account, and prepare the send sheet. I will paste it into OKX Wallet and sign.
 ```
 
 ```text
-Read SKILL.md. Show my OKX USDT deposit address for TRC20 from my own account, with the raw-row check. Read only, no plan.
+Read SKILL.md. Both accounts are connected: <A alias> is the source and <B alias> the destination. <amount> USDT must arrive on <exchange B>; keep a <reserve> USDT reserve on <exchange A>. Prepare everything and give me the plan to approve. After the withdrawal, match the deposit on B and settle it into <B wallet>.
 ```
 
 ```text
-Read SKILL.md. Show my Bybit USDT deposit address for BEP20 from my own account. Read only, no plan.
+Read SKILL.md. The last withdrawal from <A alias> has an unknown outcome. Reconcile it read-only on both accounts without repeating anything, and tell me what is proven.
 ```
 
 ## Same prompts in Russian
 
+Keep the approval keywords (`APPROVE`, `WITHDRAW`, `ADDRESS`) in English.
+
 ```text
-Прочитай SKILL.md. Выполни только Step 0: версия, configProblems, аккаунты, уровни доступа и есть ли нативная форма подтверждения. Ничего не планируй.
+Прочитай SKILL.md. Проверь мою настройку для <биржа>: какие серверы ccxt-mcp и аккаунты ты видишь, версии, configProblems, уровни доступа и есть ли нативная форма подтверждения. Если чего-то не хватает, скажи точно, что настроить, не спрашивая ключей. Ничего не планируй.
 ```
 
 ```text
-Прочитай SKILL.md. Покажи мой адрес пополнения USDT на OKX в сети TRC20 из моего аккаунта, с проверкой сырой строки. Только чтение, без плана.
-```
-
-## Planning prompts
-
-```text
-Read SKILL.md. I want to top up OKX with 150 USDT from OKX Wallet on TRC20. Prepare the send sheet; I will paste and sign in the wallet.
+Прочитай SKILL.md. Выполни Step 0 и проверку ключа для каждого подключённого профиля. Для каждого алиаса покажи UID аккаунта, права ключа, привязку к IP и подходит ли он своей роли (только пополнение или источник). Только чтение, без плана.
 ```
 
 ```text
-Прочитай SKILL.md. Хочу пополнить Bybit на 150 USDT из OKX Wallet. Подготовь лист отправки, я вставлю и подпишу в кошельке.
+Прочитай SKILL.md. В этом чате нет инструментов ccxt-mcp. Объясни, что установить и зарегистрировать для сессии с двумя профилями: <биржа A> источник, <биржа B> получатель; какие поля учётных данных идут в config.json каждого профиля и какие права нужны каждому ключу.
+```
+
+```text
+Прочитай SKILL.md. Покажи мой адрес пополнения USDT на <биржа> в сети <TRC20 | BEP20 | ERC20 | TON> из моего аккаунта, с проверкой сырой строки, мемо (или его отсутствием), кошельком зачисления и UID аккаунта. Только чтение, без плана.
+```
+
+```text
+Прочитай SKILL.md. Хочу пополнить <биржа> на <сумма> USDT из OKX Wallet. USDT у меня в сетях <сети>. Выбери сеть, прочитай адрес и мемо из моего аккаунта и подготовь лист отправки. Я вставлю его в OKX Wallet и подпишу.
+```
+
+Prepared accounts (both profiles already connected and checked):
+
+```text
+Прочитай SKILL.md. Оба аккаунта подключены: <алиас A> источник, <алиас B> получатель. На <биржа B> должно прийти <сумма> USDT, на <биржа A> оставь резерв <резерв> USDT. Подготовь всё сам и дай план на утверждение. После вывода сверь зачисление на B и переведи его в <кошелёк B>.
+```
+
+```text
+Прочитай SKILL.md. Профиль <алиас B> уже настроен. Прочитай адрес и мемо USDT в сети <сеть>, комиссию и минимум пополнения, и рассчитай, сколько придёт при отправке <сумма> USDT из OKX Wallet. Только чтение, без плана.
+```
+
+```text
+Прочитай SKILL.md. Результат последнего вывода с <алиас A> неизвестен. Сверь его только чтением на обоих аккаунтах, ничего не повторяя, и скажи, что доказано.
 ```

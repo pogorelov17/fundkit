@@ -21,32 +21,36 @@ operator sets up:
 
 1. **Server.** Install the pinned server ([install](references/ccxt-mcp.md#install)) and create
    one `config.json` per account, starting with `"dryRun": true`
-   ([profile config](references/security.md#profile-configjson)). For a Bybit top-up from
-   OKX Wallet, follow the [Bybit deposit profile](references/security.md#bybit-deposit-profile).
-2. **Host.** Register the servers without secrets and pick launch scheme A or B
+   ([venue profiles](references/security.md#venue-profiles): credential fields, variable
+   names and key rights for all nine exchanges).
+2. **Host.** Register one server per profile and pick a launch scheme. Scheme C keeps each
+   account's key in its own `chmod 600` profile file, so exchange A and exchange B are both
+   connected in one session
    ([environment contract](references/security.md#environment-contract),
    [host registration](references/security.md#host-registration)).
-3. **Check.** Run the [smoke check](references/security.md#smoke-check), then ask the agent
-   for a preflight check as the first request.
+3. **Check.** Run the [smoke check](references/security.md#smoke-check), then paste a
+   [setup prompt](references/prompts.md#setup-and-diagnosis) as the first request.
 
 Automatic skill discovery is optional and host-specific; this repository does not rely on it
 ([loading the skill](references/security.md#loading-the-skill)).
 
 ## What it does
 
-- **OKX Wallet → exchange.** Picks a network from the exchange's live data. For Bybit the
-  agent reads the address, network and memo from the operator's own Bybit account with a
-  read-only key ([Bybit deposit profile](references/security.md#bybit-deposit-profile)); for
-  other exchanges the human copies the address from the exchange UI. The human sends from
-  the wallet by hand. Send amount, network fee
+- **OKX Wallet → exchange.** Picks a network from the exchange's live data. On all nine
+  exchanges the agent reads the address, network and memo from the operator's own account
+  with a read-only key ([native recipient reads](references/recipients.md)). The operator
+  enters the amount, pastes the verified address and memo into OKX Wallet and signs. Send amount, network fee
   (quoted amount or cap, asset and treatment) and expected credit are kept apart. The deposit is matched by transaction
   hash and expected credit.
-- **Exchange A → exchange B** (semi-automatic). Accounts for account modes, available amount
-  minus margin reserve, and a network enabled on both sides. Debit, withdraw amount and credit
-  are computed separately. Then: exact plan for A → approval → separate withdrawal approval →
-  verified final withdrawal success on A → a HANDOFF block with the source proof and hash → deposit matched in the fresh B chat → a new
-  plan and approval for any transfer on B. Routes to Gate and from BingX use a manual
-  withdrawal sheet in A's UI, with the same expected-credit and hash checks.
+- **Exchange A → exchange B** (semi-automatic). Both accounts are connected in the same
+  session with separate credentials. The agent prepares everything: account modes, available
+  amount minus margin reserve, a network enabled on both sides, B's recipient read from B's
+  own account, and debit, withdraw amount and credit computed separately. The user approves
+  the plan and the withdrawal and confirms the native form. The agent then proves the
+  withdrawal on A, matches the deposit on B by hash and plans any transfer on B for its own
+  approval. A HANDOFF block to a second chat is only the fallback without a B profile. Routes
+  to Gate and from BingX use a manual withdrawal sheet in A's UI, with the same
+  expected-credit and hash checks.
 - **funding ↔ trading/margin** on one exchange.
 - **Hyperliquid**: watch-only margin and position monitoring by public address.
 
@@ -57,10 +61,12 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
 
 - **Keys.** The agent knows only account aliases and never reads the environment. One server
   per account. Claude Code passes its whole environment to every server; Codex forwards only
-  each server's `env_vars`, but the values stay in the host environment. So either keep one
-  account's keys and one enabled registration for that exchange per host launch, or have the
-  operator launch each server separately
-  ([schemes A and B](references/security.md#environment-contract)).
+  each server's `env_vars`, but the values stay in the host environment. So either put each
+  account's credentials into its own `chmod 600` profile file and keep exchange keys out of
+  the host environment (scheme C, both accounts in one session), keep one account's keys and
+  one enabled registration for that exchange per host launch (scheme A), or have the operator
+  launch each server separately (scheme B)
+  ([environment contract](references/security.md#environment-contract)).
 - **Approvals.** MCP writes run only from a plan with exact arguments and an expiry, after the
   reply `APPROVE <PLAN-ID>`. The first `withdraw` call also needs a separate
   `WITHDRAW <PLAN-ID>`; a requested `get_deposit_address` call, which may create an address,
@@ -76,8 +82,8 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
   network and exchange steps. Network, chain, contract, fee and minimums are never guessed.
   API withdrawals run only for offline-verified "exchange + network" pairs; withdrawals to Gate
   and from BingX are manual. The full address, network and memo are checked on the final
-  confirmation screen against their source (the deposit page, or the Bybit read's tool
-  result), never against text pasted into the chat.
+  confirmation screen against their source (the native recipient read's tool result, or the
+  deposit page if the user chose it), never against text pasted into the chat.
 - **Fresh chats.** Carry the latest operation record forward. An open or unknown send is reconciled read-only. API withdrawals require a native confirmation form; otherwise use the exchange UI.
 - **Crash hold.** A crash-cut entry in the shared ccxt-mcp journal stops all writes on every
   profile that shares it, for good: reads and operator investigation only.
@@ -90,6 +96,7 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
 Check which exchange profiles are connected and what they are allowed to do.
 I want to top up Bybit with 150 USDT from OKX Wallet. Which network fits and what should I check before sending?
 Give me my Bybit USDT deposit address for TRC20 so I can paste it into OKX Wallet.
+Both accounts are connected: move 300 USDT from okx-src to bybit-dst and settle it into the unified wallet.
 Make a plan: 300 USDT must arrive on Bybit (UTA) from OKX (trading account), keep a 100 USDT margin reserve on OKX.
 Move 50 USDT from main to trade on KuCoin. Plan first.
 How much free margin and which positions are on Hyperliquid for address 0x…?
@@ -104,8 +111,8 @@ The last withdrawal is stuck. Reconcile what actually happened without repeating
 | [`references/ccxt-mcp.md`](references/ccxt-mcp.md) | pins, tool schemas, approval gates, journal, limitations, verification |
 | [`references/exchanges.md`](references/exchanges.md) | wallets, network data, outbound withdraw table, amount steps, account modes |
 | [`references/security.md`](references/security.md) | environment contract, host registration, loading the skill, smoke check, key permissions |
-| [`references/recipients.md`](references/recipients.md) | native recipient reads (address, memo, landing wallet) per venue |
-| [`references/prompts.md`](references/prompts.md) | copyable prompts for read-only smoke checks and planning |
+| [`references/recipients.md`](references/recipients.md) | native recipient reads (address, memo, landing wallet), deposit fee and minimum sources and hard limits per venue |
+| [`references/prompts.md`](references/prompts.md) | copyable English and Russian prompts for setup, diagnosis, read-only checks and planning |
 
 ## Verification and limits
 

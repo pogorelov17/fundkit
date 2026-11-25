@@ -41,6 +41,7 @@ own `transferId`. Key environment variables are described in [`security.md`](sec
 | Gate, fee | `fetchDepositWithdrawFee` (withdraw status) | withdrawal fees only, no deposit flags | account test |
 | Bybit | `call_read_method … fetchDepositWithdrawFee ["USDT"] includeInfo` with the Bybit alias | `info.chains[]`: `chain`, `chainType`, `chainDeposit` (`1` normal, `0` suspended), `depositMin`, `contractAddress` (full), `minAccuracy`, `withdrawFee`; **no deposit fee** ([below](#bybit-deposit-address)) | fields per Bybit's coin-info docs, parsed offline; `AUTH_FAILED` without a key |
 | Binance, OKX, MEXC | `fetchDepositWithdrawFee ["USDT"] includeInfo` | `AUTH_FAILED` without a key | account test |
+| all nine, recipient side | [native recipient reads](recipients.md) | address, memo, chain, landing wallet where returned; deposit fee and minimum sources per venue | offline-verified, account test |
 | BingX | same | public response `null` | account test |
 
 `fetchCurrencies` is not suitable for picking a network. For Gate, Bitget, WhiteBIT and
@@ -50,11 +51,12 @@ and BingX returned `{}` without a key.
 ### Gate as recipient (manual only)
 
 Gate's deposit minimum is not available by API, so the agent never calls `withdraw` to Gate.
-The human reads Gate's deposit page (network, minimum, contract, full address, memo) and
-withdraws from exchange A's UI with the
-[withdrawal sheet](../SKILL.md#29-manual-withdrawal-in-exchange-as-ui), or sends from the
-wallet (Scenario 1). The agent supplies the `currency_chains` data and reconciles the Gate
-deposit by hash ([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
+The agent reads the full address and memo natively from the operator's Gate account
+([recipients.md, Gate](recipients.md#gate)) and the `currency_chains` data. Only the minimum
+remains a hold: the user reads it on Gate's deposit page, then withdraws from exchange A's UI
+with the [withdrawal sheet](../SKILL.md#29-manual-withdrawal-in-exchange-as-ui), or sends
+from the wallet (Scenario 1). The agent reconciles the Gate deposit by hash
+([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
 
 ### Bybit deposit address
 
