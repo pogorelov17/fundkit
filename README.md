@@ -136,22 +136,31 @@ journal crash entries and deposit hash matching; the Bybit deposit-address read;
 same-exchange registrations sharing one key; public network data, `call_implicit_get`, the
 server environment and registration commands on Claude Code 2.1.331 and Codex 0.172.0.
 
-On 2026-11-25 a repair pack replaced the previous fixture run, which had not enforced the route
-gates. A reference planner follows this skill's gates on tool results only, over real ccxt-mcp
-servers and a fixture transport (212 scenarios, 1294 checks, 0 failures,
-[details](references/ccxt-mcp.md#verification)):
+On 2026-11-25 an adjudicated pack replaced the earlier fixture runs. A reference planner follows
+this skill's gates on tool results only, over real ccxt-mcp servers and a fixture transport.
+Every expected disposition was fixed from the documented venue facts before the run
+(291 scenarios, 3698 checks, 0 failures, [details](references/ccxt-mcp.md#verification)):
 
-- **72 directed exchange pairs**, with the network chosen among TRC20, BEP20, ERC20 and TON.
-  **24 settle**, from Binance, Bybit, Gate, OKX, Bitget, BingX or KuCoin to Bybit, OKX, Bitget
-  or BingX. Each runs from the recipient read and both preflights through a native-form
-  withdrawal, proof by id, a deposit matched by hash, and a transfer on B's settlement
-  registration proven by id. **48 hold** before any money-moving call, with zero wire writes,
-  because a venue documents no value for a needed fact: the Binance, MEXC and Gate deposit
-  minimum, the KuCoin deposit fee, the WhiteBIT contract (both directions) and the MEXC
-  withdrawal step. Bitget BEP20 also holds in both roles (id mismatch), so Bitget routes use TON.
-- 84 isolated gate scenarios: 78 fail exactly the expected gate (pre-dispatch ones before any
-  money-moving request), and 6 positive twins pass. 36 recipient reads pass the address, memo
-  and raw-row checks on 9 venues × 4 networks. The stated holds remain.
+- **72 directed exchange pairs**, network chosen among TRC20, BEP20, ERC20 and TON.
+  **18 settle on documented facts alone**: A ∈ Binance, Bybit, Gate, OKX, Bitget, BingX,
+  KuCoin → B ∈ Bybit, OKX, Bitget (BEP20; Bitget sources on TON). **11 settle only with an
+  operator setup fact**, labeled as such: to WhiteBIT (8, contract pinned by the operator,
+  credited without an onward transfer) and from MEXC (3, IP allowlist from the setup record,
+  because MEXC's key read shows none). **43 hold** before any money-moving call: the Binance,
+  MEXC, BingX and multi-chain Gate deposit minimum, the KuCoin deposit fee (live fields empty),
+  WhiteBIT's invisible available amount as a source, Bitget BEP20 outbound and Gate TON
+  outbound. Settled routes run a full recheck, one native-form withdrawal, proof by id, a deposit
+  matched by hash with USDT and chain checked on both venues, and, on Bybit, OKX and Bitget, a
+  separate settlement plan on its own registration, proven by id.
+- **36 recipient reads** (9 venues × 4 networks): all 36 verify the address, memo, chain and
+  contract (WhiteBIT's 4 through the operator's pinned contract). A send can be planned to 16
+  of them (Bybit, OKX, Bitget, WhiteBIT); 20 hold on a destination fact (Binance, Gate, BingX
+  and MEXC minimum; KuCoin fee).
+- 111 isolated hold scenarios and 11 positive twins on routes, 26 recipient gates, 12
+  independent probes (wrong receipt chain, Bybit cap changed, settlement without funds, Binance
+  questionnaire, deposits suspended after the plan, OKX deposit key with `trade`, whitelist
+  letter case, expiry at minute 15, controls). Every gate except the server-version constant
+  and the settlement UID cross-check fails in at least one isolated scenario.
 
 Every response in those runs is synthetic, shaped after venue references and ccxt's parsers.
 Not verified: real accounts, modes, available amounts, fee models, exchange responses to writes
