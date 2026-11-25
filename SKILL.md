@@ -100,7 +100,8 @@ only what the human pastes carries over.
    `tagDeposit`). Any difference: do not confirm.
    The fix is a fresh copy from the source, and a changed address or memo needs a new plan or
    sheet and new approvals. For an API withdrawal, the full address must already be on A's
-   withdrawal whitelist. On every plan or sheet for a send, record the destination network's
+   withdrawal whitelist, and the whitelist evidence must show it character for character,
+   letter case included (also for EVM addresses). On every plan or sheet for a send, record the destination network's
    memo requirement (required, not required, or no published flag), its source and the UTC check time.
    "Not required" allows a recipient-specific memo. Preserve every supplied memo exactly
    through preview, submission, handoff and deposit reconciliation, including leading zeros.
@@ -235,8 +236,11 @@ For each server involved:
    such read (WhiteBIT), or its read shows no permission fields (Gate), say that only the
    operator's setup record stands behind the alias or the scope.
 5. Tell the user which profiles are read-only, which have `funds: "live"` and with what cap,
-   and whether the native form is available (`elicitationSupported: true` is required on every
-   money-moving server). Only the operator can enable a missing tier, in the config; it cannot
+   and whether the native form is available. Every money-moving server needs
+   `elicitationSupported: true` **and** the setup record's "Native form: interactive" line: a
+   Claude Code `Elicitation` or `ElicitationResult` hook can answer a form without a dialog,
+   and no tool shows hooks ([interactive form](references/security.md#interactive-native-form)).
+   Never create or edit host settings, hooks or plugins. Only the operator can enable a missing tier, in the config; it cannot
    be done from the conversation.
 
 If no `ccxt-mcp` tools are available, say that no server is connected to this chat (you
@@ -261,7 +265,8 @@ sends from OKX Wallet, using the checked sheet.
    [destination status table](references/recipients.md#status-by-destination-venue), so the
    human does not open the exchange for it. If a field has neither (the Binance, MEXC and BingX
    deposit minimum, the Gate minimum unless the address response lists the chosen chain alone,
-   the KuCoin deposit fee), hold and name the missing field. The WhiteBIT contract comes only
+   the KuCoin deposit fee unless a live `depositFeeRate` without a `depositTierFee` gives it),
+   hold and name the missing field. The WhiteBIT contract comes only
    from the operator's one-time pinned setup evidence, named as such on the sheet. If ccxt's id
    for the chain differs from the venue's live id on a call ccxt builds (Bitget BEP20 outbound),
    that network does not qualify: pick another one. The user may then choose to read that one value on the exchange's deposit
@@ -571,8 +576,25 @@ Example (target credit): B must receive 300 USDT, `f = 1`, `d = 0`, model unconf
   the same live response the plan was built on. ccxt 4.5.85 sends it as `fee` (verified).
   Without `fee`, ccxt takes the fee from its own currency data (`GET /asset/currencies`,
   merged with the load cache), not from the plan. A call without `fee` is therefore not
-  allowed.
-- **Minimums.** Check `W` against A's withdrawal minimum and `C` against B's deposit minimum.
+  allowed. OKX's current withdrawal reference lists no `fee` parameter and says the fee is not
+  included in `amt`. So passing `fee` is what ccxt sends, not a binding the server is shown to
+  honor; whether OKX applies it exactly was not verified. A nonempty, nonzero `burningFeeRate`
+  makes `f` inexact: hold.
+- **Percentage fees.** A fee with a percentage part is exact only when its rate is zero (Bybit
+  `withdrawPercentageFee`, Gate `withdraw_percent_on_chains`, KuCoin `withdrawFeeRate`, OKX
+  `burningFeeRate`). Otherwise `f` is unknown: hold.
+- **Minimums, maximums and quotas.** Check `W` against A's withdrawal minimum (Gate: the larger
+  of `withdraw_amount_mini` and the chain's `withdraw_amount_min`) and `C` against B's deposit
+  minimum. Check `W` against A's per-transaction maximum where the venue reports one (OKX
+  `maxWd`, Bybit `remainAmount`), against OKX's 24 h USD quota (`wdQuota − usedWdQuota` at
+  least 1.02 × `W`, a margin of this skill for the USD value of USDT) and against the
+  profile's `maxTransferValue` and `maxDailyValue`. For OKX as B, a nonempty `depQuotaFixed`
+  needs `depQuotaFixed − usedDepQuotaFixed` of at least 1.02 × the upper bound of `C`.
+  Exceeded or unreadable: hold.
+- **Entities.** OKX requires `rcvrInfo` for "specific entity users" and Bybit a beneficiary for
+  some entities; the skill sends neither. An OKX or Bybit source needs the setup record's entity
+  line saying "not required" with its evidence; otherwise hold (as for the
+  [Binance travel rule](references/exchanges.md#binance-travel-rule)).
 - **Representable amounts (before plan approval).** Every call amount (`W` and each
   `transfer` `amount`) must reach the exchange unchanged:
   - at most 15 significant digits and at least `0.000001`: MCP passes the amount as a JSON

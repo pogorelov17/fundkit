@@ -30,7 +30,7 @@ it for another (Binance.com).
 | BingX | one row per network in the address list | `apiPermissions` (numeric codes), `uid` | 0, [BingX Learn](https://bingx.com/en/learn/how-to-deposit-crypto-with-bingx): "BingX does not charge fees for crypto deposits." (a venue article, not a fee schedule) | unknown: BingX's [published wallet reference](https://github.com/bingx-api/api-ai-skills/blob/d40bcc6ab6e91ad7c2d801250425c2a973d2f95a/skills/spot-wallet/api-reference.md) documents no deposit minimum, so a live `depositMin` is not used | address native; `min` hold; deposit credit only on raw status `6` |
 | Binance | default row of the address list | `apiRestrictions` flags; `uid` from `/api/v3/account` | 0, [Binance fee page](https://www.binance.com/en/fee/cryptoFee): "Binance does not charge deposit fees." | `depositDust` is not described in Binance's reference (only an example value), so it is not a minimum | address native; `min` hold |
 | MEXC | raw funds-gated address list alone, rows matched by the config row's `network` string | `account`: `canWithdraw`, `permissions`; `uid` | 0, [MEXC Learn, 2026-10-20](https://www.mexc.com/learn/article/mexc-fees-explained-complete-trading-futures-withdrawal-fees-guide/1): "MEXC does not charge to receive crypto deposits" (a venue article, not a fee schedule) | no API field; `depositTips` is free text | address native; `min` hold |
-| KuCoin (classic) | v3 address list | `user/api-key`: `permission`, `uid`, `isMaster` | unknown: KuCoin's v3 currency schema has no deposit-fee field, no read shows a remaining free quota, KuCoin's fee pages say part of their content is outdated, and no entity-specific (KuCoin global, EU, TH, TR) deposit-fee statement was found | `depositMinSize` (`null` = unknown) | address native; `d` hold; UTA: hold |
+| KuCoin (classic) | v3 address list | `user/api-key`: `permission`, `uid`, `isMaster` | live `depositFeeRate` × amount when it is a decimal and `depositTierFee` is empty; absent (both empty, as on the live read of 2026-11-25), a tier fee (undocumented semantics) or a non-decimal: unknown. KuCoin's fee pages say part of their content is outdated, and no entity-specific deposit-fee statement was found | `depositMinSize` (`null` = unknown) | address native; `d` hold while the fields are empty; UTA: hold |
 | WhiteBIT | address object for the requested network (may provision, [below](#provisioning-reads)) | none in ccxt 4.5.85 | `required.fixedFee` and `required.flexFee` in the same response | `required.minAmount` | native with operator setup evidence: the contract is the operator's one-time reading pinned in the setup record, and the entity must be non-EEA, non-Turkey ([WhiteBIT](#whitebit)); without the pin: hold |
 | Gate | `multichain_addresses` row (may provision, [below](#provisioning-reads)) | `account/detail`: `user_id`, `ip_whitelist` (no permission fields) | `withdraw_status.deposit`, documented as "Deposit fee" (currency-level; there is no per-chain deposit-fee field) | top-level `min_deposit_amount` counts only when the unfiltered list has exactly one row, for the chosen chain, eligible ([Gate](#gate)) | address native; `min` hold unless that holds |
 
@@ -188,7 +188,10 @@ a read is not documented.
 - **Minimum.** ccxt 4.5.85 maps `depositDust` to the deposit minimum. Binance's reference shows
   that field only as an example value and does not say what it means (`withdrawMin` and the
   other fields are named for what they are). The route holds on `min` unless the user reads the
-  minimum on Binance's deposit page.
+  minimum on Binance's deposit page. This is the same rule as for BingX's `depositMin`: a live
+  field without documented meaning is not used, whether the field is listed without a
+  description (Binance) or not listed at all (BingX). A description in another entity's
+  documentation (for example Binance TH) does not apply to a Binance.com account.
 - Landing wallet: the response has none. Binance's typical deposit wallet is Spot
   ([account mode table](exchanges.md#account-mode-and-available-amount)). In a two-profile
   session the agent locates the credit by reading the wallets (2.8).
@@ -351,10 +354,14 @@ and a new plan or sheet (verified offline).
   Network. On TRC20, BEP20, ERC20 or TON it must be `0` (or absent). Any other value is
   unexplained: hold (verified offline).
 - `to` is the landing wallet (`MAIN` or `TRADE`). Record it as `Lands in`.
-- **Deposit fee: hold.** KuCoin's published v3 currency schema has no deposit-fee field. No read
-  in ccxt 4.5.85 shows the account's remaining free deposit quota, which differs by KuCoin entity.
-  KuCoin's pages disagree. `d` stays unknown unless the user reads it on KuCoin's deposit page.
-  KuCoin UTA accounts were not verified: hold.
+- **Deposit fee.** KuCoin's v3 currency schema has two optional chain fields:
+  `depositFeeRate` ("Deposit fee rate (some currencies have this param; the default is
+  empty)") and `depositTierFee` (no description). Use `d = depositFeeRate × amount` only when
+  the rate is a decimal and the tier fee is empty. Both empty (the live public read of
+  2026-11-25), a tier fee, or a value that is not a decimal: `d` is unknown and the route holds,
+  unless the user reads it on KuCoin's deposit page. An empty rate does not establish zero.
+  Verified offline: rate `0` with no tier fee settles; a tier fee holds. KuCoin UTA accounts
+  were not verified: hold.
 
 ## Gate
 

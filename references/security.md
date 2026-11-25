@@ -132,7 +132,8 @@ of these hold:
 - its key check shows the role's rights and the account UID in the setup record. A settlement
   registration must show the same UID as B's deposit-only profile;
 - `get_safety_status` reports `elicitationSupported: true`, so every `withdraw` and `transfer`
-  opens the host's native form;
+  opens the host's native form, and the setup record states that the form is an interactive
+  dialog nobody answers automatically ([interactive form](#interactive-native-form));
 - the exchange-side limits are in place: IP allowlist, withdrawal whitelist, the venue's
   withdrawal limit and minimal key rights.
 
@@ -213,6 +214,29 @@ start with nothing installed:
    skill read. If something fails, the agent follows the
    [Bybit setup check](../SKILL.md#bybit-setup-check).
 
+### Quick setup (cooperative scope)
+
+A two-profile example for Claude Code with scheme C: OKX as source A, Bybit as destination B,
+plus a Bybit settlement registration. Directory names are examples. Run it in the operator's
+own shell, not through the agent. Replace `<APP_DIR>` with the install directory
+([install](ccxt-mcp.md#install)).
+
+```bash
+mkdir -p ~/fundkit-profiles/okx-src ~/fundkit-profiles/bybit-dst ~/fundkit-profiles/bybit-settle
+# write each config.json with an editor (examples below); keys go only into these files
+chmod 600 ~/fundkit-profiles/*/config.json
+for p in okx-src bybit-dst bybit-settle; do
+  claude mcp add-json -s user "ccxt-$p" "{\"command\":\"/usr/bin/node\",\"args\":[\"<APP_DIR>/node_modules/ccxt-mcp/js/server.js\"],\"env\":{\"CCXT_MCP_CONFIG\":\"$HOME/fundkit-profiles/$p/config.json\"}}"
+done
+claude mcp list
+```
+
+Then check the Claude Code settings for hooks or plugins that answer forms
+([interactive form](#interactive-native-form)), restart, start a new chat with the
+[setup prompt](prompts.md#setup-and-diagnosis), and write the [setup record](#setup-record).
+This setup separates the three keys from each other. It does not hide them from the agent,
+and it relies on the agent following the rules ([trust model](#trust-model)).
+
 ### Venue profiles
 
 One-time setup per account, from a cold start with nothing installed. Install the pinned
@@ -231,7 +255,23 @@ server once ([install](ccxt-mcp.md#install)); then, per account:
 | Gate (`gate`) | `apiKey`, `secret` | `GATE_APIKEY`, `GATE_SECRET` | the read has no permission fields: the operator confirms the scope once; `user_id` |
 | Hyperliquid | none: `walletAddress` only | none | watch-only |
 
-Rights by role. Create a separate key per role, each with an IP allowlist:
+Rights by role per venue. The deposit-only right is in the table above. The offline tests
+exercised settlement on Bybit, OKX, Bitget and BingX only. Names follow each
+venue's API key page; confirm them there once and record them in the setup record:
+
+| Venue | Source A (withdraws) | Settlement on B (internal transfer) |
+|---|---|---|
+| Binance | Enable Withdrawals, IP restricted; `enableInternalTransfer` or universal transfer only if A moves funds first | `permitsUniversalTransfer: true`, `enableWithdrawals: false` |
+| Bybit | `readOnly: 0`, `Wallet: Withdraw` (plus `AccountTransfer` if needed), main account, IP bound | `readOnly: 0`, `Wallet: AccountTransfer`, no `Withdraw` |
+| OKX | `perm` includes `withdraw` | `perm` exactly `read_only,trade` (OKX grants transfers with trade), no `withdraw` |
+| Bitget | an authority naming withdrawal | an authority naming transfer, none naming withdrawal |
+| BingX | the permission code recorded for withdrawal | the code recorded for transfer, not the withdrawal code |
+| MEXC | `canWithdraw: true`; the key read shows no IP field, so the setup record must say the IP allowlist is set | transfer right per MEXC's API page, `canWithdraw: false`; IP allowlist in the setup record |
+| KuCoin | `permission` includes `Withdrawal` | `permission` includes `Transfer`, not `Withdrawal`; proof is operator or manual ([transfer proof](exchanges.md#transfer-proof)) |
+| Gate | withdrawal right per the setup record (the key read has no permission fields); `ip_whitelist` nonempty | transfer right, no withdrawal, per the setup record; `ip_whitelist` nonempty |
+| WhiteBIT | per the setup record (no key read) | per the setup record; proof is operator or manual |
+
+Create a separate key per role, each with an IP allowlist:
 
 - **Destination (B) recipient profile**: read only. The profile needs `"funds": "live"` and a
   `maxTransferValue` because ccxt-mcp gates address reads behind `funds`; keep
@@ -299,8 +339,11 @@ Profile <registration name>: alias <alias>, exchange <id>, environment <live|san
   BingX permission codes: <code → right>; BingX KYC jurisdiction: <non-KOR | KOR>
   Binance entity: <entity name>; travel-rule questionnaire on withdrawal: <not required | required | unknown>; evidence <source, UTC>
   WhiteBIT entity: <non-EEA, non-Turkey | EEA | Turkey>; evidence <source, UTC>
+  OKX entity: <entity name>; rcvrInfo (recipient information) on withdrawal: <not required | required | unknown>; evidence <source, UTC>
+  Bybit entity: <entity name>; beneficiary information on withdrawal: <not required | required | unknown>; evidence <source, UTC>
+  Native form: interactive dialog; no Elicitation/ElicitationResult hook or auto-answer; checked <UTC>
   WhiteBIT contract <TRC20 | BEP20 | ERC20 | TON>: <full contract>, pinned from the explorer linked on WhiteBIT's deposit page <UTC>
-  Whitelist on this source: <full address> memo <none | exact> chain <code> → <B venue>, added with 2FA <UTC>
+  Whitelist on this source: <full address, character for character as in the agent's code block> memo <none | exact> chain <code> → <B venue>, added with 2FA <UTC>
 ```
 
 A missing line means "not established": the gate that needs it holds. A changed key, alias,
@@ -310,6 +353,29 @@ for its travel-rule questionnaire, the line says "not required" and names its ev
 ([outbound table](exchanges.md#withdrawal-whitelist-evidence)). A WhiteBIT contract line is
 the operator's one-time reading, labeled as such on every plan and sheet that uses it; it is not
 an API field.
+
+## Interactive native form
+
+`elicitationSupported: true` says only that the host can show a form. Claude Code also has
+`Elicitation` and `ElicitationResult` hooks: a hook runs when an MCP server asks for input,
+and Claude Code applies its output, so a hook can answer or change the form's response
+without a dialog ([Claude Code hooks](https://code.claude.com/docs/en/hooks)). Hooks come
+from user, project and local settings, plugins, skill frontmatter and managed settings, and
+they merge across those levels. No tool result shows them.
+
+Before the first money move, the operator checks once, outside the chat, that no hook,
+plugin or setting answers or rewrites a form for the money-moving servers, and records it:
+
+```text
+Native form: interactive dialog for <registration names>; no Elicitation/ElicitationResult hook or auto-answer in user, project, local, plugin or managed settings; checked <UTC>
+```
+
+Without that line the skill holds every money move. The operator may set
+`"disableAllHooks": true` (or, as an administrator, `allowManagedHooksOnly` in managed settings)
+to make the check simpler. The agent never creates, edits or deletes host settings, hooks or
+plugins. Under the [trust model](#trust-model) that is a rule the agent follows, not something
+it is prevented from doing, and the skill cannot detect a hook added later. Even an interactive
+form shows no PLAN-ID, expiry or `params`, so it does not bind the full plan.
 
 ## Trust model
 
