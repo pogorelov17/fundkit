@@ -59,7 +59,10 @@ only what the human pastes carries over.
    that reports `elicitationSupported: false` gets no MCP money move at all, because its
    confirmation token could be redeemed by the model. Never redeem a `confirmToken`. Hold the
    move; the human may use the exchange UI instead. The skill assumes a cooperative, trusted
-   host, operator and agent ([trust model](references/security.md#trust-model)).
+   host, operator and agent ([trust model](references/security.md#trust-model)). The hard
+   control is the human's answer in that form, on an interactive host whose setup record says
+   no hook or setting answers it. The plan, expiry and argument checks are procedures. Where the
+   server process runs, and under which OS user, is neither a control nor a stop.
 4. **API withdrawals require a native confirmation form and a verified request.** The pair "exchange A + network" must appear in
    the [outbound withdraw table](references/exchanges.md#outbound-withdraw). Pass `network` at
    the top level and the memo only in `tag`. Put exactly what the table requires for that
@@ -83,10 +86,11 @@ only what the human pastes carries over.
    caps only MCP `transfer` and `withdraw` on that account; it does not cap a manual send
    (Scenario 1, 2.9), which is bound by the user's own amount and limit.
 7. **Never guess the network, fee, minimum, contract or chain.** If a field did not come in a
-   live response, the human did not read it in the exchange UI, and
-   [`exchanges.md`](references/exchanges.md) names no documented value for it, it is
-   "unknown", and a network with an unknown field does not qualify. Sources that disagree make
-   the field unknown too. Do not suggest small "test" transfers.
+   live response and [`exchanges.md`](references/exchanges.md) names no documented value for
+   it, it is "unknown", and a network with an unknown field does not qualify. Sources that
+   disagree make the field unknown too. The one exception is a
+   [per-plan human-read fact](#per-plan-human-read-facts), which the user may choose to supply
+   for B's deposit minimum or deposit fee only. Do not suggest small "test" transfers.
 8. **Hyperliquid is watch-only** by public address. No transfers, withdrawals, orders or
    private keys (collateral there is USDC).
 9. **Do not trust addresses from the chat.** The deposit address and memo have one source:
@@ -100,8 +104,10 @@ only what the human pastes carries over.
    `tagDeposit`). Any difference: do not confirm.
    The fix is a fresh copy from the source, and a changed address or memo needs a new plan or
    sheet and new approvals. For an API withdrawal, the full address must already be on A's
-   withdrawal whitelist, and the whitelist evidence must show it character for character,
-   letter case included (also for EVM addresses). On every plan or sheet for a send, record the destination network's
+   withdrawal whitelist, and every whitelist record must show it character for character,
+   letter case included (also for EVM addresses). That covers a venue's saved-address row
+   (Binance, Gate) as much as a setup-record entry: a row that matches only when letter case
+   is ignored is not the recipient. On every plan or sheet for a send, record the destination network's
    memo requirement (required, not required, or no published flag), its source and the UTC check time.
    "Not required" allows a recipient-specific memo. Preserve every supplied memo exactly
    through preview, submission, handoff and deposit reconciliation, including leading zeros.
@@ -222,8 +228,8 @@ For each server involved:
    tool-visible check is the server's `journal` and `configPath` from `get_safety_status`: both
    must equal the setup record. Otherwise that profile is read-only for this launch. Which OS
    user or container runs a server is host configuration. The skill neither relies on it nor
-   can verify it, and a fixed `sudo` rule or a separate user is not a boundary against the
-   agent ([trust model](references/security.md#trust-model)).
+   checks it. A money-moving server under the agent's own OS user is the normal case and no
+   reason to stop ([trust model](references/security.md#trust-model)).
 4. **Account identity and key scope.** An alias is a label and does not prove which exchange
    account the key belongs to. Before the first write or recipient read in a launch, run the
    venue's key check from [`recipients.md`](references/recipients.md) and report the account
@@ -233,8 +239,10 @@ For each server involved:
    role. Later chats compare every field against that record without opening the exchange. Any
    difference is a stop. A deposit-only profile must show no withdrawal right. A source profile
    that will withdraw must show the withdrawal right and an IP binding. Where the venue has no
-   such read (WhiteBIT), or its read shows no permission fields (Gate), say that only the
-   operator's setup record stands behind the alias or the scope.
+   such read (WhiteBIT), or its reads show no key permissions (Gate; MEXC, whose `canWithdraw`
+   is an account flag, not a key right), the setup record's key-rights line stands behind the
+   scope: say so. The deposit-only profile keeps `dryRun: true` in `list_accounts`, also when
+   a separate settlement registration for B exists. `dryRun: false` on it is a stop.
 5. Tell the user which profiles are read-only, which have `funds: "live"` and with what cap,
    and whether the native form is available. Every money-moving server needs
    `elicitationSupported: true` **and** the setup record's "Native form: interactive" line: a
@@ -263,15 +271,17 @@ sends from OKX Wallet, using the checked sheet.
    "no data", not "network disabled". The deposit fee `d` comes from a live field or the
    venue's documented policy in the
    [destination status table](references/recipients.md#status-by-destination-venue), so the
-   human does not open the exchange for it. If a field has neither (the Binance, MEXC and BingX
-   deposit minimum, the Gate minimum unless the address response lists the chosen chain alone,
-   the KuCoin deposit fee unless a live `depositFeeRate` without a `depositTierFee` gives it),
-   hold and name the missing field. The WhiteBIT contract comes only
-   from the operator's one-time pinned setup evidence, named as such on the sheet. If ccxt's id
-   for the chain differs from the venue's live id on a call ccxt builds (Bitget BEP20 outbound),
-   that network does not qualify: pick another one. The user may then choose to read that one value on the exchange's deposit
-   page, and the sheet says "source: human, <exchange> UI, <UTC>". If a live field or a page
-   the user chose to check disagrees with the documented value, `d` is unknown: hold.
+   human does not open the exchange for it. BingX's minimum is the chosen chain's live
+   `depositMin`, which BingX's API docs define as "Minimum deposit amount". If a field has
+   neither (the Binance and MEXC deposit minimum, the Gate minimum unless the address response
+   lists the chosen chain alone, the KuCoin deposit fee unless a live `depositFeeRate` without
+   a `depositTierFee` gives it), hold and name the missing field. The user may then choose to
+   supply that one value as a [per-plan human-read fact](#per-plan-human-read-facts). The
+   WhiteBIT contract comes only from the operator's one-time pinned setup evidence, named as
+   such on the sheet. If ccxt's id for the chain differs from the venue's live id on a call
+   ccxt builds (Bitget BEP20 outbound), that network does not qualify: pick another one. If a
+   live field or a page the user chose to check disagrees with the documented value, the field
+   is unknown: hold.
 3. A network qualifies if its chain is in the [chain table](#chains), deposits are enabled,
    the USDT contract on that chain matches both the wallet's contract and the reference, and
    the amounts below clear the minimum. Reject bridged variants and other contracts.
@@ -456,11 +466,30 @@ proof on A, the deposit match on B and any settlement transfer on B. The user ap
 plan with `APPROVE`, approves the withdrawal with `WITHDRAW`, approves any settlement transfer
 on B with its own `APPROVE <PLAN-ID>-B`, and then confirms each money move in its native form; a reply in the chat never replaces the form, and the form never
 replaces the reply. The agent asks only for facts that no tool result and no setup record
-supplies, and names each one. A route is native only when every gate below passes on live data; the
+supplies, and names each one. A route runs only when every gate below passes on live data and
+the setup record. The
 [destination status table](references/recipients.md#status-by-destination-venue) and the
 [outbound table](references/exchanges.md#outbound-withdraw) name the venues where a documented
 fact is missing, and those routes hold. Without a B profile in this session (scheme A), use the
 [HANDOFF](#28-settlement-on-b) fallback.
+
+**What a route relies on.** Report it on every plan in three classes, which can overlap
+([prerequisites by route](references/recipients.md#prerequisites-by-route)):
+
+- **Common setup** (one-time, every API route): one setup-record line per registration
+  (registration, alias, exchange, environment, `configPath`, `journal`, role, account UID
+  confirmed once on the API page) and the interactive-form line. No API route runs on live
+  fields alone.
+- **Venue-specific setup** (one-time, only some routes): a whitelist entry in the setup record
+  (every source except Binance and Gate, which have a saved-address read), an entity line
+  (Binance, Bybit, OKX and BingX sources, WhiteBIT either side), a key-rights or IP line where
+  no read shows it (Gate, MEXC, WhiteBIT), BingX permission-code meanings, provisioning consent
+  (Gate and WhiteBIT as B), the WhiteBIT contract pin.
+- **Per-plan facts** (only if the user opts in): a [human-read fact](#per-plan-human-read-facts).
+
+After the one-time setup, the human's part in a plan is `APPROVE`, `WITHDRAW` and the native
+forms, plus any per-plan fact they chose to supply. Never call a route "native" or "ready"
+because it passes these gates offline.
 
 ### 2.1 Account mode and available amount (live data)
 
@@ -484,15 +513,20 @@ fact is missing, and those routes hold. Without a B profile in this session (sch
    `fetchCurrencies` to pick a network: a response over 80,000 characters is replaced whole
    by `{"truncated":true}`. Read B's fields with B's profile in this session. Only if this
    launch has no keyed profile for B (scheme A) and B's source needs a key, the human reads
-   B's fields on B's deposit page (the plan names that source); without that, hold the route.
+   B's fields on B's deposit page under the same rules as a
+   [per-plan human-read fact](#per-plan-human-read-facts) (source, UTC, at most 15 minutes old,
+   restated at the recheck); without that, hold the route. That is a fallback, not the
+   two-profile default.
    The landing wallet comes from B's recipient read where the venue returns it (OKX `to`,
    KuCoin `to`); otherwise it is located after the credit (2.8).
 2. Enable flags, minimums, contract, memo and precision appear only in `info` (or in the
    `call_implicit_get` response), with different field names per exchange. A field with no
    live source and no documented value in
    [`recipients.md`](references/recipients.md#status-by-destination-venue) is unknown and the
-   network does not qualify; name the field, and the user may choose to read it in the
-   exchange UI. Infer nothing from the network name.
+   network does not qualify. Name the field. The user may supply it as a
+   [per-plan human-read fact](#per-plan-human-read-facts) if it is B's minimum or deposit fee,
+   or send manually ([2.9](#29-manual-withdrawal-in-exchange-as-ui)). Infer nothing from the
+   network name.
 3. For **every route**, verify that A allows withdrawal and B allows deposit on the same
    [reference chain and USDT contract](#chains). Record each venue's network ID or UI label,
    the source and UTC time of each check, and all applicable minima and maxima. Compare
@@ -505,13 +539,15 @@ fact is missing, and those routes hold. Without a B profile in this session (sch
      one-time 2FA step in A's security settings per destination address. Never ask for or
      attempt to bypass that step. The plan records the evidence from the
      [whitelist evidence table](references/exchanges.md#withdrawal-whitelist-evidence): the
-     saved-address row on Binance and Gate, otherwise the setup record entry and its UTC.
-     Binance sources also need the travel-rule line in the setup record: a named entity that
-     is not one of Binance's listed local entities, "questionnaire not required", and its
-     evidence. A questionnaire-required, unknown, conflicting or missing line holds before any
-     money call ([Binance travel rule](references/exchanges.md#binance-travel-rule)). BingX
-     sources need a non-KOR jurisdiction, and WhiteBIT accounts a non-EEA, non-Turkey entity
-     ([outbound table](references/exchanges.md#outbound-withdraw)).
+     saved-address row on Binance and Gate, otherwise the setup record entry and its UTC, in
+     both cases equal to the recipient character for character.
+     Binance, Bybit, OKX and BingX sources, and WhiteBIT accounts on either side, need the
+     venue's [entity line](references/exchanges.md#entity-lines) in the setup record. One rule
+     for all of them: the venue's global platform label exactly, an ISO 3166-1 alpha-2
+     jurisdiction that the venue's official page does not list, "not required", and the
+     evidence. Any other entity name, a regional entity, a missing or invalid jurisdiction, a
+     listed jurisdiction (for Binance every EU country, Italy and Germany included, besides
+     the other listed ones), "required" or "unknown" holds before any money call.
      If B is Bybit, apply the [Bybit inbound cap](references/recipients.md#bybit-inbound-cap).
    - **Manual withdrawal:** qualify the network using the UI labels, chain, contract,
      availability and the UI amount step. Confirm exact amounts from A's preview in
@@ -521,6 +557,26 @@ fact is missing, and those routes hold. Without a B profile in this session (sch
    several EVM chains, so chain **and** contract decide together.
 5. Network cost is A's withdrawal fee plus B's deposit fee plus internal transfers. Pick the
    cheapest; on a tie, the faster one.
+
+#### Per-plan human-read facts
+
+Where no live documented field and no documented policy gives B's **deposit minimum** or
+**deposit fee** (Binance and MEXC minimum, Gate's minimum on a multi-chain address response,
+KuCoin's fee while its fields are empty), the user may choose to read that one value on B's
+deposit page for this plan. The same rule applies on every venue:
+
+- only those two fields, only where nothing documented supplies them. A human value never
+  replaces a network id, contract, recipient, available amount, A's fee or step, a whitelist
+  entry or an entity line;
+- the plan names it `source: human, <venue> deposit page, <network>, read <UTC>`. The reading
+  must be at most 15 minutes old when the plan is made, and it binds that plan only;
+- at the recheck before the withdrawal (2.5) the human reads it again and states the value.
+  A different, missing or late restatement means zero dispatch and a new plan;
+- if a documented value exists and the human's value differs, the field is unknown: hold.
+
+A plan with such a fact is still an API withdrawal with `APPROVE`, `WITHDRAW` and the native
+form. Report it as "with a per-plan human-read fact", never as automatic, and never presume
+the value holds for the next plan.
 
 #### Chains
 
@@ -544,9 +600,9 @@ Keep three numbers apart:
 - `C`: the **net credit** on B.
 
 Let `f` be A's withdrawal fee (fixed plus percentage, if any) and `d` be B's deposit fee.
-Both must be exact: from a live exchange field, from B's deposit page as read by the human,
-or, for `d`, the documented policy in the
-[destination status table](references/recipients.md#status-by-destination-venue).
+Both must be exact: from a live exchange field or, for `d`, the documented policy in the
+[destination status table](references/recipients.md#status-by-destination-venue), or, for
+`d` only, a [per-plan human-read fact](#per-plan-human-read-facts) the user chose to supply.
 Unknown `d`, or sources that disagree: stop.
 
 | A's fee model | `D` | `C` |
@@ -591,10 +647,10 @@ Example (target credit): B must receive 300 USDT, `f = 1`, `d = 0`, model unconf
   profile's `maxTransferValue` and `maxDailyValue`. For OKX as B, a nonempty `depQuotaFixed`
   needs `depQuotaFixed − usedDepQuotaFixed` of at least 1.02 × the upper bound of `C`.
   Exceeded or unreadable: hold.
-- **Entities.** OKX requires `rcvrInfo` for "specific entity users" and Bybit a beneficiary for
-  some entities; the skill sends neither. An OKX or Bybit source needs the setup record's entity
-  line saying "not required" with its evidence; otherwise hold (as for the
-  [Binance travel rule](references/exchanges.md#binance-travel-rule)).
+- **Entities.** The skill sends no travel-rule data: no Binance questionnaire, no OKX
+  `rcvrInfo`, no Bybit `beneficiary`, no BingX KYC=KOR fields. Each such source, and WhiteBIT
+  on either side, needs its [entity line](references/exchanges.md#entity-lines) under the one
+  rule in 2.2; otherwise hold.
 - **Representable amounts (before plan approval).** Every call amount (`W` and each
   `transfer` `amount`) must reach the exchange unchanged:
   - at most 15 significant digits and at least `0.000001`: MCP passes the amount as a JSON
@@ -628,8 +684,8 @@ Amounts: D=<…>, W=<…>, C=<…> (fee model: <on top | deducted | unconfirmed>
 Amount steps: currency <…>, network <…>, exchange <…> (<source>); W and transfer amounts are multiples of all, ≤ 15 significant digits, ≥ 0.000001
 Registrations: A <registration> / <alias> / UID <id> / <environment> / journal <path>; B <same>  (each equal to the setup record)
 B deposit: address <full address>, memo <none | exact memo>, source <native read: <venue> UID <id>, alias <B alias>, read <UTC> | B's UI, by the human>; address check <EVM format | TON OK>
-Whitelist on A: <saved-address row: <fields> | setup record <UTC>>; travel rule / jurisdiction: <Binance entity, not required, evidence | BingX non-KOR | WhiteBIT non-EEA | n/a>
-Operator setup evidence used: <none | WhiteBIT contract pinned <UTC> | value read by the human in <venue> UI <UTC>>
+Whitelist on A: <saved-address row: <fields> | setup record <UTC>>, equal character for character; entity line: <venue label / jurisdiction, not required, evidence | n/a>
+Relies on: common setup <registration lines, interactive-form line>; venue-specific <whitelist entry | entity line | key rights or IP line | BingX codes | provisioning | WhiteBIT contract pin | none>; per-plan <B minimum or fee: value, source: human, <venue> deposit page, read <UTC> | none>
 Memo requirement: <required | not required | no published flag>; evidence <source, UTC>
 Bybit inbound cap: <batchReleaseLimit "-1" (unlimited), read <UTC> | n/a>
 Expected on B: C=<C_min>…<C_max> USDT, lands in <B wallet> (source: <recipient read | typical, unverified>); d=<…> (<live field | documented policy URL>)
@@ -665,8 +721,8 @@ To approve: APPROVE <PLAN-ID>
      enabled, id, deposit minimum, deposit fee, contract, memo-required flag), B's recipient
      read (address, memo, unique row, Bybit `batchReleaseLimit`, Gate's top-level minimum and
      its single-chain condition, WhiteBIT `required`), A's available field against
-     `D_max + reserve`, and `maxTransferValue` from `list_accounts`. Every value must equal the
-     approved plan. A Bybit limit that is no longer `"-1"`, or any other difference, means zero
+     `D_max + reserve`, `maxTransferValue` from `list_accounts`, and any per-plan human-read
+     fact, read again and restated by the human. Every value must equal the approved plan. A Bybit limit that is no longer `"-1"`, or any other difference, means zero
      dispatch: do not call `withdraw`, and make a new plan with new approvals. If B's data is
      only available in B's app, the operator checks it there before the withdrawal.
 
@@ -782,7 +838,11 @@ back as `UNKNOWN_OUTCOME` and cannot be told apart from a failure of the write i
     unified network must be the plan's ccxt code and the raw chain field the venue's id for that
     chain (compare raw with raw ids, unified with unified codes), and the status terminal
     success: unified `ok` **and** the venue's raw success value
-    (BingX: raw `status` `6` only, because ccxt maps BingX's "not credited" `1` to `ok`). The credited amount must be unambiguous and
+    (BingX: raw `status` `6` only, because ccxt maps BingX's "not credited" `1` to `ok`).
+    MEXC deposits: ccxt 4.5.85 derives the unified network from MEXC's long network string
+    (`BSC` for BEP20, the raw string itself for TON), which is not a ccxt code; there the raw
+    `network` must equal the config row's `network` string for the chosen chain, and the
+    unified network is not used (verified offline). The credited amount must be unambiguous and
     match the expectation: within the `C` bounds of the plan, handoff or sheet (Scenario 2)
     or equal to the send sheet's `C` (Scenario 1). Network gas is never part of it.
   - For both scenarios, match the full credited recipient and the exact memo on the send
@@ -853,7 +913,8 @@ Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | as
    own PLAN-ID (`<PLAN-ID>-B`), a new expiry and its proof route (2.5). The A plan's approvals
    do not cover it. The transfer runs on B's **settlement registration**, never on the
    deposit-only profile: a read-only key cannot transfer (Bybit `readOnly: 1` is refused with
-   `10005`). The settlement registration must be a separate registration with role
+   `10005`), and the deposit-only profile keeps `dryRun: true` throughout. Only the settlement
+   registration has `dryRun` removed. The settlement registration must be a separate registration with role
    `settlement` in the setup record, show no withdrawal right and an internal-transfer right in
    its key check, and report the same account UID as the deposit-only profile's key check and
    the setup record. Without such a registration, finish as credited and report that the
@@ -872,8 +933,10 @@ Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | as
 ### 2.9 Manual withdrawal in exchange A's UI
 
 Apply Step 0 to the source account before preparing a sheet. Use this path for a route that
-holds on a missing fact the user chose to read in the UI, a network outside the outbound API
+holds on a fact no tool shows and the human cannot supply for an API plan (for example
+WhiteBIT as source, whose available amount is not visible), a network outside the outbound API
 table, a host or server without a native confirmation form, or a user-requested manual send.
+B's recipient still comes from its native read, and B's deposit is still matched by hash.
 A send to Bybit records the [Bybit inbound cap](references/recipients.md#bybit-inbound-cap). The human
 selects the verified chain in A's UI. Keep the sheet in draft until A's preview gives the
 exact debit, fee and amount sent to B; calculate the exact net credit after B's fee.
@@ -965,14 +1028,17 @@ identifier; a Bybit key check or address read fails, or the gated and raw addres
 disagree ([Bybit deposit address](#bybit-deposit-address)), or any venue's recipient read
 finds no unique eligible row or conflicting fields ([`recipients.md`](references/recipients.md));
 a key check shows rights other than the profile's; a registration, `configPath`, `journal`,
-environment or UID differs from the setup record, or a money-moving server shares the agent's OS
-user or lacks the native form; the account mode, available amount, network flag, minimum, fee, chain, contract,
+environment or UID differs from the setup record, a money-moving server lacks the native form or
+the setup record's interactive-form line, or the deposit-only profile reports `dryRun: false`;
+the account mode, available amount, network flag, minimum, fee, chain, contract,
 fee asset or amount step is unknown; an amount is not exactly representable; a transfer has
 no proof route and is not done manually; the "exchange + network" pair is not in the outbound
 withdraw table, or a gate in the destination or outbound table holds (missing minimum, fee or
 contract; Bybit's finite release limit, also when it changes before dispatch; no whitelist
-evidence; a Binance travel-rule line that is missing, unknown, conflicting or requires a
-questionnaire; BingX KOR or WhiteBIT EEA; a provisioning read without consent); any value
+evidence equal character for character; an entity line that is missing, names an unknown or
+regional entity, gives no valid or a listed jurisdiction, or says "required" or "unknown"; a
+provisioning read without consent); a per-plan human-read fact that is stale, unsourced, not
+restated at the recheck or disagrees with a documented value; any value
 changed between the plan and the recheck before dispatch; a receipt on either venue with
 another asset or chain; a settlement plan without its own approval, expiry, funds, fresh credit
 or same-UID registration; a TON address fails

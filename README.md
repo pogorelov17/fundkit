@@ -50,11 +50,13 @@ Automatic skill discovery is optional and host-specific; this repository does no
   the plan and the withdrawal and confirms each native form. The agent then proves the
   withdrawal on A, matches the deposit on B by hash and plans any transfer on B for its own
   approval. A HANDOFF block to a second chat is only the fallback without a B profile. A route
-  runs only when every documented gate passes on live data. Where a venue documents no value
-  for a needed fact (the Binance, MEXC and BingX deposit minimum, the Gate minimum on a
-  multi-chain address response, the KuCoin deposit fee), the route holds. The user may then
-  read that value in the UI and use the manual sheet. WhiteBIT's token contract exists in no
-  API; it qualifies only from the operator's one-time pinned setup evidence, named as such.
+  runs only when every documented gate passes on live data and the operator's one-time setup
+  record. Where a venue documents no value for B's deposit minimum or fee (Binance and MEXC
+  minimum, the Gate minimum on a multi-chain address response, the KuCoin fee), the route holds,
+  unless the user supplies that value from B's deposit page for that one plan (a per-plan
+  human-read fact, re-read before the withdrawal). BingX's minimum is its documented live
+  `depositMin`. WhiteBIT's token contract exists in no API; it qualifies only from the
+  operator's one-time pinned setup evidence, named as such.
 - **funding ↔ trading/margin** on one exchange.
 - **Hyperliquid**: watch-only margin and position monitoring by public address.
 
@@ -98,9 +100,11 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
   profile that shares it, for good: reads and operator investigation only.
 - **Exchange side.** Minimal key permissions, IP allowlist and a withdrawal address whitelist
   ([key permissions](references/security.md#exchange-key-permissions)).
-- **Trust model.** The skill assumes a cooperative, trusted host, operator and agent. Running
-  a money-moving server under another OS user or behind a fixed `sudo` rule is not a boundary
-  against the agent, and host isolation was not verified
+- **Trust model.** The skill assumes a cooperative, trusted host, operator and agent. The hard
+  control is the human's answer in the native form on an interactive host with no auto-answer
+  hook (recorded once by the operator); plans, expiries and rechecks are procedures. Which OS
+  user runs a server is neither a control nor a stop: running all servers under the operator's
+  own user is the normal setup. Host isolation was not verified
   ([trust model](references/security.md#trust-model)).
 
 ## Example requests
@@ -136,36 +140,42 @@ journal crash entries and deposit hash matching; the Bybit deposit-address read;
 same-exchange registrations sharing one key; public network data, `call_implicit_get`, the
 server environment and registration commands on Claude Code 2.1.331 and Codex 0.172.0.
 
-On 2026-11-25 an adjudicated pack replaced the earlier fixture runs. A reference planner follows
-this skill's gates on tool results only, over real ccxt-mcp servers and a fixture transport.
-Every expected disposition was fixed from the documented venue facts before the run
-(291 scenarios, 3698 checks, 0 failures, [details](references/ccxt-mcp.md#verification)):
+On 2026-11-25 the BingX revision of the offline pack (`fundkit-bingx-results`) replaced the
+earlier runs. A reference planner follows this skill's gates on tool results only, over real
+ccxt-mcp servers and a fixture transport. Every expected disposition, hold phase, exact failed
+set and, for settled routes, the set of venue-specific setup facts was fixed from the
+documented venue facts before the run (381 scenarios, 5422 checks, 0 failures,
+[details](references/ccxt-mcp.md#verification)):
 
-- **72 directed exchange pairs**, network chosen among TRC20, BEP20, ERC20 and TON.
-  **18 settle on documented facts alone**: A ∈ Binance, Bybit, Gate, OKX, Bitget, BingX,
-  KuCoin → B ∈ Bybit, OKX, Bitget (BEP20; Bitget sources on TON). **11 settle only with an
-  operator setup fact**, labeled as such: to WhiteBIT (8, contract pinned by the operator,
-  credited without an onward transfer) and from MEXC (3, IP allowlist from the setup record,
-  because MEXC's key read shows none). **43 hold** before any money-moving call: the Binance,
-  MEXC, BingX and multi-chain Gate deposit minimum, the KuCoin deposit fee (live fields empty),
-  WhiteBIT's invisible available amount as a source, Bitget BEP20 outbound and Gate TON
-  outbound. Settled routes run a full recheck, one native-form withdrawal, proof by id, a deposit
-  matched by hash with USDT and chain checked on both venues, and, on Bybit, OKX and Bitget, a
-  separate settlement plan on its own registration, proven by id.
+- **72 directed exchange pairs**, network chosen among TRC20, BEP20, ERC20 and TON
+  ([prerequisites by route](references/recipients.md#prerequisites-by-route)). **36 settle after
+  the one-time setup**, with only `APPROVE`, `WITHDRAW` and the native forms per plan: A ∈
+  Binance, Bybit, Gate, OKX, Bitget, BingX, MEXC, KuCoin → B ∈ Bybit, OKX, Bitget, BingX,
+  WhiteBIT. All 36 use the common setup attestations (registration lines, interactive-form
+  line) and at least one venue-specific setup fact (whitelist entry in the setup record 26,
+  entity line 21, key rights from the setup record 16, IP allowlist from the setup record 12,
+  BingX permission codes 11, provisioning 8, WhiteBIT contract pin 8; these overlap). **28 more settle only with a
+  per-plan human-read fact** the user opts to supply (B = Binance, MEXC, Gate or KuCoin).
+  **8 hold** for any API plan: WhiteBIT as source (available amount not visible); the manual
+  sheet in WhiteBIT's UI remains. Settled routes run a full recheck, one native-form withdrawal,
+  proof by id, a deposit matched by hash with USDT and chain checked on both venues, and, on
+  Bybit, OKX, Bitget and BingX, a separate settlement plan on its own registration, proven by id.
 - **36 recipient reads** (9 venues × 4 networks): all 36 verify the address, memo, chain and
-  contract (WhiteBIT's 4 through the operator's pinned contract). A send can be planned to 16
-  of them (Bybit, OKX, Bitget, WhiteBIT); 20 hold on a destination fact (Binance, Gate, BingX
-  and MEXC minimum; KuCoin fee).
-- 111 isolated hold scenarios and 11 positive twins on routes, 26 recipient gates, 12
-  independent probes (wrong receipt chain, Bybit cap changed, settlement without funds, Binance
-  questionnaire, deposits suspended after the plan, OKX deposit key with `trade`, whitelist
-  letter case, expiry at minute 15, controls). Every gate except the server-version constant
-  and the settlement UID cross-check fails in at least one isolated scenario.
+  contract. A send can be planned without a per-plan fact to 20 of them (Bybit, OKX, Bitget,
+  BingX, WhiteBIT); 16 need one (Binance, MEXC, multi-chain Gate minimum; KuCoin fee).
+- Isolated gates with positive twins: BingX minimum (missing, null, malformed, negative, above
+  the credit, another chain's row, changed or deposits suspended at the recheck), per-plan
+  facts (stale, unsourced, changed, not restated, disagreeing), exact whitelist characters on
+  Binance and Gate saved-address rows, the entity rule (Italy, Germany, France, Poland, unknown
+  and regional entities, missing or non-ISO jurisdiction, Bybit India, WhiteBIT Norway), `dryRun`
+  on the deposit-only profile, MEXC key rights, TON alphabets, plus every earlier gate and the
+  independent review's probes, imported unchanged.
 
 Every response in those runs is synthetic, shaped after venue references and ccxt's parsers.
 Not verified: real accounts, modes, available amounts, fee models, exchange responses to writes
 and reads with a real key, whether a read-only key may read the deposit address on each venue,
-and actual transfers. A settled fixture route does not show that a real route is ready. Hard
+and actual transfers. A settled fixture route does not show that a real route is ready, and
+no route here is "native" in the sense of running on live fields alone. Hard
 limits per venue are listed in
 [`recipients.md`](references/recipients.md#status-by-destination-venue). Network flags and fees
 are visible only with a key on most exchanges, so plans are built from live data at request

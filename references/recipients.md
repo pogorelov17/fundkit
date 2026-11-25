@@ -14,9 +14,11 @@ no real key was used. Readiness for a real account is not established by these t
 ## Status by destination venue
 
 `d` is B's deposit fee and `min` B's deposit minimum ([2.3](../SKILL.md#23-debit-withdraw-amount-and-credit)).
-"Native" means the agent reads every recipient field itself. "Hold" means the route needs a fact
-that no live field or official source supplies, so the agent stops. The user may still choose to
-read that one value in the exchange UI. A field counts only if the venue documents it, or if the
+"Native" means the agent reads every recipient field itself (the read still relies on the
+profile's setup-record lines: [prerequisites by route](#prerequisites-by-route)). "Hold" means
+the route needs a fact that no live field or official source supplies, so the agent stops. For
+B's minimum or deposit fee the user may choose to supply that one value as a
+[per-plan human-read fact](../SKILL.md#per-plan-human-read-facts). A field counts only if the venue documents it, or if the
 live field's own name states its meaning (basis "live field"). The agent never derives a field
 from another field or from the address format. A source must be specific to the account's
 entity: a value documented for one entity of a venue (for example Binance TH) does not establish
@@ -27,17 +29,56 @@ it for another (Binance.com).
 | Bybit | [SKILL.md flow](../SKILL.md#bybit-deposit-address) | `query-api`: `readOnly`, `permissions`, `userID`, `isMaster` | 0, [Bybit fees page](https://www.bybit.com/en/help-center/article/Bybit-Fees-You-Need-to-Know) | `depositMin` | native; `batchReleaseLimit` must be `"-1"` ([cap](#bybit-inbound-cap)) |
 | OKX | currency-wide list, filtered to `ccy`, chain and `selected`, then exactly one | `account/config`: `perm`, `uid`, `label`, `ip` | 0, [OKX help](https://www.okx.com/en-eu/help/do-i-need-to-pay-fees-for-deposit-and-withdrawal): no fee on deposits above the minimum | `minDep` from the raw currency rows | native |
 | Bitget (classic) | raw funds-gated address read alone, with the live chain id | `spot/account/info`: `userId`, `authorities`, `ips` | 0, [Bitget article](https://www.bitget.com/support/articles/12560603820706): "Bitget does not charge any fees for deposits." | `minDepositAmount` | native on all four, BEP20 included ([Bitget](#bitget)); UTA: hold |
-| BingX | one row per network in the address list | `apiPermissions` (numeric codes), `uid` | 0, [BingX Learn](https://bingx.com/en/learn/how-to-deposit-crypto-with-bingx): "BingX does not charge fees for crypto deposits." (a venue article, not a fee schedule) | unknown: BingX's [published wallet reference](https://github.com/bingx-api/api-ai-skills/blob/d40bcc6ab6e91ad7c2d801250425c2a973d2f95a/skills/spot-wallet/api-reference.md) documents no deposit minimum, so a live `depositMin` is not used | address native; `min` hold; deposit credit only on raw status `6` |
+| BingX | one row per network in the address list | `apiPermissions` (numeric codes), `uid` | 0, [BingX Learn](https://bingx.com/en/learn/how-to-deposit-crypto-with-bingx): "BingX does not charge fees for crypto deposits." (a venue article, not a fee schedule) | the chosen chain's live `depositMin` in `config/getall`, which [BingX's API docs](https://bingx-api.github.io/docs/#/en-us/common/wallet-api.html) define as "Minimum deposit amount" ([BingX](#bingx)) | native; deposit credit only on raw status `6` |
 | Binance | default row of the address list | `apiRestrictions` flags; `uid` from `/api/v3/account` | 0, [Binance fee page](https://www.binance.com/en/fee/cryptoFee): "Binance does not charge deposit fees." | `depositDust` is not described in Binance's reference (only an example value), so it is not a minimum | address native; `min` hold |
-| MEXC | raw funds-gated address list alone, rows matched by the config row's `network` string | `account`: `canWithdraw`, `permissions`; `uid` | 0, [MEXC Learn, 2026-10-20](https://www.mexc.com/learn/article/mexc-fees-explained-complete-trading-futures-withdrawal-fees-guide/1): "MEXC does not charge to receive crypto deposits" (a venue article, not a fee schedule) | no API field; `depositTips` is free text | address native; `min` hold |
+| MEXC | raw funds-gated address list alone, rows matched by the config row's `network` string | `uid` only; key rights and IP allowlist from the setup record (`canWithdraw` is an account flag) | 0, [MEXC Learn, 2026-10-20](https://www.mexc.com/learn/article/mexc-fees-explained-complete-trading-futures-withdrawal-fees-guide/1): "MEXC does not charge to receive crypto deposits" (a venue article, not a fee schedule) | no API field; `depositTips` is free text | address native; `min` hold |
 | KuCoin (classic) | v3 address list | `user/api-key`: `permission`, `uid`, `isMaster` | live `depositFeeRate` × amount when it is a decimal and `depositTierFee` is empty; absent (both empty, as on the live read of 2026-11-25), a tier fee (undocumented semantics) or a non-decimal: unknown. KuCoin's fee pages say part of their content is outdated, and no entity-specific deposit-fee statement was found | `depositMinSize` (`null` = unknown) | address native; `d` hold while the fields are empty; UTA: hold |
-| WhiteBIT | address object for the requested network (may provision, [below](#provisioning-reads)) | none in ccxt 4.5.85 | `required.fixedFee` and `required.flexFee` in the same response | `required.minAmount` | native with operator setup evidence: the contract is the operator's one-time reading pinned in the setup record, and the entity must be non-EEA, non-Turkey ([WhiteBIT](#whitebit)); without the pin: hold |
+| WhiteBIT | address object for the requested network (may provision, [below](#provisioning-reads)) | none in ccxt 4.5.85 | `required.fixedFee` and `required.flexFee` in the same response | `required.minAmount` | native with operator setup evidence: the contract is the operator's one-time reading pinned in the setup record, and the [entity line](exchanges.md#entity-lines) must give a jurisdiction outside the EEA and Turkey ([WhiteBIT](#whitebit)); without the pin: hold |
 | Gate | `multichain_addresses` row (may provision, [below](#provisioning-reads)) | `account/detail`: `user_id`, `ip_whitelist` (no permission fields) | `withdraw_status.deposit`, documented as "Deposit fee" (currency-level; there is no per-chain deposit-fee field) | top-level `min_deposit_amount` counts only when the unfiltered list has exactly one row, for the chosen chain, eligible ([Gate](#gate)) | address native; `min` hold unless that holds |
 
 Network ids for Bitget, KuCoin, Gate and WhiteBIT were also compared with their keyless public
 endpoints on 2026-11-25. Fee and policy pages were checked on the same day. The sheet or plan names the page as the source of
 `d`. If a live field, or a page the user chose to check, shows another value, `d` is unknown. A
 credit that differs from the expected `C` holds the route ([2.7](../SKILL.md#27-reconciliation)).
+
+## Prerequisites by route
+
+What a read or a route relies on besides live fields, in three classes. The classes overlap:
+one route can use all three, so per-class counts do not add up.
+
+| Class | When | What |
+|---|---|---|
+| Common setup | once; every API route and every recipient read | one [setup-record](security.md#setup-record) line per registration (registration, alias, exchange, environment, `configPath`, `journal`, role, account UID confirmed once on the API page); for every money-moving registration also the interactive-form line |
+| Venue-specific setup | once; only the routes that touch that venue | whitelist entry in the setup record (sources other than Binance and Gate); [entity line](exchanges.md#entity-lines) (Binance, Bybit, OKX, BingX sources; WhiteBIT either side); key rights or IP line where no read shows them (key rights: Gate, MEXC, WhiteBIT; IP: MEXC, WhiteBIT); BingX permission-code meanings; provisioning consent (Gate, WhiteBIT as B); WhiteBIT contract pin and account identity |
+| Per-plan fact | only if the user opts in, for one plan | B's deposit minimum or fee read on B's deposit page ([rule](../SKILL.md#per-plan-human-read-facts)) |
+
+Offline result for the 72 directed pairs (synthetic fixtures, each expectation fixed before the
+run; [verification](ccxt-mcp.md#verification)); none of this shows that a real route is ready:
+
+- **36 settle after the one-time setup**, with the human's per-plan part limited to
+  `APPROVE`, `WITHDRAW` and the native forms: A ∈ Binance, Bybit, Gate, OKX, Bitget, BingX,
+  MEXC, KuCoin → B ∈ Bybit, OKX, Bitget, BingX, WhiteBIT (A ≠ B). Every one uses the common
+  setup **and** at least one venue-specific fact; none runs on live fields alone. Of the 36:
+  whitelist entry in the setup record 26, entity line 21, key rights from the setup record 16,
+  IP allowlist from the setup record 12 (MEXC sources; WhiteBIT, which has no key read, as B),
+  BingX permission codes 11, provisioning consent 8, WhiteBIT contract pin and identity 8. 28 of them also run the separate settlement plan on B (Bybit, OKX, Bitget,
+  BingX); the 8 to WhiteBIT end credited.
+- **28 more settle only with a per-plan human-read fact** the user opts to supply: every
+  source except WhiteBIT → Binance or MEXC (minimum), Gate (minimum on a multi-chain address
+  response) or KuCoin (deposit fee). Without it they hold before any money call.
+- **8 hold for an API withdrawal whatever the user supplies**: WhiteBIT as source (its
+  available amount is not visible through these tools). The safer alternative that remains is
+  the [manual withdrawal sheet](../SKILL.md#29-manual-withdrawal-in-exchange-as-ui) in
+  WhiteBIT's UI, with B's recipient still read natively and B's deposit still matched by hash.
+- Network: Bitget sources use TON (Bitget BEP20 outbound holds), Gate sources avoid TON
+  (withdrawals disabled in the live capture); the rest use BEP20 as the cheapest network.
+
+Recipient reads (Scenario 1, 9 venues × 4 networks): all 36 verify address, memo, chain and
+contract, each relying on the profile's registration line, and on Gate, MEXC and WhiteBIT also
+on the key-rights line (MEXC and WhiteBIT also the IP line; BingX the permission codes; Gate and
+WhiteBIT provisioning consent; WhiteBIT the contract pin and account identity). A send can be planned without a per-plan fact to 20 of
+them (Bybit, OKX, Bitget, BingX, WhiteBIT); 16 need one (Binance, MEXC, multi-chain Gate
+minimum; KuCoin fee).
 
 ## Common procedure
 
@@ -87,7 +128,10 @@ step 3 just before OPEN or before the withdrawal. Any change needs a new sheet o
 - **Tron**: `T` followed by 33 base58 characters that decode to 25 bytes: version byte `0x41`, a
   20-byte account id, and the first 4 bytes of a double SHA-256 over the first 21 bytes
   (base58check). Hold on a checksum mismatch.
-- **TON**: the 48-character user-friendly form, base64url (or base64). It decodes to 36 bytes:
+- **TON**: the 48-character user-friendly form, in base64url (`-`, `_`) or standard base64
+  (`+`, `/`), one alphabet per address; a string that mixes them, or has other characters or
+  padding, fails. Copy and whitelist the form the venue's row shows, character for character.
+  It decodes to 36 bytes:
   a tag byte, a workchain byte, a 32-byte account id and a CRC16-XMODEM checksum (big-endian)
   over the first 34 bytes. Require a tag byte of `0x11` (bounceable) or `0x51` (non-bounceable),
   workchain `0x00`, and a matching checksum. A tag byte with `0x80` set is a testnet address.
@@ -100,14 +144,14 @@ step 3 just before OPEN or before the withdrawal. Any change needs a new sheet o
 
   ```bash
   python3 -I -c '
-  import base64, hashlib, sys
+  import base64, hashlib, re, sys
   a = sys.argv[1]; ok = False
-  if a.startswith("T") and len(a) == 34:
+  if re.fullmatch(r"T[1-9A-HJ-NP-Za-km-z]{33}", a):
       B = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"; n = 0
       for ch in a: n = n * 58 + B.index(ch)
       r = n.to_bytes(25, "big"); ok = r[0] == 0x41 and hashlib.sha256(hashlib.sha256(r[:21]).digest()).digest()[:4] == r[21:]
-  elif len(a) == 48:
-      r = base64.urlsafe_b64decode(a); c = 0
+  elif re.fullmatch(r"[A-Za-z0-9_-]{48}|[A-Za-z0-9+/]{48}", a):
+      r = base64.b64decode(a.replace("-", "+").replace("_", "/"), validate=True); c = 0
       for x in r[:34]:
           c ^= x << 8
           for _ in range(8): c = ((c << 1) ^ 0x1021) & 0xffff if c & 0x8000 else (c << 1) & 0xffff
@@ -120,6 +164,8 @@ step 3 just before OPEN or before the withdrawal. Any change needs a new sheet o
   |---|---|
   | `EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs` (USDT master, bounceable) | `OK` |
   | `UQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_p0p` (same account, non-bounceable) | `OK` |
+  | `EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id/sDs` (USDT master, standard base64) | `OK` |
+  | `EQB5ss754loOqK06QDTi14zN42G/dN_oE-sW_jQ3tgTOS135` (synthetic, `/` mixed with `_` and `-`) | `FAIL`: mixed alphabets |
   | `EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDt` (last character changed) | `FAIL`: checksum |
   | `kQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_ntm` (testnet tag `0x91`) | `FAIL`: testnet |
   | `Ef-xE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_j-k` (workchain −1) | `FAIL`: masterchain |
@@ -187,11 +233,11 @@ a read is not documented.
   gave `ERC20` for a `BEP20` request, verified offline): hold.
 - **Minimum.** ccxt 4.5.85 maps `depositDust` to the deposit minimum. Binance's reference shows
   that field only as an example value and does not say what it means (`withdrawMin` and the
-  other fields are named for what they are). The route holds on `min` unless the user reads the
-  minimum on Binance's deposit page. This is the same rule as for BingX's `depositMin`: a live
-  field without documented meaning is not used, whether the field is listed without a
-  description (Binance) or not listed at all (BingX). A description in another entity's
-  documentation (for example Binance TH) does not apply to a Binance.com account.
+  other fields are named for what they are). A live field without documented meaning is not
+  used, so the route holds on `min` unless the user supplies the minimum from Binance's deposit
+  page as a [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts). A description in
+  another entity's documentation (for example Binance TH) does not apply to a Binance.com
+  account. (BingX is different: its own API docs define `depositMin`, [below](#bingx).)
 - Landing wallet: the response has none. Binance's typical deposit wallet is Spot
   ([account mode table](exchanges.md#account-mode-and-available-amount)). In a two-profile
   session the agent locates the credit by reading the wallets (2.8).
@@ -277,10 +323,20 @@ and a new plan or sheet (verified offline).
 - ccxt adds `0x` to an unprefixed EVM address itself (verified offline). A raw row without the
   prefix therefore differs from the unified value: hold.
 - Memo: `tag`. `needTagOrMemo` is the published flag.
-- **Minimum: hold.** BingX's published wallet reference documents `withdrawMin` but no deposit
-  minimum. A `depositMin` that a live response may carry is undocumented, so the minimum is
-  unknown and routes to BingX hold on `min`, unless the user reads it on BingX's deposit page
-  (then the sheet names that source).
+- **Minimum: the chosen chain's live `depositMin`.** BingX's official API docs
+  ([bingx-api.github.io/docs](https://bingx-api.github.io/docs/#/en-us/common/wallet-api.html),
+  Wallet deposits and withdrawals → "Query currency deposit and withdrawal data",
+  `GET /openApi/wallets/v1/capital/config/getall`) list `depositMin` (decimal) in the
+  `Network` object as "Minimum deposit amount", one per network row. ccxt's
+  `fetchDepositWithdrawFee` reads that endpoint, so `info["<code>"].info.depositMin` is the
+  minimum for that chain. Use the row whose `network` equals the chosen id, never another
+  chain's row. A missing, `null`, non-decimal or negative value holds on `min`; a changed value
+  or `depositEnable: false` at the recheck means zero dispatch (verified offline). Captured
+  2026-11-25 07:44 UTC: the docs page loads `static/js/app.4dcba784df17c52faa47.js`
+  (sha256 `77094f2a99bdca9c1b8e41a260c3657a6ed6b8febe30818b486cb54fe0b14d8f`,
+  `Last-Modified` 2026-01-22), which holds that table in English (module `zgmp`) and Chinese.
+  The [api-ai-skills reference](https://github.com/bingx-api/api-ai-skills/blob/d40bcc6ab6e91ad7c2d801250425c2a973d2f95a/skills/spot-wallet/api-reference.md)
+  omits the field; an omission is not a disagreement.
 - **Deposit status.** BingX's reference defines deposit status `0` in progress, `1` not credited,
   `2` wrong amount and `6` confirmed. ccxt 4.5.85 maps raw `1` to unified `ok`. Count a BingX
   deposit only on raw `info.status` `6` (verified offline: raw `1` holds).
@@ -306,8 +362,9 @@ and a new plan or sheet (verified offline).
   reference contract. Every plan or sheet that uses it says "operator setup evidence, not an
   API field". Without a pin, or with a pin that differs from the reference: hold.
 - **Entity.** WhiteBIT's compliance page says EEA accounts cannot deposit or withdraw USDT, and
-  EEA and Turkey deposits can be frozen for the travel rule. The setup record must say
-  "non-EEA, non-Turkey"; otherwise hold.
+  EEA and Turkey deposits can be frozen for the travel rule. The setup record's
+  [entity line](exchanges.md#entity-lines) must name `WhiteBIT.com` with a jurisdiction
+  outside the EEA and Turkey; otherwise hold (verified offline with Poland, France, Norway).
 - No key-metadata or UID read exists in ccxt 4.5.85, so only the operator's setup record stands
   behind the alias and its scope.
 - `required.minAmount` is `min`. `fixedFee` plus the `flexFee` percentage (bounded by its
@@ -319,7 +376,7 @@ and a new plan or sheet (verified offline).
 | Step | Call | Check |
 |---|---|---|
 | network data | `call_read_method {"exchange":"mexc","account":"<alias>","method":"fetchDepositWithdrawFee","args":["USDT"],"includeInfo":true}` | `info.networkList[]`: the row whose `netWork` is `TRX` / `BSC` / `ETH` / `TONCOIN`, with its `network` string, `depositEnable`, `contract`; no deposit minimum |
-| key check | `call_implicit_get {"exchange":"mexc","account":"<alias>","method":"spotPrivateGetAccount"}` | deposit-only: `canWithdraw: false`; report `permissions`, `canTrade` |
+| key check | `call_implicit_get {"exchange":"mexc","account":"<alias>","method":"spotPrivateGetAccount"}` | proves only that the key signs. `canWithdraw`, `canTrade` and `permissions` describe the account, not the key, so the scope comes from the setup record's key rights: deposit-only `SPOT_ACCOUNT_READ` and `SPOT_WITHDRAW_READ` (MEXC's deposit-address and network reads need it), no `SPOT_WITHDRAW_WRITE` (withdraw, and creating a deposit address) or `SPOT_TRANSFER_WRITE`; IP allowlist from the setup record |
 | identity | `call_implicit_get {"exchange":"mexc","account":"<alias>","method":"spotPrivateGetUid"}` | report `uid` |
 | raw read (alone) | `call_implicit_get {"exchange":"mexc","account":"<alias>","method":"spotPrivateGetCapitalDepositAddress","params":{"coin":"USDT","network":"<network string of that row>"}}` | rows with `coin: "USDT"` and `network` equal to that string: exactly one; any other row: hold; memo in `memo` |
 
@@ -333,7 +390,19 @@ and a new plan or sheet (verified offline).
 - **Minimum: hold.** MEXC's [API reference](https://mexcdevelop.github.io/apidocs/spot_v3_en/)
   lists no deposit-minimum field for `capital/config/getall`. `depositTips` is free text with no
   defined format, so the skill does not read a minimum from it. The route holds on `min` unless
-  the user reads it on MEXC's deposit page.
+  the user supplies it from MEXC's deposit page as a
+  [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts).
+- **Rights.** MEXC documents a permission per endpoint: `GET /api/v3/capital/deposit/address`,
+  `capital/config/getall` and the deposit and withdrawal histories need `SPOT_WITHDRAW_READ`,
+  `GET /api/v3/account` needs `SPOT_ACCOUNT_READ`, while `POST /api/v3/capital/withdraw` and
+  `POST /api/v3/capital/deposit/address` (generate an address) need `SPOT_WITHDRAW_WRITE`.
+  A deposit-only key therefore has `SPOT_WITHDRAW_READ` but not `SPOT_WITHDRAW_WRITE`, and it
+  cannot create an address.
+- **Deposit record.** `fetchDeposits` returns MEXC's long `network` string raw (for example
+  `BNB Smart Chain(BEP20)`), and ccxt 4.5.85 derives a unified network from it that is not a
+  ccxt code (`BSC` for BEP20, the raw string for TON). Match the raw `network` with the config
+  row's `network` string for the chosen chain; do not compare the unified field (verified
+  offline: the matching string settles, another chain's string holds).
 - Outbound: an outdated long id in `netWork` (for example `BNB Smart Chain(BEP20)`) holds the
   withdrawal. The withdrawal step comes from a valid live `withdrawIntegerMultiple`; `null`, as
   in MEXC's reference example, holds that network only ([outbound table](exchanges.md#outbound-withdraw)).
@@ -359,7 +428,8 @@ and a new plan or sheet (verified offline).
   empty)") and `depositTierFee` (no description). Use `d = depositFeeRate × amount` only when
   the rate is a decimal and the tier fee is empty. Both empty (the live public read of
   2026-11-25), a tier fee, or a value that is not a decimal: `d` is unknown and the route holds,
-  unless the user reads it on KuCoin's deposit page. An empty rate does not establish zero.
+  unless the user supplies it from KuCoin's deposit page as a
+  [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts). An empty rate does not establish zero.
   Verified offline: rate `0` with no tier fee settles; a tier fee holds. KuCoin UTA accounts
   were not verified: hold.
 
@@ -386,8 +456,9 @@ and a new plan or sheet (verified offline).
   Gate has no per-chain deposit-fee field, so this currency-level value is `d` (verified offline,
   including a response without the field, which holds).
 - Routes to Gate therefore hold on `min` unless the address response is single-chain as above
-  (then the route qualifies, verified offline). With the user's own UI reading of the
-  minimum, a send to Gate is the
+  (then the route qualifies, verified offline). Otherwise the user may supply the minimum
+  from Gate's deposit page as a [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts)
+  for an API plan, or send through the
   [withdrawal sheet](../SKILL.md#29-manual-withdrawal-in-exchange-as-ui) or Scenario 1.
 
 ## Hyperliquid

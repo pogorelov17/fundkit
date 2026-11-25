@@ -18,6 +18,28 @@ user's language and keeps the approval keywords (`APPROVE`, `WITHDRAW`) in Engli
   aliases, UIDs, key rights, network data, recipients, whitelist rows where a venue has a read,
   and history. It asks only for a fact that neither a tool nor the setup record supplies, and
   names that fact. It does not promise a route without questions when such a fact is missing.
+- After the one-time setup, a route's per-plan human part is `APPROVE`, `WITHDRAW` and the
+  native forms. Where B's minimum or deposit fee has no documented source (Binance, MEXC,
+  multi-chain Gate minimum; KuCoin fee), you may add that value from B's deposit page with its
+  read time, as a [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts); the agent
+  asks you to read it again just before the withdrawal.
+
+## Read-only starting prompt
+
+The first session after the [one-session read-only start](security.md#one-session-read-only-start-bybit-or-bybit-plus-bingx).
+Nothing can move: only deposit-only profiles are connected, and they keep `"dryRun": true`.
+
+Bybit only:
+
+```text
+Read SKILL.md. This is my first session and it is read only. Check the Bybit profile: versions, configPath, journal, configProblems and whether a native form is available, then the Bybit key check (read-only flag, no Withdraw, main account, UID, IP binding). Then list Bybit's USDT networks with deposit enabled, minimum, contract, memo requirement and deposit fee with their sources, and show my verified Bybit USDT deposit address for TRC20, BEP20, ERC20 and TON with the raw-row check, the address check, the memo (or none) and batchReleaseLimit. Finish with the setup-record lines I should write from this, and the ones still missing for a withdrawal later. No plan, no writes.
+```
+
+Bybit and BingX in one session (alternative):
+
+```text
+Read SKILL.md. This is my first session and it is read only. Two deposit-only profiles are connected: Bybit and BingX. For each: Step 0 (versions, configPath, journal, configProblems, dryRun, native form), the key check with UID and IP binding (BingX: report the numeric permission codes so I can record what they mean), the USDT networks with deposit enabled, the deposit minimum (BingX: the chosen network's depositMin), contract, memo requirement and deposit fee with their sources, and my verified USDT deposit address and memo per network. Then tell me which setup-record lines to write from this and which facts a later withdrawal between the two would still need (whitelist entry, entity line, interactive-form line, source and settlement registrations). No plan, no writes.
+```
 
 ## Setup and diagnosis
 
@@ -32,7 +54,7 @@ Read SKILL.md. Run Step 0 and the key check for every connected profile. For eac
 ```
 
 ```text
-Read SKILL.md. Here is my setup record: <setup record>. Run Step 0 and the key checks and compare every field with the record: registration, alias, environment, configPath, journal, UID, role, provisioning consent, whitelist entries (read them from the exchange where a read exists), Binance entity and travel-rule line, BingX jurisdiction, WhiteBIT entity and pinned contracts. Report each difference. Read only, no plan.
+Read SKILL.md. Here is my setup record: <setup record>. Run Step 0 and the key checks and compare every field with the record: registration, alias, environment, configPath, journal, UID, role, provisioning consent, whitelist entries character for character (read them from the exchange where a read exists), key-rights lines where no read shows them (Gate, MEXC, WhiteBIT), entity lines (Binance, Bybit, OKX, BingX, WhiteBIT) under the one entity rule, the interactive-form line and WhiteBIT pinned contracts. Report each difference. Read only, no plan.
 ```
 
 ```text
@@ -56,7 +78,7 @@ Read SKILL.md. Setup record: <setup record>. Operation record: <operation record
 ```
 
 ```text
-Read SKILL.md. Both accounts are connected: <A alias> is the source and <B alias> the destination<, and <B settlement alias> settles on B>. Setup record: <setup record>. Operation record: <operation record>. <amount> USDT must arrive on <exchange B>; keep a <reserve> USDT reserve on <exchange A>. Prepare everything and give me the plan to approve, or name the exact gate that holds. After the withdrawal, match the deposit on B<, then give me a separate plan for the transfer into <B wallet> on the settlement registration>.
+Read SKILL.md. Both accounts are connected: <A alias> is the source and <B alias> the destination<, and <B settlement alias> settles on B>. Setup record: <setup record>. Operation record: <operation record>. <amount> USDT must arrive on <exchange B>; keep a <reserve> USDT reserve on <exchange A>.< B's deposit minimum from its deposit page: <value>, read <UTC>.> Prepare everything and give me the plan to approve, with what it relies on (common setup, venue-specific setup, per-plan facts), or name the exact gate that holds. After the withdrawal, match the deposit on B<, then give me a separate plan for the transfer into <B wallet> on the settlement registration>.
 ```
 
 ```text

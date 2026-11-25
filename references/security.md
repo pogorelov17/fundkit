@@ -231,11 +231,37 @@ done
 claude mcp list
 ```
 
-Then check the Claude Code settings for hooks or plugins that answer forms
+The three config files are shown [below](#venue-profiles) (source, deposit-only destination,
+settlement). Then check the Claude Code settings for hooks or plugins that answer forms
 ([interactive form](#interactive-native-form)), restart, start a new chat with the
 [setup prompt](prompts.md#setup-and-diagnosis), and write the [setup record](#setup-record).
 This setup separates the three keys from each other. It does not hide them from the agent,
-and it relies on the agent following the rules ([trust model](#trust-model)).
+and it relies on the agent following the rules ([trust model](#trust-model)). Running all
+three servers under the operator's own OS user is fine.
+
+### One-session read-only start (Bybit, or Bybit plus BingX)
+
+The smallest useful first session reads only: it connects deposit-only profiles and lets the
+agent check them, so nothing can move. For Bybit alone, follow the
+[Bybit deposit profile](#bybit-deposit-profile) (one read-only main-account key, IP bound).
+To add BingX in the same session, create a BingX key with read permission only and an IP
+allowlist, put it in its own profile directory, and register a second server:
+
+```bash
+mkdir -p ~/fundkit-profiles/bybit-dst ~/fundkit-profiles/bingx-dst
+# write both config.json files with an editor: "funds": "live", a small "maxTransferValue", "dryRun": true, keys in the file
+chmod 600 ~/fundkit-profiles/*/config.json
+for p in bybit-dst bingx-dst; do
+  claude mcp add-json -s user "ccxt-$p" "{\"command\":\"/usr/bin/node\",\"args\":[\"<APP_DIR>/node_modules/ccxt-mcp/js/server.js\"],\"env\":{\"CCXT_MCP_CONFIG\":\"$HOME/fundkit-profiles/$p/config.json\"}}"
+done
+claude mcp list
+```
+
+Restart the host and paste the [read-only starting prompt](prompts.md#read-only-starting-prompt).
+The agent reports the versions, both key checks and UIDs, the networks, and the verified
+deposit addresses. Write the registration lines of the [setup record](#setup-record) from that
+report (BingX: also the permission-code meanings shown on BingX's API page). Money-moving
+registrations come later and need their own lines.
 
 ### Venue profiles
 
@@ -250,7 +276,7 @@ server once ([install](ccxt-mcp.md#install)); then, per account:
 | Bitget (`bitget`) | `apiKey`, `secret`, `password` | `BITGET_APIKEY`, `BITGET_SECRET`, `BITGET_PASSWORD` | no withdrawal authority; `userId` |
 | BingX (`bingx`) | `apiKey`, `secret` | `BINGX_APIKEY`, `BINGX_SECRET` | permission codes confirmed once on BingX's API page; `uid` |
 | WhiteBIT (`whitebit`) | `apiKey`, `secret` | `WHITEBIT_APIKEY`, `WHITEBIT_SECRET` | no key read exists: the operator confirms the scope once |
-| MEXC (`mexc`) | `apiKey`, `secret` | `MEXC_APIKEY`, `MEXC_SECRET` | `canWithdraw: false`; `uid` |
+| MEXC (`mexc`) | `apiKey`, `secret` | `MEXC_APIKEY`, `MEXC_SECRET` | no read shows the key's permissions (`canWithdraw` in `GET /api/v3/account` is an account flag): the setup record's key rights must be `SPOT_ACCOUNT_READ` and `SPOT_WITHDRAW_READ` (MEXC's deposit-address read needs it), without `SPOT_WITHDRAW_WRITE` or `SPOT_TRANSFER_WRITE`; `uid` |
 | KuCoin (`kucoin`) | `apiKey`, `secret`, `password` | `KUCOIN_APIKEY`, `KUCOIN_SECRET`, `KUCOIN_PASSWORD` | `permission: "General"` (no `Withdrawal`); `uid` |
 | Gate (`gate`) | `apiKey`, `secret` | `GATE_APIKEY`, `GATE_SECRET` | the read has no permission fields: the operator confirms the scope once; `user_id` |
 | Hyperliquid | none: `walletAddress` only | none | watch-only |
@@ -266,7 +292,7 @@ venue's API key page; confirm them there once and record them in the setup recor
 | OKX | `perm` includes `withdraw` | `perm` exactly `read_only,trade` (OKX grants transfers with trade), no `withdraw` |
 | Bitget | an authority naming withdrawal | an authority naming transfer, none naming withdrawal |
 | BingX | the permission code recorded for withdrawal | the code recorded for transfer, not the withdrawal code |
-| MEXC | `canWithdraw: true`; the key read shows no IP field, so the setup record must say the IP allowlist is set | transfer right per MEXC's API page, `canWithdraw: false`; IP allowlist in the setup record |
+| MEXC | setup record key rights `SPOT_ACCOUNT_READ`, `SPOT_WITHDRAW_READ`, `SPOT_WITHDRAW_WRITE`; the key read shows no IP field, so the setup record must say the IP allowlist is set | setup record key rights `SPOT_TRANSFER_READ` and `SPOT_TRANSFER_WRITE`, no `SPOT_WITHDRAW_WRITE`; IP allowlist in the setup record |
 | KuCoin | `permission` includes `Withdrawal` | `permission` includes `Transfer`, not `Withdrawal`; proof is operator or manual ([transfer proof](exchanges.md#transfer-proof)) |
 | Gate | withdrawal right per the setup record (the key read has no permission fields); `ip_whitelist` nonempty | transfer right, no withdrawal, per the setup record; `ip_whitelist` nonempty |
 | WhiteBIT | per the setup record (no key read) | per the setup record; proof is operator or manual |
@@ -286,7 +312,8 @@ Create a separate key per role, each with an IP allowlist:
   whitelist. The operator adds that address once in A's security settings with 2FA; the agent
   never does and never asks to skip it.
 
-Two-profile example (scheme C), one file per account:
+Example (scheme C) for the three registrations of an A → B route with settlement on B, one
+file per registration (source, deposit-only destination, settlement):
 
 ```json
 {
@@ -312,11 +339,25 @@ Two-profile example (scheme C), one file per account:
 }
 ```
 
+```json
+{
+  "settings": { "strictPermissions": true, "hideDisabledTools": true },
+  "accounts": {
+    "bybit-settle": {
+      "exchange": "bybit", "apiKey": "<second Bybit key: read + AccountTransfer, no Withdraw>", "secret": "<from Bybit>",
+      "funds": "live", "maxTransferValue": 300, "maxDailyValue": 600, "confirm": "always", "dryRun": true
+    }
+  }
+}
+```
+
 The operator fills in the values with an editor, never through the chat or the agent's shell,
-then sets `chmod 600`. The source file and a settlement file are
-[money-moving registrations](#money-moving-registrations). Both examples start with
+then sets `chmod 600`. The source file and the settlement file are
+[money-moving registrations](#money-moving-registrations). All three start with
 `"dryRun": true`. Remove it from the source profile only after a plan has been walked through,
-and from the destination profile only if B will run a settlement transfer. Register both servers
+and from the settlement registration only when B will run settlement transfers. The
+deposit-only destination profile keeps `"dryRun": true` always, also when a settlement
+registration exists: Step 0 stops if it reports `dryRun: false`. Register the servers
 ([host registration](#host-registration)), restart the host, start a new chat with the
 [setup prompt](prompts.md#setup-and-diagnosis), and have the agent run Step 0 and the key checks.
 Then fill in the [setup record](#setup-record) outside the chat. The agent compares later chats
@@ -334,25 +375,25 @@ SETUP RECORD, written <UTC> by <operator>
 Profile <registration name>: alias <alias>, exchange <id>, environment <live|sandbox>, role <deposit-only | settlement | source>
   (a settlement registration names the deposit-only registration of the same account UID)
   configPath <path>, journal <path>
-  account UID <id> (confirmed on the exchange's API page <UTC>), key rights <as shown there>, IP allowlist <yes>
+  account UID <id> (confirmed on the exchange's API page <UTC>), key rights <as shown there, e.g. MEXC SPOT_ACCOUNT_READ, SPOT_WITHDRAW_READ>, IP allowlist <yes>
   provisioning: <allowed | not allowed>            (Gate, WhiteBIT: their address read may create an address)
-  BingX permission codes: <code → right>; BingX KYC jurisdiction: <non-KOR | KOR>
-  Binance entity: <entity name>; travel-rule questionnaire on withdrawal: <not required | required | unknown>; evidence <source, UTC>
-  WhiteBIT entity: <non-EEA, non-Turkey | EEA | Turkey>; evidence <source, UTC>
-  OKX entity: <entity name>; rcvrInfo (recipient information) on withdrawal: <not required | required | unknown>; evidence <source, UTC>
-  Bybit entity: <entity name>; beneficiary information on withdrawal: <not required | required | unknown>; evidence <source, UTC>
+  BingX permission codes: <code → right>
+  Entity <Binance | Bybit | OKX | BingX | WhiteBIT>: <Binance.com | Bybit.com | OKX.com | BingX.com | WhiteBIT.com | other entity name>, jurisdiction <ISO 3166-1 alpha-2>,
+    <travel-rule questionnaire | beneficiary information | rcvrInfo | KYC=KOR recipient fields | EEA/Turkey USDT restriction>: <not required | required | unknown>; evidence <source, UTC>
   Native form: interactive dialog; no Elicitation/ElicitationResult hook or auto-answer; checked <UTC>
   WhiteBIT contract <TRC20 | BEP20 | ERC20 | TON>: <full contract>, pinned from the explorer linked on WhiteBIT's deposit page <UTC>
   Whitelist on this source: <full address, character for character as in the agent's code block> memo <none | exact> chain <code> → <B venue>, added with 2FA <UTC>
 ```
 
 A missing line means "not established": the gate that needs it holds. A changed key, alias,
-registration, entity, pinned contract or whitelist entry needs a new record line. The Binance
-entity proceeds only when it is named, it is not one of the local entities that Binance lists
-for its travel-rule questionnaire, the line says "not required" and names its evidence
-([outbound table](exchanges.md#withdrawal-whitelist-evidence)). A WhiteBIT contract line is
-the operator's one-time reading, labeled as such on every plan and sheet that uses it; it is not
-an API field.
+registration, entity, pinned contract or whitelist entry needs a new record line. Entity lines
+follow one rule on every venue ([entity lines](exchanges.md#entity-lines)): the venue's global
+platform label exactly, a jurisdiction the venue's official page does not list, "not required"
+and its evidence. Any other or regional entity, a missing or invalid jurisdiction, or a listed
+one holds (fail closed). A WhiteBIT contract line is the operator's one-time reading, labeled
+as such on every plan and sheet that uses it; it is not an API field. A per-plan human-read
+value ([SKILL.md](../SKILL.md#per-plan-human-read-facts)) never goes into this record: it binds
+one plan only.
 
 ## Interactive native form
 
@@ -381,21 +422,29 @@ form shows no PLAN-ID, expiry or `params`, so it does not bind the full plan.
 
 The skill assumes a **cooperative, trusted** host, operator and agent. Its controls stop
 mistakes and stale data. They are not a security boundary against an agent that decides to
-break the rules.
+break the rules. Three kinds of control are kept apart:
 
-- **What the server enforces.** In form mode, ccxt-mcp sends a `withdraw` or `transfer` only
-  after the human accepts the host's native form. That is the only outcome it enforces. The
-  form's preview omits `params`, the PLAN-ID and the plan's expiry. Comparing the full
-  arguments with the plan and checking the clock are procedural steps for the agent and the
-  human ([SKILL.md, 2.5](../SKILL.md#25-executing-each-write)).
-- **No tokens.** Without the native form the server issues a `confirmToken` that the model
-  could redeem itself. The skill never redeems a token. Where the form is unavailable, the
-  money move is held and the human uses the exchange UI.
-- **Process placement is not a boundary.** The same OS user, a fixed `sudo -u <user> <command>`
-  rule, a separate `HOME` or a container all run what the host's `command` names. An agent that
-  can run that command, or edit the host config, can start its own server copy. That copy has no
-  native form and issues tokens. Running money-moving servers under another OS user therefore
-  does not stop an uncooperative agent, and the skill does not rely on it.
+- **Hard human confirmation.** In form mode, ccxt-mcp sends a `withdraw` or `transfer` only
+  after the human accepts the host's native form. That is the only outcome the server
+  enforces, and it is a human confirmation only on an **interactive host** where no hook,
+  plugin or setting answers the form. The operator records that once
+  ([interactive native form](#interactive-native-form)); without the line every money move
+  holds. Without the native form the server issues a `confirmToken` that the model could
+  redeem itself, so the skill never redeems a token: the move holds and the human may use the
+  exchange UI.
+- **Procedural checks.** The form's preview omits `params`, the PLAN-ID and the plan's expiry.
+  The plan, the `APPROVE` and `WITHDRAW` replies, the expiry, the full recheck and the
+  comparison of every form field with the plan are steps the agent and the human follow
+  ([SKILL.md, 2.5](../SKILL.md#25-executing-each-write)). So are the setup record's
+  comparisons in Step 0.
+- **Where the credentials and the server process live is not a control.** The same OS user,
+  a fixed `sudo -u <user> <command>` rule, a separate `HOME` or a container all run what the
+  host's `command` names, and an uncooperative agent that can run that command or edit the host
+  config could start its own server copy. The skill therefore neither requires another OS user
+  nor stops when a money-moving server runs under the agent's own user, which is the normal
+  setup ([scheme C](#scheme-c-per-profile-credential-files-two-profile-session)). What it
+  requires of credentials is procedural: the agent never reads them (rule 1 of
+  [`SKILL.md`](../SKILL.md#hard-rules)), and each profile signs only with its own key.
 - **Host isolation is separate and unverified.** An operator may still configure a separate OS
   user, a container or the host's own sandbox and permission rules. Whether that keeps the
   credentials or the server from the agent depends on the host and was not verified here. The
