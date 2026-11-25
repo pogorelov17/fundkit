@@ -125,27 +125,33 @@ The last withdrawal is stuck. Reconcile what actually happened without repeating
 
 Verified in a scratch environment with no real keys and no live writes: pins, schemas and
 gates, the approval token (including 60 s expiry) and the 300 s form wait, and the final
-`withdraw` and `transfer` requests on all nine exchanges, built offline without sending;
-transfer proof reads on all nine exchanges, journal crash entries and deposit hash
-matching, all on mocked responses; the Bybit deposit-address read (including duplicate,
-wrong-chain and memo entries checked against the raw response), key check, tier gates and
-setup errors on mocked responses; two same-exchange registrations sharing one key. On
-2026-11-25: native recipient reads on all nine destinations (BEP20 and TON with memo, plus
-duplicate, wrong-chain, missing-memo, empty, no-`funds`, missing-credential and key-rejection
-fixtures), and all 72 directed exchange pairs in two-profile sessions with per-profile
-credential files: 57 full runs from recipient read through native-form withdrawal, proof and
-deposit match, 8 BingX-outbound routes as components (manual withdrawal), 7 Gate-inbound
-routes held; settlement transfers on B and declined, failed-form, rejected, unknown, pending,
-failed, duplicate, short and memo-mismatch outcomes. Also public network data,
-`call_implicit_get`, the server environment and registration commands on Claude Code 2.1.331
-and Codex 0.172.0 ([details](references/ccxt-mcp.md#verification)).
+`withdraw` and `transfer` requests, built offline without sending; transfer proof reads,
+journal crash entries and deposit hash matching; the Bybit deposit-address read; two
+same-exchange registrations sharing one key; public network data, `call_implicit_get`, the
+server environment and registration commands on Claude Code 2.1.331 and Codex 0.172.0.
 
-Not verified: real accounts, modes, available amounts, fee models, exchange responses to
-writes and reads with a real key (the transfer proof table relies on the response shapes in
-ccxt's code), whether a read-only key may read the deposit address on each venue, the
-recipient response shapes (taken from venue docs, not captured live), and actual transfers.
-Hard limits per venue (Gate and MEXC deposit minimum, MEXC and KuCoin deposit fee, the
-WhiteBIT contract and key check, BingX outbound, Bitget and KuCoin UTA) are listed in
-[`recipients.md`](references/recipients.md#status-by-destination-venue). Network flags and fees are visible only with a key on most
-exchanges, so plans are built from live data at request time. The skill gives no execution
-guarantees. Use at your own risk and start with `dryRun`.
+On 2026-11-25 a repair pack replaced the previous fixture run, which had not enforced the route
+gates. A reference planner follows this skill's gates on tool results only, over real ccxt-mcp
+servers and a fixture transport (212 scenarios, 1294 checks, 0 failures,
+[details](references/ccxt-mcp.md#verification)):
+
+- **72 directed exchange pairs**, with the network chosen among TRC20, BEP20, ERC20 and TON.
+  **24 settle**, from Binance, Bybit, Gate, OKX, Bitget, BingX or KuCoin to Bybit, OKX, Bitget
+  or BingX. Each runs from the recipient read and both preflights through a native-form
+  withdrawal, proof by id, a deposit matched by hash, and a transfer on B's settlement
+  registration proven by id. **48 hold** before any money-moving call, with zero wire writes,
+  because a venue documents no value for a needed fact: the Binance, MEXC and Gate deposit
+  minimum, the KuCoin deposit fee, the WhiteBIT contract (both directions) and the MEXC
+  withdrawal step. Bitget BEP20 also holds in both roles (id mismatch), so Bitget routes use TON.
+- 84 isolated gate scenarios: 78 fail exactly the expected gate (pre-dispatch ones before any
+  money-moving request), and 6 positive twins pass. 36 recipient reads pass the address, memo
+  and raw-row checks on 9 venues × 4 networks. The stated holds remain.
+
+Every response in those runs is synthetic, shaped after venue references and ccxt's parsers.
+Not verified: real accounts, modes, available amounts, fee models, exchange responses to writes
+and reads with a real key, whether a read-only key may read the deposit address on each venue,
+and actual transfers. A settled fixture route does not show that a real route is ready. Hard
+limits per venue are listed in
+[`recipients.md`](references/recipients.md#status-by-destination-venue). Network flags and fees
+are visible only with a key on most exchanges, so plans are built from live data at request
+time. The skill gives no execution guarantees. Use at your own risk and start with `dryRun`.
