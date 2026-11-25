@@ -1,14 +1,33 @@
 # fundkit
 
-A Markdown-only Agent Skill that lets an AI agent move USDT between a crypto wallet and
-exchanges with a human approving every write. The agent talks to exchanges through the official MCP server
-[`ccxt-mcp@0.1.3`](https://github.com/ccxt/ccxt/tree/master/mcp), pinned with `ccxt@4.5.85`,
-the last ccxt release with which the server's `withdraw` still passes network, fee and memo
-to the exchange. Works in Claude Code and Codex.
+An Agent Skill that lets an AI agent move USDT between a crypto wallet and exchanges with a
+human approving every write. The skill itself is Markdown. The agent talks to exchanges through
+the official MCP server [`ccxt-mcp@0.1.3`](https://github.com/ccxt/ccxt/tree/master/mcp),
+pinned with `ccxt@4.5.85`, the last ccxt release with which the server's `withdraw` still
+passes network, fee and memo to the exchange. Works in Claude Code and Codex. An optional
+helper, [`bin/fundkit.mjs`](bin/fundkit.mjs) (Node 20+, standard library only), connects
+exchange profiles for one session from a single Doppler config.
 
 ## Quick start
 
-From the repository root, in Claude Code or Codex:
+**Option 1: session-only Doppler profiles (one command per machine).** On the server, in the
+operator's shell:
+
+```bash
+git clone https://github.com/pogorelov17/fundkit.git ~/fundkit && node ~/fundkit/bin/fundkit.mjs install
+```
+
+This installs the pinned server, links the skill for Claude Code and Codex, and registers one
+MCP server, `fundkit`. Start a new Claude Code or Codex session and ask in your own words, for
+example `переведи 300 USDT с OKX на Bybit`. The agent first uses any exchange profiles that are
+already connected. If the route needs one that is not, it asks you to run `fundkit session` in
+a second terminal on that machine and paste a read-only Doppler service token at the hidden
+prompt, once per session. It then connects exactly the profiles the route needs, under aliases
+it picks itself (`okx-src`, `bybit-dst`). Doppler naming, data flow and limits:
+[scheme D](references/security.md#scheme-d-session-only-doppler-profiles-optional).
+
+**Option 2: explicit read with your own profiles.** From the repository root, in Claude Code
+or Codex:
 
 ```text
 Read SKILL.md and help me plan a USDT transfer.
@@ -31,8 +50,11 @@ operator sets up:
 3. **Check.** Run the [smoke check](references/security.md#smoke-check), then paste a
    [setup prompt](references/prompts.md#setup-and-diagnosis) as the first request.
 
-Automatic skill discovery is optional and host-specific; this repository does not rely on it
-([loading the skill](references/security.md#loading-the-skill)).
+Either way, the first money move on a route still needs the one-time
+[setup record](references/security.md#setup-record) (UIDs, key rights, the native-form line,
+the whitelist entry), and every money move needs `APPROVE`, `WITHDRAW` and the host's native
+form. Automatic skill discovery is host behavior. Without `fundkit install` this repository
+does not set it up ([loading the skill](references/security.md#loading-the-skill)).
 
 ## What it does
 
@@ -65,6 +87,11 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
 
 ## Safety model
 
+- **Doppler (optional).** The service token is typed only into the private terminal step
+  (`/dev/tty`, echo off), never into the chat, a native form, argv, a file or any other
+  process. Each profile gets only its own exchange-and-role names, fetched for that session
+  and dropped when it ends
+  ([scheme D](references/security.md#scheme-d-session-only-doppler-profiles-optional)).
 - **Keys.** The agent knows only account aliases and never reads the environment. One server
   per account. Claude Code passes its whole environment to every server; Codex forwards only
   each server's `env_vars`, but the values stay in the host environment. So either put each
@@ -129,6 +156,8 @@ The last withdrawal is stuck. Reconcile what actually happened without repeating
 | [`references/exchanges.md`](references/exchanges.md) | wallets, network data, outbound withdraw table, amount steps, account modes |
 | [`references/security.md`](references/security.md) | environment contract, host registration, loading the skill, smoke check, key permissions |
 | [`references/recipients.md`](references/recipients.md) | native recipient reads (address, memo, landing wallet), deposit fee and minimum sources and hard limits per venue |
+| [`bin/fundkit.mjs`](bin/fundkit.mjs) | optional: `install`, the private terminal `session`, the `fundkit` MCP server, `status`, `stop` |
+| [`tests/`](tests/) | offline tests for the session: mock Doppler, pseudo-terminal, simulated host, synthetic and pinned ccxt-mcp |
 | [`references/prompts.md`](references/prompts.md) | copyable prompts for setup, diagnosis, read-only checks and planning (the agent replies in the user's language) |
 
 ## Verification and limits
@@ -170,6 +199,20 @@ documented venue facts before the run (381 scenarios, 5422 checks, 0 failures,
   and regional entities, missing or non-ISO jurisdiction, Bybit India, WhiteBIT Norway), `dryRun`
   on the deposit-only profile, MEXC key rights, TON alphabets, plus every earlier gate and the
   independent review's probes, imported unchanged.
+
+**Session profiles** (`python3 -I tests/test_session.py`; the pinned-server class also runs
+inside `unshare -rn` with `FUNDKIT_REAL_CCXT_MCP`) cover these cases:
+
+- no prior setup, and profiles already connected (no Doppler request, no prompt);
+- the private terminal step on a real pseudo-terminal, with nothing echoed;
+- fetching only the route's names, forwarding only those values, to that profile's process only;
+- redaction, and the native form forwarded with decline, accept and no answer;
+- a missing passphrase, an expired token, Ctrl-C at the prompt, a refused token type, no
+  terminal, Doppler ignoring the name filter, outages, `--ttl`, `SIGHUP` and `fundkit stop`;
+- cleanup of processes, files and socket, and reconnecting a running host to a new session;
+- `install` against the real `claude` and `codex` CLIs in a scratch home.
+
+No real Doppler service, exchange key or model run was used.
 
 Every response in those runs is synthetic, shaped after venue references and ccxt's parsers.
 Not verified: real accounts, modes, available amounts, fee models, exchange responses to writes

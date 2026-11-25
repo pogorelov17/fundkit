@@ -1,25 +1,29 @@
 ---
 name: usdt-funding
 description: >-
-  Plan and semi-automatically execute USDT funding moves between centralized exchanges
-  (Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin) through the official
-  ccxt-mcp 0.1.3 server pinned to ccxt 4.5.85, plus OKX Wallet deposits to an exchange whose
-  USDT address and memo the agent reads from the operator's own account, and watch-only
-  Hyperliquid margin monitoring. Use when the user wants to move, top up or fund USDT between
-  exchanges, transfer between funding and trading wallets, pick the cheapest network, get a
-  verified deposit address to paste into OKX Wallet, or check free margin on Hyperliquid.
-  Enforces live network checks on both sides, verified chain and contract, offline-verified
-  withdraw requests only, explicit gross/withdraw/net fee math, an exact expiring plan bound to
-  human approval, a separate approval before any withdrawal, no retries on unknown outcomes,
-  and reconciliation only by attributable IDs.
+  Plan and semi-automatically execute USDT moves between centralized exchanges (Binance,
+  Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin) through the pinned ccxt-mcp 0.1.3
+  server (ccxt 4.5.85), OKX Wallet deposits to an exchange address read from the operator's
+  own account, and watch-only Hyperliquid margin checks. Use whenever the user wants to move,
+  send, transfer, withdraw, top up or fund USDT between exchanges or wallets, in any language
+  (for example "переведи 300 USDT с OKX на Bybit"), pick a network, get a verified deposit
+  address, move funds between funding and trading wallets, or check Hyperliquid margin. Finds
+  the connected exchange profiles itself and, with the optional fundkit server, connects
+  missing ones for one session from a Doppler config after a private terminal step. Enforces
+  live network checks, an exact expiring plan with human approval, a separate withdrawal
+  approval, the host's native confirmation form for every money move, and no retries on
+  unknown outcomes.
 ---
 
 # USDT funding: OKX Wallet → exchange, exchange A → exchange B, funding ↔ trading
 
 Reply in the user's language, but keep the approval keywords below exactly as written. You
-plan and execute writes only through the `ccxt-mcp` MCP server. Read the state first, then
+plan and execute writes only through `ccxt-mcp` servers: registered directly in the host, or
+connected for one session through the optional `fundkit` MCP server
+([session profiles](#session-profiles-optional-doppler)). Read the state first, then
 build an exact plan. Execute writes only after explicit human approval. Do not write or run
-programs or scripts of your own. The one exception is the fixed TON address check in
+programs or scripts of your own, and never run the `fundkit` command yourself. The one
+exception is the fixed TON address check in
 [`recipients.md`](references/recipients.md#address-checks), which reads only its argument.
 
 Detailed tables live in [`references/`](references/): pins, schemas and gates in
@@ -39,7 +43,11 @@ only what the human pastes carries over.
    any way: no `env`, `printenv`, `set`, `export -p`, `declare -x`, `ps e`, `/proc/*/environ`,
    `echo $…_SECRET`. Do not use the shell to read `.env` files, profile configs or the server
    journal. Diagnose setup only from tool results ([setup check](#setup-check)),
-   and never ask whether a key is set or what it is.
+   and never ask whether a key is set or what it is. The same holds for a Doppler service
+   token: the user types it only into their own private terminal
+   ([session profiles](#session-profiles-optional-doppler)), never into the chat. If one is
+   pasted here, do not use it, do not repeat it, and ask the user to revoke it in Doppler and
+   create a new one.
 2. **A plan is bound to exact arguments and an expiry.** Writes are `transfer`, `withdraw`,
    `create_order`, `cancel_*`, `set_*`, `call_write_method` and `call_implicit_write`. Before any
    write, show a plan with the **full JSON arguments** of every call and `expires <UTC>`, and get
@@ -176,6 +184,55 @@ call_implicit_get {"exchange":"bybit","account":"<alias>","method":"privateGetV5
 Schemas:
 [`references/ccxt-mcp.md`](references/ccxt-mcp.md#tools).
 
+## Session profiles (optional, Doppler)
+
+A route needs one profile per account and role: **source** on A (withdraws), **deposit-only**
+on B (reads B's own recipient) and, only for 2.8, **settlement** on B. Find them in this
+order, without asking the user for aliases:
+
+1. **Connected servers first.** Call `get_safety_status {}` on every connected `ccxt-mcp`
+   server and match the route's exchanges to the aliases it reports. Where those cover the
+   route, use them and do not mention Doppler.
+2. **Missing profiles, `fundkit` tools present.** Call `fundkit_profiles {"from":"<A>","to":"<B>"}`
+   (ccxt ids or the user's own names: "OKX", "Gate.io"). It reads nothing secret.
+   - `session: "active"`: call `fundkit_connect {"exchange":"<id>","role":"source"}` for A and
+     `{"exchange":"<id>","role":"deposit-only"}` for B. Connect `settlement` only when 2.8
+     needs a transfer on B. Each profile's alias is `<exchange>-src`, `-dst` or `-settle`.
+   - `session: "none"`: tell the user, in their language, the `userStep` from the result: in
+     a separate terminal on this machine they run `fundkit session` and paste a read-only
+     Doppler service token there (the input is hidden), then say they are done. Do not ask
+     for the token, do not wait in a loop, and do not run the command yourself. Then call
+     `fundkit_profiles` again.
+3. **Neither.** Follow the last paragraph of [Step 0](#step-0-preflight-read-only).
+
+How a session profile works. `fundkit_connect` starts one pinned `ccxt-mcp` process for that
+account. The session fetches only that exchange and role's fixed Doppler names
+(`<EXCHANGE>_<DEPOSIT|SOURCE|SETTLEMENT>_<APIKEY|SECRET|PASSWORD>`, `PASSWORD` for OKX, Bitget
+and KuCoin) and gives them to that process alone. No value ever reaches you.
+Call every tool of a session profile through `fundkit_read
+{"alias":"<alias>","tool":"<tool>","arguments":{…}}`, with exactly the JSON you would pass to
+that tool directly ([call syntax](#call-syntax)). Money moves go only through `fundkit_write`
+(`withdraw`, `transfer`), after `APPROVE <PLAN-ID>` and `WITHDRAW <PLAN-ID>` as in 2.5. The
+call opens the same native form and the human's answer decides. Everything else in this
+skill applies unchanged: Step 0 runs on every session profile, and so do the key checks, the
+setup record and the rules.
+
+- The registration name is `fundkit/<alias>`. `configPath` and `journal` are what
+  `get_safety_status` reports, and the setup record must name them for a money-moving role.
+- `list_accounts` shows `credentials: []` on a session profile because the key comes from
+  the process environment. The venue's key check is what shows the key and its scope.
+- The session caps writes. A deposit-only profile is always `dryRun: true`. Source and
+  settlement profiles are `dryRun: true` unless the operator started the session with
+  `--writes --max-transfer <USD>`. Only the operator can change that, by starting a new
+  session.
+- Errors: `NO_SESSION`, `TOKEN_REJECTED` (the token is expired or revoked; the session has
+  ended) and `SESSION_ENDED` mean the user repeats the private terminal step. `MISSING_SECRETS`
+  lists the missing names: the operator adds them to the Doppler config, and the session
+  stays active. `DOPPLER_UNAVAILABLE`, `DOPPLER_RATE_LIMITED` and `DOPPLER_TIMEOUT`: try once
+  later, then hold. `ALIAS_IN_USE`: another host session holds that profile.
+- If the session ends while a `withdraw` or `transfer` is open, the result says the outcome
+  is unknown. Retry nothing and reconcile ([2.7](#27-reconciliation)) on a new session.
+
 ## Step 0. Preflight (read-only)
 
 Before preparing a plan or sheet in any fresh chat, including a manual wallet or exchange
@@ -222,6 +279,10 @@ For each server involved:
    than one connected server or alias has the keyed exchange, stop until the operator leaves
    exactly one registration enabled
    ([one registration](references/security.md#one-registration-per-keyed-exchange)).
+   **Session profiles** (scheme D, [session profiles](#session-profiles-optional-doppler)) are
+   separate processes, each started with only its own account's key, so several of them, also
+   for one exchange in different roles, may be connected together, as in scheme C. You do not
+   need to ask which scheme they use.
    **Money-moving registrations** (a source A that withdraws, a settlement registration on B)
    are the ones the [setup record](references/security.md#setup-record) names with that role
    ([money-moving registrations](references/security.md#money-moving-registrations)). The
@@ -251,7 +312,9 @@ For each server involved:
    Never create or edit host settings, hooks or plugins. Only the operator can enable a missing tier, in the config; it cannot
    be done from the conversation.
 
-If no `ccxt-mcp` tools are available, say that no server is connected to this chat (you
+If `fundkit` tools are available, missing profiles come from
+[session profiles](#session-profiles-optional-doppler). If neither `ccxt-mcp` nor `fundkit`
+tools are available, say that no server is connected to this chat (you
 cannot see why), explain what the operator needs to set up for the named venues
 ([setup check](#setup-check), [`references/security.md`](references/security.md)), and stop
 before any live data or plan numbers. You may still explain the flow in general terms.
@@ -359,7 +422,10 @@ Match what you see:
 
 | You see | Tell the operator |
 |---|---|
-| no `ccxt-mcp` tools | No server is connected to this chat; you cannot see why. Set up the [venue profile](references/security.md#venue-profiles) for each named exchange, restart the host, start a new chat with the [setup prompt](references/prompts.md#setup-and-diagnosis) |
+| `fundkit_profiles` says `session: "none"`, or `NO_SESSION`, `TOKEN_REJECTED`, `SESSION_ENDED` | Run `fundkit session` in a separate private terminal on this machine and paste the read-only Doppler service token there (input hidden); keep that terminal open ([session profiles](#session-profiles-optional-doppler)) |
+| `MISSING_SECRETS` with names | Add exactly those names to the Doppler config the token reads; nothing else is fetched. The session stays active |
+| `SERVER_NOT_INSTALLED` | Run `fundkit install` once on this machine ([security.md](references/security.md#scheme-d-session-only-doppler-profiles-optional)) |
+| no `ccxt-mcp` and no `fundkit` tools | No server is connected to this chat; you cannot see why. Set up the [venue profile](references/security.md#venue-profiles) for each named exchange, restart the host, start a new chat with the [setup prompt](references/prompts.md#setup-and-diagnosis) |
 | `get_safety_status` lists no account for the venue (`list_accounts` may be missing: with `hideDisabledTools` and no accounts it is not listed), or `UNKNOWN_ACCOUNT` | The connected server has no account for this exchange: add it to its `config.json`, or register a server whose `CCXT_MCP_CONFIG` points to that profile; restart |
 | `configProblems` names the account, or says `REFUSED (strictPermissions)` | Fix the config as the message says (`"funds": "live"` needs `maxTransferValue`; `"funds": true` is sandbox only; `chmod 600` the file); restart |
 | `TIER_DISABLED` on a recipient read | Recipient reads need `"funds": "live"` and a `maxTransferValue` in the profile; restart |
@@ -381,7 +447,10 @@ matters for `10005`). The Bybit-specific rows, with the
 
 | You see | Tell the operator |
 |---|---|
-| no `ccxt-mcp` tools | No server is connected to this chat; you cannot see why. Set up the [Bybit deposit profile](references/security.md#bybit-deposit-profile), restart the host and start a new chat |
+| `fundkit_profiles` says `session: "none"`, or `NO_SESSION`, `TOKEN_REJECTED`, `SESSION_ENDED` | Run `fundkit session` in a separate private terminal on this machine and paste the read-only Doppler service token there (input hidden); keep that terminal open ([session profiles](#session-profiles-optional-doppler)) |
+| `MISSING_SECRETS` with names | Add exactly those names to the Doppler config the token reads; nothing else is fetched. The session stays active |
+| `SERVER_NOT_INSTALLED` | Run `fundkit install` once on this machine ([security.md](references/security.md#scheme-d-session-only-doppler-profiles-optional)) |
+| no `ccxt-mcp` and no `fundkit` tools | No server is connected to this chat; you cannot see why. Set up the [Bybit deposit profile](references/security.md#bybit-deposit-profile), restart the host and start a new chat |
 | `get_safety_status` has no Bybit account (`list_accounts` may be missing: with `hideDisabledTools` and no accounts it is not listed), or `UNKNOWN_ACCOUNT` | The connected server has no Bybit account: add one to its `config.json`, or register a server whose `CCXT_MCP_CONFIG` points to the Bybit profile; restart |
 | `configProblems` names the Bybit account | Fix the config as the message says (`"funds": "live"` needs `maxTransferValue`; `"funds": true` is sandbox only); restart |
 | `TIER_DISABLED` | Address reads need `"funds": "live"` and a `maxTransferValue` in the profile; restart |

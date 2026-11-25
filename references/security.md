@@ -22,9 +22,10 @@ launch environment to every MCP server (verified), so prefixed names such as `OK
 the agent's shell. Codex passes a server only the names in its `env_vars` (verified), but the
 values still sit in the host environment, and two servers listing the same names get the same
 values. Whether the agent's shell can see them depends on Codex settings and was not tested
-here, so assume it can. Three launch schemes are supported. Scheme C is the recommended one
-for exchange A → exchange B, because both accounts can then be connected in the same session
-with separate credentials.
+here, so assume it can. Three launch schemes are supported, plus an optional fourth. Scheme C
+is the recommended file-based one for exchange A → exchange B, because both accounts can then
+be connected in the same session with separate credentials. Scheme D does the same with
+credentials fetched from one Doppler config for one session only, and nothing on disk.
 
 ### Scheme A: one keyed account per launch
 
@@ -120,6 +121,132 @@ never signs another profile's requests (verified offline). What it does not do: 
 from the agent. The agent's shell runs as the same OS user and could read them (rule 1 of
 [`SKILL.md`](../SKILL.md#hard-rules) forbids it). The skill relies on the agent following that
 rule ([trust model](#trust-model)). The exchange-side restrictions below are mandatory.
+
+### Scheme D: session-only Doppler profiles (optional)
+
+For operators who keep every exchange key in one Doppler config and want no key on disk. It is
+opt-in. Schemes A to C and already registered profiles keep working without it, and the agent
+uses those first ([SKILL.md, session profiles](../SKILL.md#session-profiles-optional-doppler)).
+`bin/fundkit.mjs` is one file for Node 20+, using only the standard library. It has four
+parts: `install`, the private terminal step `session`, the host-side MCP server `mcp`, and
+`status`/`stop`.
+
+**Once per machine** (operator's shell, needs Node 20+, npm and network):
+
+```bash
+git clone https://github.com/pogorelov17/fundkit.git ~/fundkit && node ~/fundkit/bin/fundkit.mjs install
+```
+
+`install` does four things, each idempotent:
+
+- It installs the [pins](ccxt-mcp.md#install) into `~/.local/share/fundkit/app` with
+  `--save-exact --ignore-scripts`, or keeps an existing install with exactly those versions
+  (`--app-dir <dir>` picks another directory).
+- It writes the launcher `~/.local/bin/fundkit` and a non-secret `~/.config/fundkit/install.json`.
+- It links the skill for automatic discovery: `~/.claude/skills/usdt-funding` for Claude Code
+  and `~/.agents/skills/usdt-funding` for Codex.
+- It registers one MCP server named `fundkit` with no `env`: `claude mcp add-json -s user`,
+  and a `[mcp_servers.fundkit]` table with `tool_timeout_sec = 420` in `$CODEX_HOME/config.toml`.
+  A host CLI that is missing is skipped.
+
+Then start a **new** host session: a running Claude Code or Codex does not load a server
+registered after it started. Both hosts document that they pick up new skill folders without a
+restart. Whether the model picks the skill for a request is the host's choice. If it does not,
+start with `Read SKILL.md` ([loading the skill](#loading-the-skill)), `/usdt-funding` (Claude
+Code) or `$usdt-funding` (Codex). The `fundkit` server's `initialize` instructions and tool
+descriptions also point to `SKILL.md`.
+
+**The Doppler config.** One project config holds every key, by these names. `<EX>` is
+`BINANCE`, `BYBIT`, `GATE`, `OKX`, `BITGET`, `WHITEBIT`, `BINGX`, `MEXC` or `KUCOIN`:
+
+| Role ([venue profiles](#venue-profiles) for the rights) | Names |
+|---|---|
+| deposit-only (B, read-only key) | `<EX>_DEPOSIT_APIKEY`, `<EX>_DEPOSIT_SECRET` |
+| source (A, withdrawal key) | `<EX>_SOURCE_APIKEY`, `<EX>_SOURCE_SECRET` |
+| settlement (B, internal-transfer key) | `<EX>_SETTLEMENT_APIKEY`, `<EX>_SETTLEMENT_SECRET` |
+
+OKX, Bitget and KuCoin also need `<EX>_<ROLE>_PASSWORD` (the API passphrase). Only the profiles
+a route uses need to exist. Create a **service token** for that config: it is read-only unless
+write access is granted, so do not grant it. An expiry is optional
+([Doppler service tokens](https://docs.doppler.com/docs/service-tokens)). Only `dp.st.…`
+tokens are accepted. Personal and CLI tokens reach every project of the account and are
+refused.
+
+**Once per session: the private terminal step.** When the agent needs a profile that is not
+connected, it tells the user to run, in a second terminal on the same machine (over SSH, a
+second SSH session):
+
+```bash
+fundkit session                                   # money-moving profiles dryRun
+fundkit session --writes --max-transfer 300 --max-daily 600
+fundkit session -- claude                         # or -- codex: ask first, then start the host here
+```
+
+The token is pasted at the hidden prompt. The terminal shows the Doppler project and config
+it reads, then one line per profile with the names fetched (never values). Options: `--ttl`
+(default `8h`), `--keep` (outlive the host session), `--writes` (only together with
+`--max-transfer <USD>`; it sets `dryRun: false` and `maxTransferValue` on source and
+settlement profiles), `--max-daily <USD>`. Deposit-only profiles get `dryRun: true` and
+`maxTransferValue: 10` always. Every profile gets `confirm: "always"`, `funds: "live"`,
+`strictPermissions` and `hideDisabledTools`. With profiles already connected, nothing here
+runs and nothing asks.
+
+**Where each value goes.**
+
+| Value | Path | Never |
+|---|---|---|
+| service token | the session opens `/dev/tty` and turns echo off before it prints the prompt. The token stays in that process's memory and goes only as `Authorization: Bearer` to `https://api.doppler.com` (HTTPS, redirects refused) | argv, any process environment, files, logs, MCP messages, the host, the agent, ccxt-mcp, exchanges. It is not read from stdin, argv or the environment; a `DOPPLER_TOKEN` in the shell is ignored and removed from the environment of a host started with `--` |
+| exchange keys | one `GET /v3/configs/config/secrets/download?format=json&secrets=<names>` per profile with exactly that exchange and role's names ([Doppler API](https://docs.doppler.com/reference/secrets-download)). A response that holds any unrequested name not starting with `DOPPLER_` is refused whole. The values go as `<EXCHANGE>_APIKEY`, `_SECRET` and `_PASSWORD` into the environment of that profile's ccxt-mcp process only. That process gets a minimal environment: `PATH`, `HOME`, `LANG`, `TZ`, `XDG_CACHE_HOME`, proxy and CA variables, `CCXT_MCP_CONFIG` | other profiles' processes, argv, files, tool results. Everything the process prints is redacted (raw, JSON-escaped and URL-encoded forms) before it leaves the session, on top of ccxt-mcp's own redaction |
+| profile `config.json` | `~/.local/state/fundkit/run/profiles/<alias>/config.json`, `chmod 600`, in a `0700` directory, removed when the profile stops | no credentials in it |
+| session control | a Unix socket `~/.local/state/fundkit/run/session.sock` (`0600`, directory `0700`). The host-side `fundkit mcp` holds neither the token nor any value. No message on the socket returns a secret, so the agent gets no generic secret reader: it can only name an exchange and a role | |
+
+Before the token, the session checks it with one request for Doppler's own metadata names
+(`DOPPLER_PROJECT`, `DOPPLER_CONFIG`, `DOPPLER_ENVIRONMENT`) and shows the project and config.
+
+**End of a session.** Each of these drops the token and every fetched value. It also stops
+every profile process and removes the profile files and the socket:
+
+- Ctrl-C, closing the terminal (`SIGHUP`), `SIGTERM` or `fundkit stop`;
+- the `--ttl` limit;
+- Doppler answering `401` or `403` (expired or revoked token);
+- the host session that used it closing (unless `--keep` was given);
+- with `--`, the host exiting.
+
+A transient Doppler error (`5xx`, `429`, a timeout) keeps the session, and the profile reports
+it. A new session needs the token again. A host that is still running reconnects to the new
+session on its next `fundkit` call, with no restart. Nothing from the old session carries
+over.
+
+**Native dialog versus private terminal.** The host's native form (MCP form elicitation) is
+used only for what ccxt-mcp asks: the one-boolean confirmation of each `withdraw` and
+`transfer`. `fundkit mcp` forwards it to the host unchanged, and only when the host declared
+`elicitation`. The token never goes through it. The MCP specification says servers "MUST NOT
+use form mode elicitation to request sensitive information such as passwords, API keys, access
+tokens", and a form answer passes through the host
+([MCP elicitation](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation)).
+URL mode is meant for secrets, but it opens a browser. No other secret-input dialog that Claude
+Code or Codex offers an MCP server was found or used here. So the boundary is this: the
+**native dialog** is the human's yes or no for a money move, and the **private terminal step**
+(hidden input outside the agent's transcript) is the only place the token is typed.
+
+**Limits.** These are the same as in [scheme C](#scheme-c-per-profile-credential-files-two-profile-session),
+under the [trust model](#trust-model):
+
+- The profile processes and the session run as the operator's user. That user, and so the
+  agent's shell, can read `/proc/<pid>/environ` of a profile process, and can connect to the
+  socket and drive a profile without the host's form. Rule 1 of
+  [`SKILL.md`](../SKILL.md#hard-rules) forbids both; nothing prevents them.
+- JavaScript cannot wipe strings, so the token and the values stay in process memory (and
+  possibly swap) until the process exits.
+- Ending a session while a `withdraw` or `transfer` is open kills its process. Treat the
+  outcome as unknown and reconcile ([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
+
+**Verified offline** (2026-11-25, `tests/test_session.py`, Node 24, Python 3.12). All values
+were synthetic. The Doppler API was a disposable loopback mock, the private terminal a real
+pseudo-terminal, and the host a simulated MCP client; the details are in
+[ccxt-mcp.md](ccxt-mcp.md#verification). Not verified: the real Doppler service, real
+exchange keys, a model choosing the skill or offering the step in a real Claude Code or Codex
+chat, and isolation of any kind.
 
 ### Money-moving registrations
 
@@ -385,6 +512,13 @@ Profile <registration name>: alias <alias>, exchange <id>, environment <live|san
   Whitelist on this source: <full address, character for character as in the agent's code block> memo <none | exact> chain <code> → <B venue>, added with 2FA <UTC>
 ```
 
+For a [scheme D](#scheme-d-session-only-doppler-profiles-optional) session profile, the
+registration name is `fundkit/<alias>` (aliases `<exchange>-src`, `-dst`, `-settle`). The
+`configPath` is the stable `~/.local/state/fundkit/run/profiles/<alias>/config.json`, with
+`~` expanded as `get_safety_status` shows it. The `journal` is the one it reports. The UID
+and key-rights lines are confirmed once, as for any profile, and stay valid across sessions
+while the Doppler names hold the same key.
+
 A missing line means "not established": the gate that needs it holds. A changed key, alias,
 registration, entity, pinned contract or whitelist entry needs a new record line. Entity lines
 follow one rule on every venue ([entity lines](exchanges.md#entity-lines)): the venue's global
@@ -405,7 +539,9 @@ from user, project and local settings, plugins, skill frontmatter and managed se
 they merge across those levels. No tool result shows them.
 
 Before the first money move, the operator checks once, outside the chat, that no hook,
-plugin or setting answers or rewrites a form for the money-moving servers, and records it:
+plugin or setting answers or rewrites a form for the money-moving servers, and records it. With
+[scheme D](#scheme-d-session-only-doppler-profiles-optional) the host sees every session
+profile's form as coming from the server `fundkit`, so the check covers that server name:
 
 ```text
 Native form: interactive dialog for <registration names>; no Elicitation/ElicitationResult hook or auto-answer in user, project, local, plugin or managed settings; checked <UTC>
@@ -519,7 +655,10 @@ fresh chat or host launch with this read, including B's launch in scheme A. Ther
 the whole HANDOFF block and bring the latest operation record for any previously used account per Step 0: `Read SKILL.md and settle <PLAN-ID> on B.` followed by the block.
 
 **Automatic discovery** means the host finds and loads a skill from its own skills directory
-without being asked. This repository does not set that up and nothing here depends on it. The
+without being asked. Only `fundkit install`
+([scheme D](#scheme-d-session-only-doppler-profiles-optional)) sets it up, by linking this
+directory as `~/.claude/skills/usdt-funding` and `~/.agents/skills/usdt-funding`. Nothing
+else here depends on it. The
 `SKILL.md` frontmatter is standard, so if you set up discovery yourself, follow your host's
 documentation.
 
@@ -557,4 +696,6 @@ not `never`.
 Rotate on a schedule, and immediately on suspicion. Delete the key in the exchange account,
 issue a new one with the same minimal permissions and allowlist, and update the value only
 for that account's launch. If a key ever reached a chat, a log or a repository, treat it as
-compromised: revoke it and review the withdrawal history and the whitelist.
+compromised: revoke it and review the withdrawal history and the whitelist. A Doppler service token that
+reached a chat, a log or a file is revoked in Doppler's Access tab and replaced; revocation
+takes effect immediately. A running session ends at its next fetch with `TOKEN_REJECTED`.

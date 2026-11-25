@@ -24,6 +24,22 @@ user's language and keeps the approval keywords (`APPROVE`, `WITHDRAW`) in Engli
   read time, as a [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts); the agent
   asks you to read it again just before the withdrawal.
 
+## Natural request (fundkit installed)
+
+After `fundkit install` ([scheme D](security.md#scheme-d-session-only-doppler-profiles-optional))
+a fresh Claude Code or Codex session needs no `Read SKILL.md` line and no aliases. Just ask:
+
+```text
+переведи 300 USDT с OKX на Bybit
+```
+
+The agent uses connected profiles first. If OKX (source) or Bybit (deposit-only) is missing, it
+asks you to run `fundkit session` in a second terminal on that machine and paste a read-only
+Doppler service token there (hidden), then connects `okx-src` and `bybit-dst` itself. It runs
+Step 0 and the key checks, asks for the operation record, and stops at the plan. If the host
+does not pick the skill by itself, start with `/usdt-funding` (Claude Code), `$usdt-funding`
+(Codex) or `Read SKILL.md` and the same sentence.
+
 ## Read-only starting prompt
 
 The first session after the [one-session read-only start](security.md#one-session-read-only-start-bybit-or-bybit-plus-bingx).
