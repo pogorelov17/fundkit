@@ -3,9 +3,12 @@
 Paste one into a fresh Claude Code or Codex chat started from the repository root. Replace the
 parts in angle brackets. Read-only prompts make no writes: they call only `get_safety_status`,
 `list_accounts`, key checks, network data and recipient reads
-([`recipients.md`](recipients.md)). Prompts that end in a send stop at the plan or sheet: the
-user still approves with the keywords from [`SKILL.md`](../SKILL.md#hard-rules) and confirms
-the native form or signs in the wallet.
+([`recipients.md`](recipients.md)). On Gate and WhiteBIT the recipient read may create a
+deposit address, so it runs only if your setup record allows provisioning. Prompts that end in a
+send stop at the plan or sheet: the user still approves with the keywords from
+[`SKILL.md`](../SKILL.md#hard-rules) and confirms every money move in the native form, or signs
+in the wallet. Where a prompt says `<setup record>`, paste your
+[setup record](security.md#setup-record) (no secrets in it).
 
 ## Setup and diagnosis
 
@@ -16,7 +19,11 @@ Read SKILL.md. Check my setup for <exchange>: which ccxt-mcp servers and account
 ```
 
 ```text
-Read SKILL.md. Run Step 0 and the key check for every connected profile. For each alias report the account UID, the key's permissions and IP binding, and whether it fits its role (deposit-only or source). Read only, no plan.
+Read SKILL.md. Run Step 0 and the key check for every connected profile. For each alias report the registration, environment, configPath, journal, account UID, the key's permissions and IP binding, and whether it fits its role (deposit-only, settlement or source). Then list which lines of a setup record I still need to write. Read only, no plan.
+```
+
+```text
+Read SKILL.md. Here is my setup record: <setup record>. Run Step 0 and the key checks and compare every field with the record: registration, alias, environment, configPath, journal (money-moving profiles must not run as your OS user), UID, role, provisioning consent, whitelist entries, Binance entity, BingX jurisdiction. Report each difference. Read only, no plan.
 ```
 
 ```text
@@ -40,7 +47,7 @@ Read SKILL.md. I want to top up <exchange> with <amount> USDT from OKX Wallet. I
 ```
 
 ```text
-Read SKILL.md. Both accounts are connected: <A alias> is the source and <B alias> the destination. <amount> USDT must arrive on <exchange B>; keep a <reserve> USDT reserve on <exchange A>. Prepare everything and give me the plan to approve. After the withdrawal, match the deposit on B and settle it into <B wallet>.
+Read SKILL.md. Both accounts are connected: <A alias> is the source and <B alias> the destination. Setup record: <setup record>. Latest operation record: <record or "first use, no prior attempt">. <amount> USDT must arrive on <exchange B>; keep a <reserve> USDT reserve on <exchange A>. Prepare everything and give me the plan to approve, or name the exact gate that holds. After the withdrawal, match the deposit on B and settle it into <B wallet>.
 ```
 
 ```text
@@ -49,14 +56,18 @@ Read SKILL.md. The last withdrawal from <A alias> has an unknown outcome. Reconc
 
 ## Same prompts in Russian
 
-Keep the approval keywords (`APPROVE`, `WITHDRAW`, `ADDRESS`) in English.
+Keep the approval keywords (`APPROVE`, `WITHDRAW`) in English.
 
 ```text
 Прочитай SKILL.md. Проверь мою настройку для <биржа>: какие серверы ccxt-mcp и аккаунты ты видишь, версии, configProblems, уровни доступа и есть ли нативная форма подтверждения. Если чего-то не хватает, скажи точно, что настроить, не спрашивая ключей. Ничего не планируй.
 ```
 
 ```text
-Прочитай SKILL.md. Выполни Step 0 и проверку ключа для каждого подключённого профиля. Для каждого алиаса покажи UID аккаунта, права ключа, привязку к IP и подходит ли он своей роли (только пополнение или источник). Только чтение, без плана.
+Прочитай SKILL.md. Выполни Step 0 и проверку ключа для каждого подключённого профиля. Для каждого алиаса покажи регистрацию, окружение, configPath, journal, UID аккаунта, права ключа, привязку к IP и подходит ли он своей роли (только пополнение, перевод на B или источник). Затем перечисли, какие строки setup record мне ещё нужно записать. Только чтение, без плана.
+```
+
+```text
+Прочитай SKILL.md. Вот мой setup record: <setup record>. Выполни Step 0 и проверки ключей и сравни каждое поле с записью: регистрация, алиас, окружение, configPath, journal (профили с движением денег не должны работать от твоего пользователя ОС), UID, роль, согласие на provisioning, записи белого списка, entity Binance, юрисдикция BingX. Покажи каждое расхождение. Только чтение, без плана.
 ```
 
 ```text
@@ -74,7 +85,7 @@ Keep the approval keywords (`APPROVE`, `WITHDRAW`, `ADDRESS`) in English.
 Prepared accounts (both profiles already connected and checked):
 
 ```text
-Прочитай SKILL.md. Оба аккаунта подключены: <алиас A> источник, <алиас B> получатель. На <биржа B> должно прийти <сумма> USDT, на <биржа A> оставь резерв <резерв> USDT. Подготовь всё сам и дай план на утверждение. После вывода сверь зачисление на B и переведи его в <кошелёк B>.
+Прочитай SKILL.md. Оба аккаунта подключены: <алиас A> источник, <алиас B> получатель. Setup record: <setup record>. Последняя запись операции: <запись или «первый запуск, попыток не было»>. На <биржа B> должно прийти <сумма> USDT, на <биржа A> оставь резерв <резерв> USDT. Подготовь всё сам и дай план на утверждение или назови точный шлюз, который держит маршрут. После вывода сверь зачисление на B и переведи его в <кошелёк B>.
 ```
 
 ```text

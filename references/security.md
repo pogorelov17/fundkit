@@ -30,8 +30,11 @@ with separate credentials.
 
 The launch environment holds keys for **only one** account, and exactly one enabled server
 uses that exchange ([below](#one-registration-per-keyed-exchange)); other servers run
-without keys (for example Hyperliquid). An A → B route is two separate launches, each with a
-fresh chat that starts with `Read SKILL.md …` ([loading the skill](#loading-the-skill)):
+without keys (for example Hyperliquid). The agent's shell sees that environment, so a scheme A
+server is read-only for the skill. A withdrawal or transfer in step 1 or 2 below needs an
+[operator-owned](#operator-owned-money-profiles) server; otherwise it is done in the exchange
+UI. An A → B route is two separate launches, each with a fresh chat that starts with
+`Read SKILL.md …` ([loading the skill](#loading-the-skill)):
 
 1. **Launch with A's key (initial checks and withdrawal).** Check both networks, with B's
    fields from a public source or read by the human on B's deposit page, and run the A plan.
@@ -116,9 +119,32 @@ credentials for redaction, so a key echoed by an exchange read comes back as
 What scheme C isolates: each server process loads only its own file, so one profile's key
 never signs another profile's requests. What it does not isolate: the agent's shell runs as
 the same OS user and could read the files (rule 1 of [`SKILL.md`](../SKILL.md#hard-rules)
-forbids it). For isolation from the agent as well, keep the profile directories under another
-OS user and launch the servers through scheme B. Either way the exchange-side restrictions
+forbids it). That is acceptable only for read-only profiles. Money-moving profiles must be
+[operator-owned](#operator-owned-money-profiles). Either way the exchange-side restrictions
 below are mandatory.
+
+### Operator-owned money profiles
+
+A profile that can move money (a source A with a withdrawal key, a destination B with an
+internal-transfer key) runs as a **separate OS user** that the agent's shell cannot act as. That
+user owns the profile directory, its `chmod 600` `config.json` with the credentials, and its
+journal (`~/.cache/ccxt-mcp/journal` of that user). The host's `command` is an operator-owned
+launcher outside the repository. It starts ccxt-mcp as that user and does nothing else. The agent
+cannot read or change the launcher. Examples are a fixed `sudo -u fundkit-ops` rule for exactly
+one command, or a system service the host connects to. How to build it is the operator's
+choice. The repository contains no launcher.
+
+Why: a native form is a human confirmation only if the agent cannot start its own copy of the
+server. A server the agent starts has no form, issues a `confirmToken`, and the model could
+redeem the token itself. The skill therefore never redeems tokens and refuses money moves on a
+server without `elicitationSupported: true`. The separate OS user keeps the credentials and the
+server out of the agent's reach.
+
+What the agent can check: `get_safety_status` reports `configPath` and `journal`. Both must equal
+the [setup record](#setup-record), and the journal must not sit under the agent user's home.
+What it cannot check from tool results is the launcher itself. That rests on the operator's setup.
+The offline tests simulated the separate user with separate `HOME` directories (no second OS user
+was available there).
 
 ### Profile `config.json`
 
@@ -144,7 +170,8 @@ In schemes A and B it holds no secrets; in scheme C it also holds the account's 
 Set the file to `chmod 600`, owned by the server's user. With `strictPermissions: true` the
 server refuses a file with other permissions, and `get_safety_status` shows
 `REFUSED (strictPermissions)` in `configProblems` (verified). A read-only profile has no
-`funds` and no `trading`. Hyperliquid:
+`funds` and no `trading`. `environment` comes from the config (`"sandbox": true` gives
+`sandbox`). Every server of one route must report the environment the plan names. Hyperliquid:
 `{"accounts":{"hl-watch":{"exchange":"hyperliquid","walletAddress":"0x…"}}}`. Start with
 `"dryRun": true` and remove it only after the plan has been walked through.
 
@@ -230,7 +257,7 @@ Two-profile example (scheme C), one file per account:
   "accounts": {
     "okx-src": {
       "exchange": "okx", "apiKey": "<from OKX>", "secret": "<from OKX>", "password": "<passphrase>",
-      "funds": "live", "maxTransferValue": 300, "maxDailyValue": 600, "confirm": "always"
+      "funds": "live", "maxTransferValue": 300, "maxDailyValue": 600, "confirm": "always", "dryRun": true
     }
   }
 }
@@ -249,23 +276,47 @@ Two-profile example (scheme C), one file per account:
 ```
 
 The operator fills in the values with an editor, never through the chat or the agent's shell,
-then sets `chmod 600`. Remove `"dryRun": true` from the source profile only after a plan has
-been walked through, and from the destination profile only if B will run a settlement
-transfer. Register both servers ([host registration](#host-registration)),
-restart the host, start a new chat with the [setup prompt](prompts.md#setup-and-diagnosis),
-and have the agent run Step 0 and the key checks. Record each reported account identifier
-with its alias outside the chat; the agent compares later chats against it.
+then sets `chmod 600`. The source file (and a destination file whose key can transfer) belongs to
+the [operator-owned](#operator-owned-money-profiles) user. Both examples start with
+`"dryRun": true`. Remove it from the source profile only after a plan has been walked through,
+and from the destination profile only if B will run a settlement transfer. Register both servers
+([host registration](#host-registration)), restart the host, start a new chat with the
+[setup prompt](prompts.md#setup-and-diagnosis), and have the agent run Step 0 and the key checks.
+Then fill in the [setup record](#setup-record) outside the chat. The agent compares later chats
+against it.
+
+### Setup record
+
+A short text the operator keeps outside the repository and pastes at the start of a chat
+together with the latest operation record (Step 0). It holds facts that only the operator can
+establish once, so no chat has to collect them again. It holds no secrets. The agent never
+writes it and treats it as the operator's statement, not as a tool result.
+
+```text
+SETUP RECORD, written <UTC> by <operator>
+Profile <registration name>: alias <alias>, exchange <id>, environment <live|sandbox>, role <deposit-only | settlement | source>
+  configPath <path>, journal <path>, OS user <name> (money-moving: not the agent's user)
+  account UID <id> (confirmed on the exchange's API page <UTC>), key rights <as shown there>, IP allowlist <yes>
+  provisioning: <allowed | not allowed>            (Gate, WhiteBIT: their address read may create an address)
+  BingX permission codes: <code → right>; BingX KYC jurisdiction: <non-KOR | KOR>
+  Binance entity: <entity; withdrawals take no travel-rule questionnaire | questionnaire required>
+  Whitelist on this source: <full address> memo <none | exact> chain <code> → <B venue>, added with 2FA <UTC>
+```
+
+A missing line means "not established": the gate that needs it holds. A changed key, alias,
+registration or whitelist entry needs a new record line.
 
 ## Trust boundary
 
-- **Same OS user as the agent's shell** (scheme A). The agent can read the server's
+- **Same OS user as the agent's shell** (schemes A and C). The agent can read the server's
   environment (`/proc/<pid>/environ`; verified: values are not visible in `ps` but are in
   `environ`), its files and the journal. Host deny rules are not a boundary. This mode suits
-  read-only profiles, or strict exchange-side restrictions.
-- **Separate user or container on the operator side** (scheme B). The agent's shell cannot
-  read the server's environment or files. One risk remains: if the agent can start the server
-  itself, its client has no native form, the server issues a token, and the agent confirms
-  the write on its own.
+  read-only profiles only. The skill makes no money move through such a server.
+- **Separate user or container on the operator side** (scheme B, required for money-moving
+  profiles). The agent's shell cannot read the server's environment or files. One risk remains:
+  if the agent can start the server itself, its client has no native form, the server issues a
+  token, and the agent could confirm the write on its own. The skill closes that path: it never
+  redeems a token and makes no money move on a server without the native form.
 - Either way, exchange-side restrictions are mandatory ([table below](#exchange-key-permissions)).
 
 ## Host registration
@@ -358,9 +409,9 @@ Expect `version: "0.1.3"`, `ccxtVersion: "4.5.84"`, an empty `configProblems`,
 |---|---|---|
 | read-only | read | IP allowlist |
 | Bybit deposit address (Scenario 1) | read-only, main account; profile with `funds` and `dryRun` ([above](#bybit-deposit-profile)) | IP allowlist, no Withdraw label, no transfer or trading write access |
-| recipient read, any venue (Scenario 1, and B in Scenario 2) | read only; profile with `funds` and `dryRun` ([venue profiles](#venue-profiles)) | IP allowlist, no withdrawal, no transfer or trading write access |
-| internal transfer | read + internal transfer | IP allowlist, no withdrawal |
-| withdrawal (exchange A) | read + withdrawal (+ transfer) | IP allowlist, address whitelist (the human adds B's address with 2FA), exchange-side withdrawal limit |
+| recipient read, any venue (Scenario 1, and B in Scenario 2) | read only; profile with `funds` and `dryRun` ([venue profiles](#venue-profiles)) | IP allowlist, no withdrawal, no transfer or trading write access; Gate and WhiteBIT: provisioning consent in the setup record |
+| internal transfer | read + internal transfer; [operator-owned](#operator-owned-money-profiles) | IP allowlist, no withdrawal |
+| withdrawal (exchange A) | read + withdrawal (+ transfer); [operator-owned](#operator-owned-money-profiles) | IP allowlist, address whitelist (the human adds B's address with 2FA), exchange-side withdrawal limit |
 | Hyperliquid | no key needed | public address only |
 
 Also: `maxTransferValue` and `maxDailyValue` in the profile, `implicitWrites` off, `confirm`
