@@ -122,13 +122,23 @@ gates, the approval token (including 60 s expiry) and the 300 s form wait, and t
 transfer proof reads on all nine exchanges, journal crash entries and deposit hash
 matching, all on mocked responses; the Bybit deposit-address read (including duplicate,
 wrong-chain and memo entries checked against the raw response), key check, tier gates and
-setup errors on mocked responses; two same-exchange registrations sharing one key. Also public network data,
+setup errors on mocked responses; two same-exchange registrations sharing one key. On
+2026-11-25: native recipient reads on all nine destinations (BEP20 and TON with memo, plus
+duplicate, wrong-chain, missing-memo, empty, no-`funds`, missing-credential and key-rejection
+fixtures), and all 72 directed exchange pairs in two-profile sessions with per-profile
+credential files: 57 full runs from recipient read through native-form withdrawal, proof and
+deposit match, 8 BingX-outbound routes as components (manual withdrawal), 7 Gate-inbound
+routes held; settlement transfers on B and declined, failed-form, rejected, unknown, pending,
+failed, duplicate, short and memo-mismatch outcomes. Also public network data,
 `call_implicit_get`, the server environment and registration commands on Claude Code 2.1.331
 and Codex 0.172.0 ([details](references/ccxt-mcp.md#verification)).
 
 Not verified: real accounts, modes, available amounts, fee models, exchange responses to
 writes and reads with a real key (the transfer proof table relies on the response shapes in
-ccxt's code), whether a read-only Bybit key may read the deposit address, and actual
-transfers. Network flags and fees are visible only with a key on most
+ccxt's code), whether a read-only key may read the deposit address on each venue, the
+recipient response shapes (taken from venue docs, not captured live), and actual transfers.
+Hard limits per venue (Gate and MEXC deposit minimum, MEXC and KuCoin deposit fee, the
+WhiteBIT contract and key check, BingX outbound, Bitget and KuCoin UTA) are listed in
+[`recipients.md`](references/recipients.md#status-by-destination-venue). Network flags and fees are visible only with a key on most
 exchanges, so plans are built from live data at request time. The skill gives no execution
 guarantees. Use at your own risk and start with `dryRun`.

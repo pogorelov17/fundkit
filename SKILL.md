@@ -332,7 +332,10 @@ required step.
 
 ### Bybit setup check
 
-The Bybit-specific rows, with the [Bybit deposit profile](references/security.md#bybit-deposit-profile):
+For Bybit, the setup check is Step 0, then steps 1 and 2 of the
+[Bybit flow](#bybit-deposit-address) in that order (the coin-list read comes first, which
+matters for `10005`). The Bybit-specific rows, with the
+[Bybit deposit profile](references/security.md#bybit-deposit-profile):
 
 | You see | Tell the operator |
 |---|---|
