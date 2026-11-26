@@ -6,7 +6,7 @@ description: >-
   server (ccxt 4.5.85), OKX Wallet deposits to an exchange address read from the operator's
   own account, and watch-only Hyperliquid margin checks. Use whenever the user wants to move,
   send, transfer, withdraw, top up or fund USDT between exchanges or wallets, in any language
-  (for example "переведи 300 USDT с OKX на Bybit"), pick a network, get a verified deposit
+  (for example "move 300 USDT from OKX to Bybit"), pick a network, get a verified deposit
   address, move funds between funding and trading wallets, or check Hyperliquid margin. Finds
   the connected exchange profiles itself and, with the optional fundkit server, connects
   missing ones for one session from a Doppler config after one private secret card (T3 Code) or
@@ -43,7 +43,7 @@ When the `fundkit` MCP server is connected, these two requests go through its na
 They need no setup record, no UID, no typed `APPROVE`/`WITHDRAW`, no operator `--writes`
 option and no questions about credentials, amounts, minimums or deposit pages.
 
-**"My deposit address"**, for example `Дай мой адрес Binance для USDT в BSC`: call
+**"My deposit address"**, for example `Show my Binance USDT deposit address on BSC`: call
 `fundkit_deposit_address {"exchange":"binance","network":"BSC"}`. On `status: "verified"`,
 answer in the user's language with, in this order:
 
@@ -60,18 +60,20 @@ new answer, and never describe a QR without its `qr.markdown`. If `qr` is null, 
 address and network and say that no QR could be verified (`qrError`). An error result shows
 no address: report its `message` as the exact reason.
 
-**A transfer between the user's exchanges**, for example `Переведи 300 USDT с Bybit на
-Binance`: call `fundkit_transfer_prepare {"from":"bybit","to":"binance","amount":"300",
-"language":"ru"}` (pass `network` only if the user named one). Then:
+**A transfer between the user's exchanges**, for example `Move 300 USDT from Bybit to
+Binance`: call `fundkit_transfer_prepare {"from":"bybit","to":"binance","amount":"300"}`
+(pass `network` only if the user named one). Then:
 
 - `status: "hold"`: nothing was sent and nothing needs confirming. Tell the user each
   `reasons[].detail` plainly. Do not ask them to look up a value, open a deposit page or change
   a setting to get around it, and do not plan around it yourself.
-- `status: "ready"`: show the `plan` fields in one message (route, network, amount, fee, debit,
-  credit, recipient and memo with their source, expiry, `exchangeMayReject`, `onward`) and call
-  `fundkit_transfer_confirm {"planId":"…"}` right away. It opens exactly one confirmation card
-  with every plan field; the human approves or declines there. Do not ask for a typed approval
-  in the chat, and never answer the card yourself.
+- `status: "ready"`: show the `plan` fields in one message in the user's language (route,
+  network, amount, fee, debit, credit, recipient and memo with their source, expiry,
+  `exchangeMayReject`, `onward`) and call `fundkit_transfer_confirm {"planId":"…"}` right away.
+  It opens exactly one confirmation card with every plan field. The card's labels are fixed
+  English, so your message is where the user reads the plan in their own language. The human
+  approves or declines on the card. Do not ask for a typed approval in the chat, and never
+  answer the card yourself.
 - The confirm result's `status` is final for that plan: `sent` (report `withdrawalId`; the
   credit still has to arrive), `not-sent` or `rejected` (nothing was sent: say so), `unknown`
   (do not retry; this plan can never be sent again; reconcile read-only). A plan is sent at
@@ -271,12 +273,12 @@ order, without asking the user for aliases:
      `fundkit_profiles` again.
    - `PASSPHRASE_NEEDED` (OKX, Bitget, KuCoin): pass on the result's `userStep` in the user's
      language and stop until they say they are done; then call the same `fundkit_connect` again.
-     The passphrase is typed only in their private terminal, never in the chat. In Russian, for
-     example: «Для OKX нужен API passphrase. Переключитесь в терминал, где запущен
-     `fundkit session`: там появился запрос `OKX API passphrase`. Введите его там (ввод скрыт),
-     не в этот чат, и напишите «готово».» When the session runs the host (`-- claude`), the step
-     is `fundkit passphrase okx` in another terminal: «…откройте второй терминал на этой машине и
-     выполните `fundkit passphrase okx`…». `PASSPHRASE_CANCELLED` or `PASSPHRASE_TIMEOUT`: the
+     The passphrase is typed only in their private terminal, never in the chat. For example
+     (translate it into the user's language): "OKX needs its API passphrase. Switch to the
+     terminal running `fundkit session`: it now shows the prompt `OKX API passphrase`. Type it
+     there (the input is hidden), not in this chat, and then reply done." When the session runs
+     the host (`-- claude`), the step is `fundkit passphrase okx` in another terminal: "…open a
+     second terminal on this machine and run `fundkit passphrase okx`…". `PASSPHRASE_CANCELLED` or `PASSPHRASE_TIMEOUT`: the
      operator did not enter it; say so, and connect again only if the user asks for it.
 3. **Neither.** Follow the last paragraph of [Step 0](#step-0-preflight-read-only).
 

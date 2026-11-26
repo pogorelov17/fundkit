@@ -30,9 +30,9 @@ Ask in your own words; the agent needs nothing else from you except, once per se
 token in T3's private card.
 
 ```text
-Дай мой адрес Binance для USDT в BSC
+Show my Binance USDT deposit address on BSC.
 Give me my Bybit USDT deposit address on TRC20.
-Переведи 300 USDT с Bybit на Binance
+Move 300 USDT from Bybit to Binance.
 Move 15 USDT from Binance to Bybit on BSC.
 What happened to transfer FK-XXXXXXXX?
 ```
@@ -43,7 +43,7 @@ After `fundkit install` ([scheme D](security.md#scheme-d-session-only-doppler-pr
 a fresh Claude Code or Codex session needs no `Read SKILL.md` line and no aliases. Just ask:
 
 ```text
-переведи 300 USDT с OKX на Bybit
+move 300 USDT from OKX to Bybit
 ```
 
 The agent uses connected profiles first. If OKX (source) or Bybit (deposit-only) is missing, it
@@ -54,12 +54,12 @@ OKX also needs its API passphrase: the agent tells you, in your language, to typ
 second terminal, which is already asking for it, for example:
 
 ```text
-Для OKX нужен API passphrase. Переключитесь в терминал, где запущен `fundkit session`: там появился запрос `OKX API passphrase (for the key in OKX_APIKEY):`. Введите его там (ввод скрыт), не в этот чат, и напишите «готово».
+OKX needs its API passphrase. Switch to the terminal running `fundkit session`: it now shows the prompt `OKX API passphrase (for the key in OKX_APIKEY):`. Type it there (the input is hidden), not in this chat, and then reply "done".
 ```
 
-You type it there once per session, reply `готово`, and the agent continues. It runs Step 0 and
+You type it there once per session, reply `done` (in any language), and the agent continues. It runs Step 0 and
 the key checks, asks for the operation record, and stops at the plan. The reverse route
-(`переведи 200 USDT с Bybit на OKX`) in the same session uses the same two keys in the other
+(`move 200 USDT from Bybit to OKX`) in the same session uses the same two keys in the other
 roles (`bybit-src`, `okx-dst`) and asks for nothing new. If the host does not pick the skill by
 itself, start with `/usdt-funding` (Claude Code), `$usdt-funding` (Codex) or `Read SKILL.md` and
 the same sentence.

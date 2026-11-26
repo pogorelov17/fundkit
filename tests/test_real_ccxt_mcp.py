@@ -194,7 +194,6 @@ class RealPlanFormTests(RealCcxtMcpTests):
         body = {
             "planId": plan_id,
             "version": 1,
-            "language": "en",
             "createdAt": "2026-11-26T00:00:00.000Z",
             "expiresAt": "2026-11-26T00:10:00.000Z",
             "expiresAtMs": expires,

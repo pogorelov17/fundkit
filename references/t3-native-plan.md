@@ -8,11 +8,13 @@ is the contract for the change. **Limitations** are stated up front and kept cur
 
 Two requests in the user's own words must work end to end on the operator's persistent T3 Code
 installation on Hetzner, with no operator command, no second terminal, no Docker or SSH step,
-no browser, no "готово" round trip, no UID, no setup record and no questions about
+no browser, no "done" round trip, no UID, no setup record and no questions about
 credentials, amounts, minimums or the deposit page:
 
-1. **Address.** `Дай мой адрес Binance для USDT в BSC`
-2. **Transfer.** `Переведи 300 USDT с Bybit на Binance`
+1. **Address.** `Show my Binance USDT deposit address on BSC`
+2. **Transfer.** `Move 300 USDT from Bybit to Binance`
+
+The requests may be in any language; the agent replies in the user's language.
 
 Boat sandboxes are only for development and tests. The user's runtime is the persistent
 installation on the Hetzner host that runs T3 Code.
@@ -20,7 +22,7 @@ installation on the Hetzner host that runs T3 Code.
 ## Flow 1: deposit address
 
 ```text
-user ─► agent: "Дай мой адрес Binance для USDT в BSC"
+user ─► agent: "Show my Binance USDT deposit address on BSC"
 agent ─► fundkit_deposit_address {"exchange":"binance","coin":"USDT","network":"BSC"}
    ├─ session active ─► connect binance-dst (deposit-only) if needed
    │                   ─► key check ─► network data ─► gated read ─► raw read
@@ -35,21 +37,21 @@ agent ─► fundkit_deposit_address (same arguments, no user turn in between)
 agent ─► reply: QR image inline, the address as copyable text, the exact network, memo or "none"
 ```
 
-Reply shape (Russian user, no memo):
+Reply shape (no memo; the agent writes it in the user's language):
 
 ```markdown
-Ваш адрес Binance для USDT в сети BNB Smart Chain (BEP20), сеть Binance `BSC`:
+Your Binance USDT address on BNB Smart Chain (BEP20), Binance network `BSC`:
 
-![QR: адрес Binance USDT BSC](/home/op/.local/state/fundkit/qr/3f…c1.png)
+![QR: Binance USDT BSC address](/home/op/.local/state/fundkit/qr/3f…c1.png)
 
 `0x1b6c…exact…address`
 
-Сеть: BNB Smart Chain (BEP20, chain id 56). Мемо/тег: не нужен.
-Прочитано из вашего аккаунта Binance (binance-dst), 2026-11-26 12:03 UTC. QR содержит только этот адрес.
+Network: BNB Smart Chain (BEP20, chain id 56). Memo/tag: none.
+Read from your Binance account (binance-dst), 2026-11-26 12:03 UTC. The QR contains only this address.
 ```
 
 With a memo (for example a TON address with memo `000123`), the reply adds, conspicuously and
-before the QR: `⚠ МЕМО ОБЯЗАТЕЛЬНО: 000123` and states that the QR carries only the address,
+before the QR: `⚠ MEMO REQUIRED: 000123` and states that the QR carries only the address,
 so the memo must be entered separately. Leading zeros are preserved exactly.
 
 The agent never says that anything was sent, never shows a QR for another address, and never
@@ -96,7 +98,7 @@ Doppler.
 ## Flow 2: exchange A → exchange B
 
 ```text
-user ─► "Переведи 300 USDT с Bybit на Binance"
+user ─► "Move 300 USDT from Bybit to Binance"
 agent ─► fundkit_transfer_prepare {"from":"bybit","to":"binance","amount":"300","coin":"USDT"}
          (no session: same single card as above, then the same call again)
    ─► connects bybit source (dryRun, read only) and binance-dst (deposit-only)
@@ -107,7 +109,7 @@ agent ─► fundkit_transfer_prepare {"from":"bybit","to":"binance","amount":"3
       the same contract
    ◄─ {status:"ready", plan:{planId, expiresAt, hash, amount, fee, debit, credit, network,
        recipient:{address, memo}, args}}   or   {status:"hold", reasons:[{code, detail}]}
-agent ─► shows the plan in one message and asks one plain question ("Подтвердить перевод?")
+agent ─► shows the plan in one message and asks one plain question ("Confirm this transfer?")
 agent ─► fundkit_transfer_confirm {"planId":"…"}
    ─► persists "dispatching" for the plan (exclusive create; a second call cannot pass)
    ─► starts a single-use source profile capped at this plan's amount (dryRun off)
@@ -132,14 +134,15 @@ No typed `APPROVE <PLAN-ID>`/`WITHDRAW <PLAN-ID>`, no operator `--writes`/`dryRu
 the single-use profile and the bound confirmation replace them. Money-moving profiles that are
 not plan profiles stay `dryRun` exactly as before.
 
-Example plan text (the confirmation shows the same fields):
+Example plan text (the agent shows it in the user's language; the confirmation card shows the
+same fields with fixed English labels):
 
 ```text
-Перевод FK-7Q2M9X (до 12:18 UTC)
-Bybit (FUND) → Binance, USDT, сеть BNB Smart Chain (BEP20): Bybit BSC → Binance BSC
-Сумма к зачислению: 300 USDT; комиссия Bybit: 0.3 USDT сверху; списание: 300.3 USDT
-Получатель (из вашего аккаунта Binance): 0x1b6c…  мемо: нет
-Доступно на Bybit FUND: 812.44 USDT; минимум вывода 10; максимум 1 000 000; шаг 0.0001
+Transfer FK-7Q2M9X (valid until 12:18 UTC)
+Bybit (FUND) → Binance, USDT, network BNB Smart Chain (BEP20): Bybit BSC → Binance BSC
+Amount to credit: 300 USDT; Bybit fee: 0.3 USDT on top; debit: 300.3 USDT
+Recipient (read from your Binance account): 0x1b6c…  memo: none
+Available on Bybit FUND: 812.44 USDT; withdrawal minimum 10; maximum 1 000 000; step 0.0001
 ```
 
 ## Hard limits found while planning
@@ -281,7 +284,7 @@ server and the skill link present. Start a **new** T3 thread afterwards (running
 load new servers).
 
 **1. Address, no session (the primary repro).** In the new thread, as the user, type exactly:
-`Дай мой адрес Binance для USDT в BSC`.
+`Show my Binance USDT deposit address on BSC`.
 
 Pass, in this order, with nothing typed by the user except the token in the card:
 - exactly one private card titled "Doppler service token"; paste a Doppler service token whose
@@ -305,14 +308,14 @@ ps -eo args | grep "[f]undkit.mjs daemon"                  # no token in argv
 
 Also check that the card's file is gone (the path printed in the shell call no longer exists).
 
-**2. Address, session active.** In the same or a new thread: `Дай мой адрес Binance для USDT в
-TRC20`. Pass: no card, a new QR for the TRC20 address, the BSC QR not reused.
+**2. Address, session active.** In the same or a new thread: `Show my Binance USDT deposit
+address on TRC20`. Pass: no card, a new QR for the TRC20 address, the BSC QR not reused.
 
 **3. Transfer up to the card, then Decline.**
-`Переведи 300 USDT с Bybit на Binance`. Expected today: a hold with
+`Move 300 USDT from Bybit to Binance`. Expected today: a hold with
 `DESTINATION_MINIMUM_UNDOCUMENTED`, no card, nothing sent, and no request to look anything up.
 To exercise the card itself, use the reverse direction with an amount the Binance account
-holds: `Переведи 15 USDT с Binance на Bybit в сети BSC`. Pass: one plan message, then one T3
+holds: `Move 15 USDT from Binance to Bybit on BSC`. Pass: one plan message, then one T3
 card showing plan id, amount, fee, debit/credit, the Bybit address read from Bybit, network,
 expiry and the plan hash. Press **Decline**. Pass: the result says nothing was sent;
 `fundkit_transfer_status` shows `dispatchAttempted: true` and result `not-sent`; Binance

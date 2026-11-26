@@ -249,7 +249,11 @@ class AddressTests(NativeTestCase):
                 "arguments": {"exchange": "binance", "coin": "USDT", "network": "BSC"},
             },
         )
-        self.assertNotIn("готово", json.dumps(body["secretStep"], ensure_ascii=False))
+        # No "tell me when you are done" round trip: the step continues on its own.
+        self.assertIn(
+            "Do not ask the user to confirm they are done or to run anything.", body["secretStep"]["rules"]
+        )
+        self.assertNotIn("say they are done", json.dumps(body["secretStep"], ensure_ascii=False))
         self.assertTrue(body["userStep"].startswith("Only on a host without"))
 
         path = self.card()
@@ -354,7 +358,7 @@ class AddressTests(NativeTestCase):
 
 
 # =========================================================================== transfers
-REVERSE = {"from": "Binance", "to": "Bybit", "amount": "300", "language": "ru"}
+REVERSE = {"from": "Binance", "to": "Bybit", "amount": "300"}
 
 
 class TransferTests(NativeTestCase):
@@ -404,7 +408,7 @@ class TransferTests(NativeTestCase):
             "300",
             "BNB Smart Chain",
             body["hash"],
-            "Подтвердите перевод",
+            "Confirm transfer",
         ):
             self.assertIn(needle, card)
         self.assertEqual(host.auto_cancelled, [])  # the raw ccxt-mcp form never reached T3
