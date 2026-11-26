@@ -32,10 +32,13 @@ from tests.support import (
     wait_for,
     withdraw_args,
 )
+from tests.test_native import FALLBACK
 
 REAL_SERVER = os.environ.get("FUNDKIT_REAL_CCXT_MCP")
 RECORDER = ROOT / "tests" / "real_ccxt_recorder.mjs"
 UIDS = {"okx": "UID-REAL-OKX", "bybit": "UID-REAL-BYBIT"}
+# The real T3 thread: 10 USDT from Bybit (fee 0.15 on top) to Binance on BSC.
+TEN_TO_BINANCE = {"from": "bybit", "to": "binance", "amount": "10", "network": "BSC"}
 
 
 def recorder_pids() -> list[int]:
@@ -264,7 +267,7 @@ class RealPlanFormTests(RealCcxtMcpTests):
         self.assertEqual(replies[1]["t"], "plan-registered", replies)
         return plan
 
-    def test_real_form_is_matched_and_shown_once_and_nothing_leaves(self):
+    def unlock_from_card(self) -> None:
         path = t3_secret_file(self.tmp, TOKEN)
         result = subprocess.run(
             [NODE, str(ROOT / "bin" / "fundkit.mjs"), "unlock", "--token-file", str(path)],
@@ -276,6 +279,12 @@ class RealPlanFormTests(RealCcxtMcpTests):
         )
         self.assertIn('"ok":true', result.stdout, result.stdout + result.stderr)
         self.addCleanup(lambda: self.run_cli("stop"))
+
+    def posts(self) -> list[dict]:
+        return [request for request in self.wire() if request["method"] != "GET"]
+
+    def test_real_form_is_matched_and_shown_once_and_nothing_leaves(self):
+        self.unlock_from_card()
 
         recipient = "0x1b6C0d8D0aF0A3a0b6F6e4E5bC6a7F2d3C4e5F60"
         for decision, plan_id in (("decline", "FK-AAAAAAAA"), ("approve", "FK-BBBBBBBB")):
@@ -310,17 +319,7 @@ class RealPlanFormTests(RealCcxtMcpTests):
         self.assert_no_files_with_secrets()
 
     def test_real_binance_address_reads_parse_and_send_only_gets(self):
-        path = t3_secret_file(self.tmp, TOKEN)
-        result = subprocess.run(
-            [NODE, str(ROOT / "bin" / "fundkit.mjs"), "unlock", "--token-file", str(path)],
-            env=self.env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-        self.assertIn('"ok":true', result.stdout, result.stdout + result.stderr)
-        self.addCleanup(lambda: self.run_cli("stop"))
+        self.unlock_from_card()
         host = T3Host(self.host_env)
         self.hosts.append(host)
         body, is_error, _ = host.tool_full(
@@ -343,6 +342,80 @@ class RealPlanFormTests(RealCcxtMcpTests):
             self.assertIn(expected, signed)
         key = sha256(DOPPLER_CONFIG["BINANCE_APIKEY"])
         self.assertTrue(all(request["keyHash"] == key for request in wire if request["signed"]))
+        self.assert_no_files_with_secrets()
+
+    # ------------------------------------------------------------ Binance BEP20 fallback minimum
+
+    def getall_reads(self) -> int:
+        return len(
+            [r for r in self.wire() if r["id"] == "binance" and r["path"] == "/sapi/v1/capital/config/getall"]
+        )
+
+    def test_real_bybit_ten_plus_fee_to_binance_reaches_the_card_and_cancel_sends_nothing(self):
+        self.unlock_from_card()
+        host = T3Host(self.host_env, decisions=["cancel"])
+        self.hosts.append(host)
+        body, is_error, _ = host.tool_full("fundkit_transfer_prepare", TEN_TO_BINANCE, timeout=180)
+        self.assertFalse(is_error, body)
+        self.assertEqual(body["status"], "ready", body)
+        plan = body["plan"]
+        self.assertEqual(plan["fee"], "0.15 USDT (on top)")
+        self.assertEqual((plan["amount"], plan["debit"], plan["credit"]), ("10 USDT", "10.15", "10"))
+        self.assertEqual(plan["available"], "812.44 USDT in funding")
+        self.assertEqual(plan["recipient"], "0x1b6C0d8D0aF0A3a0b6F6e4E5bC6a7F2d3C4e5F60")
+        self.assertEqual(plan["destinationMinimum"], FALLBACK)
+        self.assertIn("Fundkit operator fallback (venue minimum: unknown)", plan["destinationMinimumBasis"])
+        reads = self.getall_reads()
+
+        result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]}, timeout=180)
+        self.assertEqual((result["status"], result["sent"]), ("not-sent", False), result)
+        self.assertEqual(host.auto_cancelled, [])
+        self.assertEqual(len(host.cards), 1)
+        card = host.cards[0]["message"]
+        self.assertIn(body["planId"], card)
+        self.assertIn(f"Destination minimum: {FALLBACK} USDT, Fundkit operator fallback", card)
+        self.assertGreater(self.getall_reads(), reads, "Binance is read again before the card")
+        self.assertEqual(self.posts(), [], "zero withdrawal writes")
+        again, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]})
+        self.assertTrue(again["duplicate"])
+        self.assertEqual(self.posts(), [])
+        self.assert_no_files_with_secrets()
+
+    def test_real_minimum_known_after_the_approval_sends_nothing(self):
+        self.unlock_from_card()
+        row = {
+            "network": "BSC",
+            "coin": "USDT",
+            "name": "BNB Smart Chain (BEP20)",
+            "contractAddress": "0x55d398326f99059ff775485246999027b3197955",
+            "depositEnable": True,
+            "withdrawEnable": True,
+            "withdrawFee": "0.29",
+            "withdrawMin": "10",
+            "withdrawMax": "9999999",
+            "withdrawIntegerMultiple": "0.00000001",
+            "isDefault": False,
+            "depositMin": "20",
+        }
+        overrides = {
+            "/sapi/v1/capital/config/getall": [{"coin": "USDT", "name": "TetherUS", "networkList": [row]}]
+        }
+
+        def minimum_appears_then_approve(_params):
+            (self.home / "recorder-overrides.json").write_text(json.dumps(overrides))
+            return "approve"
+
+        host = T3Host(self.host_env, decisions=[minimum_appears_then_approve])
+        self.hosts.append(host)
+        body, _, _ = host.tool_full("fundkit_transfer_prepare", TEN_TO_BINANCE, timeout=180)
+        self.assertEqual(body["status"], "ready", body)
+        result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]}, timeout=180)
+        self.assertEqual(
+            (result["status"], result["reason"]), ("not-sent", "DESTINATION_RECHECK_FAILED"), result
+        )
+        self.assertIn("20 USDT (venue)", result["detail"])
+        self.assertEqual(len(host.cards), 1)
+        self.assertEqual(self.posts(), [], "zero withdrawal writes")
         self.assert_no_files_with_secrets()
 
 

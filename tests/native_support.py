@@ -130,17 +130,23 @@ def set_binance_address(fixtures: dict, code: str, address: str, tag: str | None
     ] = rows
 
 
-def bybit_fixtures(free: float = 812.44, batch_release_limit: str = "-1") -> dict:
+def bybit_fixtures(
+    free: float = 812.44,
+    batch_release_limit: str = "-1",
+    withdraw_fee: str = "0.3",
+    withdraw_min: str = "10",
+    extra_chains: list | None = None,
+) -> dict:
     chain = {
         "chain": "BSC",
         "chainType": "BSC (BEP20)",
         "chainDeposit": "1",
         "chainWithdraw": "1",
         "depositMin": "1",
-        "withdrawMin": "10",
+        "withdrawMin": withdraw_min,
         "contractAddress": USDT_BSC.lower(),
         "minAccuracy": "4",
-        "withdrawFee": "0.3",
+        "withdrawFee": withdraw_fee,
         "withdrawPercentageFee": "0",
     }
     entry = {
@@ -163,7 +169,7 @@ def bybit_fixtures(free: float = 812.44, batch_release_limit: str = "-1") -> dic
             },
         },
         params_key("call_read_method", "fetchDepositWithdrawFee"): {
-            "info": {"coin": "USDT", "remainAmount": "1000000", "chains": [chain]}
+            "info": {"coin": "USDT", "remainAmount": "1000000", "chains": [chain, *(extra_chains or [])]}
         },
         params_key("call_read_method", "fetchDepositAddressesByNetwork", {"network": "BEP20"}): {
             "BEP20": {"address": BYBIT_BSC, "tag": None, "network": "BEP20", "info": entry}
@@ -230,7 +236,8 @@ class T3Host(Host):
     """A host that answers forms the way T3 Code's approval card does.
 
     `decisions` is consumed per card shown: "approve", "decline", "cancel", "session" (Always allow
-    this session) or None (the human never answers).
+    this session) or None (the human never answers). A callable is called with the card's params
+    while the card is open and returns one of those.
     """
 
     def __init__(self, env: dict, decisions=None, **options) -> None:
@@ -253,6 +260,8 @@ class T3Host(Host):
             return
         self.cards.append(params)
         decision = self.decisions.pop(0) if self.decisions else None
+        if callable(decision):
+            decision = decision(params)
         if decision is None:
             return
         if decision in ("decline", "cancel"):

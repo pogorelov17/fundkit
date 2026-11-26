@@ -3,7 +3,8 @@
 // API-key header go to $HOME/wire.jsonl, GETs are answered locally (key checks with metadata that
 // also names a synthetic UID, which fundkit ignores), anything else throws, and nothing is sent.
 // The test writes the two module paths to $HOME/real-ccxt-paths.json, because a profile process
-// inherits no other variable.
+// inherits no other variable. $HOME/recorder-overrides.json, when present, replaces answers by path
+// for the requests after it is written (a venue changing between two reads).
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -20,7 +21,17 @@ const KEY_HEADERS = ['OK-ACCESS-KEY', 'X-BAPI-API-KEY', 'X-MBX-APIKEY'];
 const BINANCE_BSC = '0x1b6C0d8D0aF0A3a0b6F6e4E5bC6a7F2d3C4e5F60';
 const KEY_CHECK_ANSWERS = {
   '/api/v5/account/config': { code: '0', data: [{ uid: 'UID-REAL-OKX', perm: 'read_only,withdraw' }] },
-  '/v5/user/query-api': { retCode: 0, retMsg: 'OK', result: { userID: 'UID-REAL-BYBIT', readOnly: 0 } },
+  '/v5/user/query-api': {
+    retCode: 0,
+    retMsg: 'OK',
+    result: {
+      userID: 'UID-REAL-BYBIT',
+      readOnly: 0,
+      permissions: { Wallet: ['AccountTransfer', 'Withdraw'] },
+      isMaster: true,
+      ips: ['*'],
+    },
+  },
   // Binance: key check, coin list and the two address reads of fundkit_deposit_address (BSC).
   '/sapi/v1/account/apiRestrictions': { ipRestrict: true, enableReading: true, enableWithdrawals: true },
   '/sapi/v1/capital/config/getall': [
@@ -55,7 +66,8 @@ const KEY_CHECK_ANSWERS = {
     { coin: 'USDT', address: BINANCE_BSC, tag: '', isDefault: 1 },
     { coin: 'USDT', address: '0x9999999999999999999999999999999999999999', tag: '', isDefault: 0 },
   ],
-  // Bybit's coin list, so ccxt can build a withdrawal (which the recorder then refuses to send).
+  // Bybit's coin list, so ccxt can build a withdrawal (which the recorder then refuses to send),
+  // with the real thread's BSC withdrawal fee (0.15 on top) and minimum (10).
   '/v5/asset/coin/query-info': {
     retCode: 0,
     retMsg: 'OK',
@@ -69,7 +81,7 @@ const KEY_CHECK_ANSWERS = {
             {
               chainType: 'BSC (BEP20)',
               confirmation: '15',
-              withdrawFee: '0.3',
+              withdrawFee: '0.15',
               depositMin: '1',
               withdrawMin: '10',
               chain: 'BSC',
@@ -83,6 +95,15 @@ const KEY_CHECK_ANSWERS = {
         },
       ],
     },
+  },
+};
+KEY_CHECK_ANSWERS['/v5/asset/transfer/query-account-coins-balance'] = {
+  retCode: 0,
+  retMsg: 'OK',
+  result: {
+    memberId: 'UID-REAL-BYBIT',
+    accountType: 'FUND',
+    balance: [{ coin: 'USDT', transferBalance: '812.44', walletBalance: '812.44', bonus: '' }],
   },
 };
 const EMPTY_ANSWER = { retCode: 0, retMsg: 'OK', result: { list: [], rows: [] }, code: '0', data: [] };
@@ -105,6 +126,13 @@ ccxt.Exchange.prototype.fetch = async function recordInsteadOfSending(url, metho
   fs.appendFileSync(path.join(HOME, 'wire.jsonl'), `${JSON.stringify(line)}\n`);
   if (method !== 'GET') throw new ccxt.NetworkError('recorder: only GET is answered, nothing is sent');
   // Binance's market and currency endpoints expect lists where the other venues expect objects.
+  let overrides = {};
+  try {
+    overrides = JSON.parse(fs.readFileSync(path.join(HOME, 'recorder-overrides.json'), 'utf8'));
+  } catch {
+    // no overrides
+  }
+  if (Object.hasOwn(overrides, requestPath)) return overrides[requestPath];
   return KEY_CHECK_ANSWERS[requestPath] ?? (this.id === 'binance' ? [] : EMPTY_ANSWER);
 };
 
