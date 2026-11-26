@@ -3,6 +3,8 @@
 //
 //   fundkit install            one-time per machine: pinned ccxt-mcp, skill links, host registration
 //   fundkit session [-- CMD]   private terminal step: hidden token prompt, holds the session
+//   fundkit unlock --token-file PATH
+//                              host-delivered secret (T3 request_secret file): background session
 //   fundkit mcp                MCP server the host launches (registered by `install`)
 //   fundkit status | stop      session state (no values) | end the session
 //
