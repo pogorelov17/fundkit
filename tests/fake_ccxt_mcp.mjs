@@ -3,8 +3,10 @@
 // of each value (never a value), every tool call, and every native form answer.
 //
 // Behavior the tests rely on:
-//   * key checks (call_implicit_get on a venue's key-check method) answer with the account UID
-//     from $HOME/fake-uids.json ({"okx": "..."}) or UID-<EXCHANGE>-1;
+//   * key checks (call_implicit_get on a venue's key-check method) answer with key metadata that,
+//     like the real venues', also names an account UID, from $HOME/fake-uids.json ({"okx": "..."})
+//     or UID-<EXCHANGE>-1; exchanges listed in $HOME/fake-key-check-errors.json fail it (AUTH_FAILED);
+//   * the UID-only reads older instructions used answer with just the UID;
 //   * every other call_implicit_get echoes the credentials back, raw, JSON-escaped and
 //     URL-encoded, the way a careless exchange error might;
 //   * call_read_method sleeps for params.fakeDelayMs when given;
@@ -18,17 +20,21 @@ import path from 'node:path';
 const HOME = process.env.HOME || '/nonexistent';
 const EVENTS_PATH = path.join(HOME, 'fake-ccxt-events.jsonl');
 const UID_OVERRIDES_PATH = path.join(HOME, 'fake-uids.json');
+const KEY_CHECK_ERRORS_PATH = path.join(HOME, 'fake-key-check-errors.json');
 
+/** exchange -> [key-check method, the UID field its metadata also carries] */
 const KEY_CHECKS = {
-  binance: ['privateGetAccount', 'uid'],
+  binance: ['sapiGetAccountApiRestrictions', 'uid'],
   bybit: ['privateGetV5UserQueryApi', 'userID'],
   okx: ['privateGetAccountConfig', 'uid'],
   bitget: ['privateSpotGetV2SpotAccountInfo', 'userId'],
-  bingx: ['accountV1PrivateGetUid', 'uid'],
-  mexc: ['spotPrivateGetUid', 'uid'],
+  bingx: ['accountV1PrivateGetAccountApiPermissions', 'uid'],
+  mexc: ['spotPrivateGetAccount', 'uid'],
   kucoin: ['privateGetUserApiKey', 'uid'],
   gate: ['privateAccountGetDetail', 'user_id'],
 };
+
+const UID_ONLY_READS = new Set(['privateGetAccount', 'accountV1PrivateGetUid', 'spotPrivateGetUid']);
 
 const TOOL_NAMES = [
   'get_safety_status',
@@ -93,11 +99,23 @@ function askHost(params) {
   });
 }
 
+function keyCheckFails() {
+  try {
+    return JSON.parse(fs.readFileSync(KEY_CHECK_ERRORS_PATH, 'utf8')).includes(exchange);
+  } catch {
+    return false;
+  }
+}
+
 function implicitGet(args) {
   const keyCheck = KEY_CHECKS[exchange];
   if (keyCheck && args.method === keyCheck[0]) {
-    return textResult({ data: { [keyCheck[1]]: accountUid(), method: args.method } });
+    if (keyCheckFails()) return textResult({ error: 'AUTH_FAILED', message: 'invalid key' }, true);
+    return textResult({
+      data: { [keyCheck[1]]: accountUid(), method: args.method, permissions: ['read', 'withdraw'] },
+    });
   }
+  if (UID_ONLY_READS.has(args.method)) return textResult({ data: { uid: accountUid() } });
   const secret = credential('SECRET') ?? '';
   const passphrase = credential('PASSWORD') ?? '';
   return textResult({

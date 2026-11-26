@@ -1,4 +1,4 @@
-"""Local roles on one key per exchange: what a profile forwards, UID binding, native forms."""
+"""Local roles on one key per exchange: what a profile forwards, key checks without UIDs, native forms."""
 
 from __future__ import annotations
 
@@ -79,8 +79,7 @@ class RoleReversalTests(SessionTestCase):
             ("transfer", {"account": "okx-dst", **TRANSFER}),
         ]:
             body, is_error = host.tool(
-                "fundkit_write",
-                {"alias": "okx-dst", "tool": tool, "uid": "UID-OKX-1", "arguments": arguments},
+                "fundkit_write", {"alias": "okx-dst", "tool": tool, "arguments": arguments}
             )
             self.assertTrue(is_error)
             self.assertEqual(body["error"], "ROLE_DENIED")
@@ -93,27 +92,33 @@ class RoleReversalTests(SessionTestCase):
         self.assert_no_leaks(host.all_text(), terminal.text)
         self.assert_no_files_with_secrets()
 
-    def test_account_conflict_holds_every_account_bound_call_on_that_exchange(self):
+    def test_uids_in_key_metadata_are_never_kept_or_compared(self):
+        # One Doppler config is one account per exchange, and the operator's mapping is trusted:
+        # a key check whose metadata names another UID changes nothing.
         self.session("--writes", "--max-transfer", "300")
         host = self.host()
         self.connect(host, "bybit", "source")
         host.tool("fundkit_read", key_check("bybit", "bybit-src"))
-        self.set_account_uid("bybit", "UID-BYBIT-OTHER")  # the Doppler key now belongs to another account
-        self.connect(host, "bybit", "deposit-only")
+        self.set_account_uid("bybit", "UID-BYBIT-OTHER")
+        connected = self.connect(host, "bybit", "deposit-only")
+        self.assertIn("does not read, store or compare an account UID", connected["account"]["note"])
+        self.assertNotIn("UID", json.dumps(connected["venueScope"]))
         host.tool("fundkit_read", key_check("bybit", "bybit-dst"))
-        body, _ = host.tool(
+        body, is_error = host.tool("fundkit_read", recipient_read("bybit", "bybit-dst"))
+        self.assertFalse(is_error, body)
+        body, is_error = host.tool(
             "fundkit_write",
-            {
-                "alias": "bybit-src",
-                "tool": "withdraw",
-                "uid": "UID-BYBIT-1",
-                "arguments": withdraw_args("bybit-src"),
-            },
+            {"alias": "bybit-src", "tool": "withdraw", "arguments": withdraw_args("bybit-src")},
         )
-        self.assertEqual(body["error"], "ACCOUNT_CONFLICT")
-        body, _ = host.tool("fundkit_read", recipient_read("bybit", "bybit-dst"))
-        self.assertEqual(body["error"], "ACCOUNT_CONFLICT")
-        self.assertEqual(self.calls("withdraw"), [])
+        self.assertFalse(is_error, body)
+        self.assertEqual(body["id"], "W-1")
+        self.assertEqual(len(host.forms), 1)
+        profiles = json.loads(self.run_cli("status").stdout)["profiles"]
+        self.assertEqual(
+            {p["alias"]: p["keyChecked"] for p in profiles}, {"bybit-src": True, "bybit-dst": True}
+        )
+        self.assertNotIn("UID", self.run_cli("status").stdout)
+        self.assertNotIn("uid", json.dumps(profiles))
 
 
 class DeniedSurfaceTests(SessionTestCase):
@@ -177,8 +182,7 @@ class DeniedSurfaceTests(SessionTestCase):
                 self.assertEqual(body["error"], code)
         for tool in ("withdraw", "transfer"):
             body, _ = self.host_.tool(
-                "fundkit_write",
-                {"alias": alias, "tool": tool, "uid": "UID-BYBIT-1", "arguments": withdraw_args(alias)},
+                "fundkit_write", {"alias": alias, "tool": tool, "arguments": withdraw_args(alias)}
             )
             self.assertEqual(body["error"], "ROLE_DENIED")
         forwarded = {
@@ -229,20 +233,14 @@ class DeniedSurfaceTests(SessionTestCase):
     def test_settlement_transfers_but_never_withdraws(self):
         alias = "bybit-settle"
         body, _ = self.host_.tool(
-            "fundkit_write",
-            {"alias": alias, "tool": "withdraw", "uid": "UID-BYBIT-1", "arguments": withdraw_args(alias)},
+            "fundkit_write", {"alias": alias, "tool": "withdraw", "arguments": withdraw_args(alias)}
         )
         self.assertEqual(body["error"], "ROLE_DENIED")
         body, _ = self.read(alias, "call_implicit_get", recipient_read("bybit", alias)["arguments"])
         self.assertEqual(body["error"], "ROLE_DENIED")
         body, is_error = self.host_.tool(
             "fundkit_write",
-            {
-                "alias": alias,
-                "tool": "transfer",
-                "uid": "UID-BYBIT-1",
-                "arguments": {"account": alias, **TRANSFER},
-            },
+            {"alias": alias, "tool": "transfer", "arguments": {"account": alias, **TRANSFER}},
         )
         self.assertFalse(is_error, body)
         self.assertEqual(body["id"], "T-1")
@@ -250,37 +248,34 @@ class DeniedSurfaceTests(SessionTestCase):
             [call["name"] for call in self.calls() if call["name"] in ("withdraw", "transfer")], ["transfer"]
         )
 
-    def test_money_moves_bind_the_exact_uid(self):
+    def test_money_moves_need_no_uid_and_ignore_an_old_callers_uid(self):
         alias = "bybit-src"
         arguments = withdraw_args(alias)
         body, _ = self.host_.tool(
-            "fundkit_write", {"alias": alias, "tool": "withdraw", "arguments": arguments}
-        )
-        self.assertEqual(body["error"], "UID_REQUIRED")
-        body, _ = self.host_.tool(
             "fundkit_write",
-            {"alias": alias, "tool": "withdraw", "uid": "UID-BYBIT-2", "arguments": arguments},
-        )
-        self.assertEqual(body["error"], "UID_MISMATCH")
-        body, _ = self.host_.tool(
-            "fundkit_write",
-            {
-                "alias": alias,
-                "tool": "withdraw",
-                "uid": "UID-BYBIT-1",
-                "arguments": {**arguments, "account": "bybit-dst"},
-            },
+            {"alias": alias, "tool": "withdraw", "arguments": {**arguments, "account": "bybit-dst"}},
         )
         self.assertEqual(body["error"], "WRONG_ACCOUNT")
         self.assertEqual(self.calls("withdraw"), [])
         self.assertEqual(self.host_.forms, [])
         body, is_error = self.host_.tool(
-            "fundkit_write",
-            {"alias": alias, "tool": "withdraw", "uid": "UID-BYBIT-1", "arguments": arguments},
+            "fundkit_write", {"alias": alias, "tool": "withdraw", "arguments": arguments}
         )
         self.assertFalse(is_error, body)
         self.assertEqual(body["id"], "W-1")
-        self.assertEqual(len(self.host_.forms), 1)
+        # An older caller still sending a uid, even one that differs from the key metadata: ignored.
+        body, is_error = self.host_.tool(
+            "fundkit_write",
+            {"alias": alias, "tool": "withdraw", "uid": "UID-BYBIT-2", "arguments": arguments},
+        )
+        self.assertFalse(is_error, body)
+        self.assertEqual(len(self.host_.forms), 2)
+        self.assertEqual([call["args"] for call in self.calls("withdraw")], [arguments, arguments])
+        tool = next(
+            t for t in self.host_.request("tools/list", {})["result"]["tools"] if t["name"] == "fundkit_write"
+        )
+        self.assertNotIn("uid", tool["inputSchema"]["properties"])
+        self.assertEqual(tool["inputSchema"]["required"], ["alias", "tool", "arguments"])
 
     def test_the_daemon_enforces_roles_without_the_broker(self):
         # Anything else that talks to the control socket gets the same decisions.
@@ -348,22 +343,99 @@ class VenueScopeTests(SessionTestCase):
         body, is_error = host.tool("fundkit_read", recipient_read("gate", "gate-dst"))
         self.assertFalse(is_error, body)
 
-    def test_whitebit_has_no_uid_binding_so_no_money_move(self):
+    def test_whitebit_money_moves_reach_the_native_form_without_a_key_identity(self):
+        # WhiteBIT has no key read. That no longer blocks withdraw or transfer at fundkit; the
+        # route gates (SKILL.md: source balance not visible, so a WhiteBIT-source plan holds) and
+        # the human's form still decide.
         self.session("--writes", "--max-transfer", "300")
         host = self.host()
         connected, _ = host.tool("fundkit_connect", {"exchange": "whitebit", "role": "source"})
         self.assertTrue(any("no key read" in note for note in connected["venueScope"]))
+        self.assertTrue(any("available amount is not visible" in note for note in connected["venueScope"]))
+        self.assertNotIn("UID", json.dumps(connected["venueScope"]))
+        write = {"alias": "whitebit-src", "tool": "withdraw", "arguments": withdraw_args("whitebit-src")}
+        host.form_answer = "decline"
+        body, _ = host.tool("fundkit_write", write)
+        self.assertEqual(body["code"], "CONFIRM_DECLINED")
+        host.form_answer = "accept"
+        body, is_error = host.tool("fundkit_write", write)
+        self.assertFalse(is_error, body)
+        self.assertEqual(body["id"], "W-1")
+        self.assertEqual(len(host.forms), 2)
+
+        settle, _ = host.tool("fundkit_connect", {"exchange": "whitebit", "role": "settlement"})
+        self.assertEqual(settle["roleScope"]["moneyTools"], ["transfer"])
+        transfer = {"account": "whitebit-settle", **TRANSFER}
+        body, is_error = host.tool(
+            "fundkit_write", {"alias": "whitebit-settle", "tool": "transfer", "arguments": transfer}
+        )
+        self.assertFalse(is_error, body)
+        self.assertEqual(body["id"], "T-1")
         body, _ = host.tool(
             "fundkit_write",
-            {
-                "alias": "whitebit-src",
-                "tool": "withdraw",
-                "uid": "anything",
-                "arguments": withdraw_args("whitebit-src"),
-            },
+            {"alias": "whitebit-settle", "tool": "withdraw", "arguments": withdraw_args("whitebit-settle")},
         )
-        self.assertEqual(body["error"], "UID_NOT_VERIFIABLE")
-        self.assertEqual(self.calls("withdraw"), [])
+        self.assertEqual(body["error"], "ROLE_DENIED")
+
+        host.tool("fundkit_connect", {"exchange": "whitebit", "role": "deposit-only"})
+        body, _ = host.tool(
+            "fundkit_write",
+            {"alias": "whitebit-dst", "tool": "withdraw", "arguments": withdraw_args("whitebit-dst")},
+        )
+        self.assertEqual(body["error"], "ROLE_DENIED")
+        self.assertEqual([event["name"] for event in self.events("dispatch")], ["withdraw", "transfer"])
+
+
+class KeyCheckTests(SessionTestCase):
+    def test_key_check_gates_without_any_uid_and_uid_only_reads_are_not_forwarded(self):
+        self.session("--writes", "--max-transfer", "300")
+        host = self.host()
+        for exchange in ("binance", "bingx", "mexc"):
+            host.tool("fundkit_connect", {"exchange": exchange, "role": "source"})
+        binance = {"alias": "binance-src", "tool": "withdraw", "arguments": withdraw_args("binance-src")}
+        body, _ = host.tool("fundkit_write", binance)
+        self.assertEqual(body["error"], "KEY_CHECK_REQUIRED")
+        self.assertIn("sapiGetAccountApiRestrictions", body["message"])
+        self.assertNotIn("UID", body["message"])
+
+        # A failed key check (wrong key) opens nothing.
+        self.fail_key_check("binance")
+        body, is_error = host.tool("fundkit_read", key_check("binance", "binance-src"))
+        self.assertTrue(is_error)
+        body, _ = host.tool("fundkit_write", binance)
+        self.assertEqual(body["error"], "KEY_CHECK_REQUIRED")
+        (self.home / "fake-key-check-errors.json").unlink()
+        _, is_error = host.tool("fundkit_read", key_check("binance", "binance-src"))
+        self.assertFalse(is_error)
+        body, is_error = host.tool("fundkit_write", binance)
+        self.assertFalse(is_error, body)
+
+        # The reads whose only purpose is the UID are not forwarded, on any venue that has one.
+        for exchange, method in [
+            ("binance", "privateGetAccount"),
+            ("bingx", "accountV1PrivateGetUid"),
+            ("mexc", "spotPrivateGetUid"),
+        ]:
+            with self.subTest(exchange=exchange):
+                alias = f"{exchange}-src"
+                arguments = {"exchange": exchange, "account": alias, "method": method}
+                body, _ = host.tool(
+                    "fundkit_read", {"alias": alias, "tool": "call_implicit_get", "arguments": arguments}
+                )
+                self.assertEqual(body["error"], "NOT_FORWARDED")
+                self.assertIn("does not bind profiles to UIDs", body["message"])
+        uid_reads = {"privateGetAccount", "accountV1PrivateGetUid", "spotPrivateGetUid"}
+        self.assertFalse([c for c in self.calls("call_implicit_get") if c["args"]["method"] in uid_reads])
+        # The permission reads are the key check there, and a money move then needs nothing more.
+        for exchange in ("bingx", "mexc"):
+            alias = f"{exchange}-src"
+            _, is_error = host.tool("fundkit_read", key_check(exchange, alias))
+            self.assertFalse(is_error)
+            body, is_error = host.tool(
+                "fundkit_write", {"alias": alias, "tool": "withdraw", "arguments": withdraw_args(alias)}
+            )
+            self.assertFalse(is_error, body)
+        self.assertEqual(len(self.events("dispatch")), 3)
 
 
 class LimitsAndFormsTests(SessionTestCase):
@@ -393,12 +465,7 @@ class LimitsAndFormsTests(SessionTestCase):
         self.assertTrue(status["elicitationSupported"])  # the host's form capability reaches ccxt-mcp
         self.assertEqual(status["version"], "0.1.3")
         host.tool("fundkit_read", key_check("bybit", "bybit-src"))
-        write = {
-            "alias": "bybit-src",
-            "tool": "withdraw",
-            "uid": "UID-BYBIT-1",
-            "arguments": withdraw_args("bybit-src"),
-        }
+        write = {"alias": "bybit-src", "tool": "withdraw", "arguments": withdraw_args("bybit-src")}
 
         host.form_answer = "decline"
         body, _ = host.tool("fundkit_write", write)

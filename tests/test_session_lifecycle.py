@@ -247,7 +247,7 @@ class SessionEndTests(SessionTestCase):
             outcome.put(
                 host.tool(
                     "fundkit_write",
-                    {"alias": "bybit-src", "tool": "withdraw", "uid": "UID-BYBIT-1", "arguments": arguments},
+                    {"alias": "bybit-src", "tool": "withdraw", "arguments": arguments},
                 )
             )
 

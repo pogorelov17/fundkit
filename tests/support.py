@@ -426,6 +426,11 @@ class SessionTestCase(unittest.TestCase):
         current[exchange] = uid
         path.write_text(json.dumps(current))
 
+    def fail_key_check(self, exchange: str) -> None:
+        path = self.home / "fake-key-check-errors.json"
+        current = json.loads(path.read_text()) if path.exists() else []
+        path.write_text(json.dumps([*current, exchange]))
+
     # ---- assertions
     def assert_no_leaks(self, *texts: str) -> None:
         blob = "\n".join(texts)
@@ -465,14 +470,14 @@ def label(exchange: str) -> str:
 
 
 def key_check(exchange: str, alias: str) -> dict:
-    """fundkit_read arguments for the venue key check that carries the account UID."""
+    """fundkit_read arguments for the venue key check (key rights; any UID in it is ignored)."""
     method = {
-        "binance": "privateGetAccount",
+        "binance": "sapiGetAccountApiRestrictions",
         "bybit": "privateGetV5UserQueryApi",
         "okx": "privateGetAccountConfig",
         "bitget": "privateSpotGetV2SpotAccountInfo",
-        "bingx": "accountV1PrivateGetUid",
-        "mexc": "spotPrivateGetUid",
+        "bingx": "accountV1PrivateGetAccountApiPermissions",
+        "mexc": "spotPrivateGetAccount",
         "kucoin": "privateGetUserApiKey",
         "gate": "privateAccountGetDetail",
     }[exchange]

@@ -1,8 +1,9 @@
 // Test-only launcher for the pinned ccxt-mcp (tests/test_real_ccxt_mcp.py). It replaces ccxt's
 // transport with a recorder before the real server starts: every request line and a sha256 of the
-// API-key header go to $HOME/wire.jsonl, GETs are answered locally (key checks with a synthetic
-// UID), anything else throws, and nothing is sent. The test writes the two module paths to
-// $HOME/real-ccxt-paths.json, because a profile process inherits no other variable.
+// API-key header go to $HOME/wire.jsonl, GETs are answered locally (key checks with metadata that
+// also names a synthetic UID, which fundkit ignores), anything else throws, and nothing is sent.
+// The test writes the two module paths to $HOME/real-ccxt-paths.json, because a profile process
+// inherits no other variable.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';

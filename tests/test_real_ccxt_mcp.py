@@ -101,24 +101,22 @@ class RealCcxtMcpTests(SessionTestCase):
         accounts, is_error = host.tool("fundkit_read", arguments)
         self.assertFalse(is_error, accounts)
 
-    def assert_key_checks_sign_with_own_keys_and_bind_uids(self, host):
+    def assert_key_checks_sign_with_own_keys_and_keep_no_uid(self, host):
         host.tool("fundkit_read", key_check("bybit", "bybit-dst"), timeout=120)
         host.tool("fundkit_read", key_check("okx", "okx-src"), timeout=120)
         signed = [request for request in self.wire() if request["signed"]]
         keys = {"bybit": sha256(DOPPLER_CONFIG["BYBIT_APIKEY"]), "okx": sha256(DOPPLER_CONFIG["OKX_APIKEY"])}
         self.assertEqual({request["id"] for request in signed}, {"bybit", "okx"}, signed)
         self.assertTrue(all(request["keyHash"] == keys[request["id"]] for request in signed), signed)
-        profiles = json.loads(self.run_cli("status").stdout)["profiles"]
-        bound = {profile["alias"]: profile["uid"] for profile in profiles}
-        self.assertEqual(bound, {"okx-src": UIDS["okx"], "bybit-dst": UIDS["bybit"]})
+        # The real results name a UID among the key metadata; the session keeps only "checked".
+        status = self.run_cli("status").stdout
+        checked = {profile["alias"]: profile["keyChecked"] for profile in json.loads(status)["profiles"]}
+        self.assertEqual(checked, {"okx-src": True, "bybit-dst": True})
+        for uid in UIDS.values():
+            self.assertNotIn(uid, status)
 
     def assert_money_moves_need_the_form_and_stay_dry(self, host):
-        write = {
-            "alias": "okx-src",
-            "tool": "withdraw",
-            "uid": UIDS["okx"],
-            "arguments": withdraw_args("okx-src", 5),
-        }
+        write = {"alias": "okx-src", "tool": "withdraw", "arguments": withdraw_args("okx-src", 5)}
         host.form_answer = "decline"
         body, _ = host.tool("fundkit_write", write, timeout=120)
         self.assertEqual(len(host.forms), 1, body)
@@ -133,7 +131,7 @@ class RealCcxtMcpTests(SessionTestCase):
         )
         self.assertIn("TRANSFER_VALUE_CAP", json.dumps(body))  # cap 10 without --writes; no form
         self.assertEqual(len(host.forms), 2)
-        denied = dict(write, alias="bybit-dst", uid=UIDS["bybit"], arguments=withdraw_args("bybit-dst", 5))
+        denied = dict(write, alias="bybit-dst", arguments=withdraw_args("bybit-dst", 5))
         body, _ = host.tool("fundkit_write", denied)
         self.assertEqual(body["error"], "ROLE_DENIED")
 
@@ -147,7 +145,7 @@ class RealCcxtMcpTests(SessionTestCase):
 
         self.assert_each_process_has_only_its_own_credentials()
         self.assert_step_zero(host)
-        self.assert_key_checks_sign_with_own_keys_and_bind_uids(host)
+        self.assert_key_checks_sign_with_own_keys_and_keep_no_uid(host)
         self.assert_money_moves_need_the_form_and_stay_dry(host)
 
         self.assert_no_leaks(host.all_text(), terminal.text)
