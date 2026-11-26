@@ -287,10 +287,6 @@ class AddressTests(NativeTestCase):
     def test_same_address_same_png_and_concurrent_requests_do_not_mix(self):
         self.start_session()
         host = self.t3()
-        first, _, _ = host.tool_full("fundkit_deposit_address", ADDRESS_REQUEST)
-        again, _, _ = host.tool_full("fundkit_deposit_address", ADDRESS_REQUEST)
-        self.assertEqual(first["qr"]["sha256"], again["qr"]["sha256"])
-
         results = host.call_many(
             [
                 ("fundkit_deposit_address", {"exchange": "binance", "network": "BEP20"}),
@@ -304,6 +300,12 @@ class AddressTests(NativeTestCase):
             self.assertEqual(decode_qr(Path(body["qr"]["path"])), body["address"].encode())
             seen[body["network"]["code"]] = body["address"]
         self.assertEqual(seen, {"BEP20": BINANCE_BSC, "TRC20": BINANCE_TRX, "TON": BINANCE_TON})
+        starts = [event for event in self.events("start") if event["alias"] == "binance-dst"]
+        self.assertEqual(len(starts), 1, "concurrent calls share one profile process")
+
+        first, _, _ = host.tool_full("fundkit_deposit_address", ADDRESS_REQUEST)
+        again, _, _ = host.tool_full("fundkit_deposit_address", ADDRESS_REQUEST)
+        self.assertEqual(first["qr"]["sha256"], again["qr"]["sha256"])
 
     def test_failed_reads_show_no_address_and_no_qr(self):
         self.start_session()
