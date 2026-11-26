@@ -218,9 +218,9 @@ used for its key rights only.
 
 A deposit-only profile on a write-enabled key is therefore deposit-only **locally**: the agent
 reports what the venue key check shows (for example "withdrawal right present, deposit-only
-role enforced by fundkit") and never calls such a key read-only. Profiles outside Doppler keep
-the stricter setup: a separate read-only key per destination profile
-([venue profiles](#venue-profiles)).
+role enforced by fundkit") and never calls such a key read-only. The same holds outside
+Doppler: one key per exchange may serve every role, and no instruction asks for a separate
+read-only key or for removing rights ([venue profiles](#venue-profiles)).
 
 **API passphrase (OKX, Bitget, KuCoin).** These venues sign with a third credential. It is a real
 credential, not a placeholder, and it is **not** in Doppler. The operator types it in a private
@@ -327,6 +327,35 @@ pseudo-terminal, and the host a simulated MCP client; the details are in
 exchange keys, a model choosing the skill or offering the step in a real Claude Code or Codex
 chat, and isolation of any kind.
 
+### Scheme D on T3 Code: one private card
+
+On a host whose agent has a private secret card with file delivery (T3 Code's `request_secret`
+with `delivery: "file"`), no terminal step is needed:
+
+- The fundkit result names the card (`secretStep.request`) and one command
+  (`secretStep.then`). The MCP server cannot open the card itself: a server does not see its
+  host's tools, so the agent opens it.
+- T3 writes the value to a `0600` regular file in a `0700` directory and returns the path. The
+  agent runs `fundkit unlock --token-file <path>`. fundkit refuses anything but a private regular
+  file of the current user in a directory only that user can change, opens it without following
+  links, reads it once and deletes it before using the value; if it cannot delete it, it does not
+  use it. T3 itself removes unclaimed secret files after 24 hours.
+- The token goes to a detached session daemon on its stdin pipe (never argv, the environment, a
+  file or a log). The daemon checks it with Doppler, keeps it in memory for `--ttl` (8 h), keeps
+  running across T3's MCP restarts between turns, and ends on `fundkit stop`, the time limit or a
+  rejected token. Its log (`~/.local/state/fundkit/run/daemon.log`) holds no value.
+- OKX, Bitget and KuCoin passphrases arrive the same way, one card per exchange and session, with
+  `fundkit unlock --passphrase <exchange> --secret-file <path>`.
+- Trust boundary: the file and the control socket belong to the operator's user, like the agent's
+  own shell. A cooperative agent never reads the file; nothing in the OS stops that user from
+  reading it before fundkit deletes it ([trust model](#trust-model)).
+
+Transfers on such a host use `fundkit_transfer_prepare` and `fundkit_transfer_confirm`: the
+session starts a single-use source profile for one plan (`dryRun: false`, `maxTransferValue` equal
+to the plan amount), forwards only its key check and one `withdraw` whose arguments hash to the
+registered plan, and journals the dispatch with an exclusive create before forwarding it. Other
+money-moving profiles keep the `--writes` rule above.
+
 ### Money-moving registrations
 
 A registration that can move money is a source A with a withdrawal key, or a settlement
@@ -384,14 +413,13 @@ One-time setup that lets the agent read the operator's own Bybit deposit address
 start with nothing installed:
 
 1. **Server.** Install the pinned server once ([install](ccxt-mcp.md#install)).
-2. **Key.** In Bybit's API management, create a key on the **main** account (Bybit gives
-   deposit addresses only to main-account keys) with **read-only** permission: no withdrawal,
-   no transfer or trading write access. Read-only keys may list transfer or trading categories
-   in their metadata. Verify the explicit read-only flag and exclude the Withdraw label. Bind your IP.
+2. **Key.** Use the Bybit key of the **main** account (Bybit gives deposit addresses only to
+   main-account keys). Its other rights do not matter for this read: the profile is kept to
+   reads by `dryRun: true` and the skill's read-only calls. Bind your IP.
 3. **Profile** (`chmod 600`). `funds` is needed because ccxt-mcp gates the address read
    behind it, and `"funds": "live"` requires some `maxTransferValue`. That cap applies only
-   to MCP `transfer` and `withdraw` on this account, which `dryRun: true` blocks and the
-   read-only key makes Bybit refuse; it does not limit what you send from OKX Wallet:
+   to MCP `transfer` and `withdraw` on this account, which `dryRun: true` blocks; it does not
+   limit what you send from OKX Wallet:
 
    ```json
    {
@@ -475,47 +503,47 @@ registrations come later and need their own lines.
 One-time setup per account, from a cold start with nothing installed. Install the pinned
 server once ([install](ccxt-mcp.md#install)); then, per account:
 
-| Venue (`exchange`) | Credential fields (scheme C `config.json`) | Variables (schemes A and B) | What the [key check](recipients.md) must show for a deposit-only profile |
+| Venue (`exchange`) | Credential fields (scheme C `config.json`) | Variables (schemes A and B) | Deposit-only profile: what the [key check](recipients.md) needs (any further rights are fine; report them as shown) |
 |---|---|---|---|
-| Binance (`binance`) | `apiKey`, `secret` | `BINANCE_APIKEY`, `BINANCE_SECRET` | `enableReading: true`, `enableWithdrawals: false`, `ipRestrict: true` |
-| Bybit (`bybit`) | `apiKey`, `secret` | `BYBIT_APIKEY`, `BYBIT_SECRET` | `readOnly: 1`, no `Withdraw`, `isMaster: true` (main-account key) |
-| OKX (`okx`) | `apiKey`, `secret`, `password` (API passphrase) | `OKX_APIKEY`, `OKX_SECRET`, `OKX_PASSWORD` | `perm: "read_only"` |
-| Bitget (`bitget`) | `apiKey`, `secret`, `password` | `BITGET_APIKEY`, `BITGET_SECRET`, `BITGET_PASSWORD` | no withdrawal authority |
-| BingX (`bingx`) | `apiKey`, `secret` | `BINGX_APIKEY`, `BINGX_SECRET` | permission codes confirmed once on BingX's API page |
-| WhiteBIT (`whitebit`) | `apiKey`, `secret` | `WHITEBIT_APIKEY`, `WHITEBIT_SECRET` | no key read exists: the operator confirms the scope once |
-| MEXC (`mexc`) | `apiKey`, `secret` | `MEXC_APIKEY`, `MEXC_SECRET` | no read shows the key's permissions (`canWithdraw` in `GET /api/v3/account` is an account flag): the setup record's key rights must be `SPOT_ACCOUNT_READ` and `SPOT_WITHDRAW_READ` (MEXC's deposit-address read needs it), without `SPOT_WITHDRAW_WRITE` or `SPOT_TRANSFER_WRITE` |
-| KuCoin (`kucoin`) | `apiKey`, `secret`, `password` | `KUCOIN_APIKEY`, `KUCOIN_SECRET`, `KUCOIN_PASSWORD` | `permission: "General"` (no `Withdrawal`) |
-| Gate (`gate`) | `apiKey`, `secret` | `GATE_APIKEY`, `GATE_SECRET` | the read has no permission fields: the operator confirms the scope once |
+| Binance (`binance`) | `apiKey`, `secret` | `BINANCE_APIKEY`, `BINANCE_SECRET` | `enableReading: true` |
+| Bybit (`bybit`) | `apiKey`, `secret` | `BYBIT_APIKEY`, `BYBIT_SECRET` | `isMaster: true` (Bybit serves deposit addresses only to main-account keys) |
+| OKX (`okx`) | `apiKey`, `secret`, `password` (API passphrase) | `OKX_APIKEY`, `OKX_SECRET`, `OKX_PASSWORD` | `perm` includes `read_only` |
+| Bitget (`bitget`) | `apiKey`, `secret`, `password` | `BITGET_APIKEY`, `BITGET_SECRET`, `BITGET_PASSWORD` | a successful read (report `authorities`) |
+| BingX (`bingx`) | `apiKey`, `secret` | `BINGX_APIKEY`, `BINGX_SECRET` | a successful read (report the permission codes) |
+| WhiteBIT (`whitebit`) | `apiKey`, `secret` | `WHITEBIT_APIKEY`, `WHITEBIT_SECRET` | no key read exists: say so |
+| MEXC (`mexc`) | `apiKey`, `secret` | `MEXC_APIKEY`, `MEXC_SECRET` | `SPOT_WITHDRAW_READ` among the key's rights (MEXC's deposit-address read needs it); no read shows the rights (`canWithdraw` in `GET /api/v3/account` is an account flag), so the setup record names them |
+| KuCoin (`kucoin`) | `apiKey`, `secret`, `password` | `KUCOIN_APIKEY`, `KUCOIN_SECRET`, `KUCOIN_PASSWORD` | `permission` includes `General` |
+| Gate (`gate`) | `apiKey`, `secret` | `GATE_APIKEY`, `GATE_SECRET` | the read has no permission fields: say so |
 | Hyperliquid | none: `walletAddress` only | none | watch-only |
 
-Rights by role per venue. The deposit-only right is in the table above. The offline tests
+Rights a money move needs, per venue (the exchange refuses the move without them; a key
+with more rights is fine for every role). The deposit-only need is in the table above. The offline tests
 exercised settlement on Bybit, OKX, Bitget and BingX only. Names follow each
 venue's API key page; confirm them there once and record them in the setup record:
 
 | Venue | Source A (withdraws) | Settlement on B (internal transfer) |
 |---|---|---|
-| Binance | Enable Withdrawals, IP restricted; `enableInternalTransfer` or universal transfer only if A moves funds first | `permitsUniversalTransfer: true`, `enableWithdrawals: false` |
-| Bybit | `readOnly: 0`, `Wallet: Withdraw` (plus `AccountTransfer` if needed), main account, IP bound | `readOnly: 0`, `Wallet: AccountTransfer`, no `Withdraw` |
-| OKX | `perm` includes `withdraw` | `perm` exactly `read_only,trade` (OKX grants transfers with trade), no `withdraw` |
-| Bitget | an authority naming withdrawal | an authority naming transfer, none naming withdrawal |
-| BingX | the permission code recorded for withdrawal | the code recorded for transfer, not the withdrawal code |
-| MEXC | setup record key rights `SPOT_ACCOUNT_READ`, `SPOT_WITHDRAW_READ`, `SPOT_WITHDRAW_WRITE`; the key read shows no IP field, so the setup record must say the IP allowlist is set | setup record key rights `SPOT_TRANSFER_READ` and `SPOT_TRANSFER_WRITE`, no `SPOT_WITHDRAW_WRITE`; IP allowlist in the setup record |
-| KuCoin | `permission` includes `Withdrawal` | `permission` includes `Transfer`, not `Withdrawal`; proof is operator or manual ([transfer proof](exchanges.md#transfer-proof)) |
-| Gate | withdrawal right per the setup record (the key read has no permission fields); `ip_whitelist` nonempty | transfer right, no withdrawal, per the setup record; `ip_whitelist` nonempty |
+| Binance | Enable Withdrawals (Binance requires an IP restriction for it); `enableInternalTransfer` or universal transfer only if A moves funds first | `permitsUniversalTransfer: true` |
+| Bybit | `readOnly: 0`, `Wallet: Withdraw` (plus `AccountTransfer` if needed), main account | `readOnly: 0`, `Wallet: AccountTransfer` |
+| OKX | `perm` includes `withdraw` | `perm` includes `trade` (OKX grants transfers with trade) |
+| Bitget | an authority naming withdrawal | an authority naming transfer |
+| BingX | the permission code recorded for withdrawal | the code recorded for transfer |
+| MEXC | setup record key rights `SPOT_ACCOUNT_READ`, `SPOT_WITHDRAW_READ`, `SPOT_WITHDRAW_WRITE` | setup record key rights `SPOT_TRANSFER_READ` and `SPOT_TRANSFER_WRITE` |
+| KuCoin | `permission` includes `Withdrawal` | `permission` includes `Transfer`; proof is operator or manual ([transfer proof](exchanges.md#transfer-proof)) |
+| Gate | withdrawal right per the setup record (the key read has no permission fields) | transfer right per the setup record |
 | WhiteBIT | per the setup record (no key read) | per the setup record; proof is operator or manual |
 
-Outside Doppler (schemes A to C), create a separate key per role, each with an IP allowlist. A
-[scheme D](#scheme-d-session-only-doppler-profiles-optional) config has one key per exchange
-instead, and fundkit enforces the roles locally:
+One key per exchange may serve every role, in every scheme; an IP allowlist is recommended
+where the venue offers one. In [scheme D](#scheme-d-session-only-doppler-profiles-optional)
+fundkit enforces the roles locally; in schemes A to C the profile settings and the skill do:
 
-- **Destination (B) recipient profile**: read only. The profile needs `"funds": "live"` and a
+- **Destination (B) recipient profile**: reads only. The profile needs `"funds": "live"` and a
   `maxTransferValue` because ccxt-mcp gates address reads behind `funds`; keep
-  `"dryRun": true`. With a read-only key the exchange also refuses any write.
-- **Destination settlement**: a second registration for the same B account (its own key with
-  read + internal transfer, no withdrawal), with role `settlement` in the setup record, only if the credit must
-  move from the deposit wallet to another B wallet. The deposit-only recipient key stays
-  read-only: a read-only key cannot transfer (Bybit `readOnly: 1` is refused), and the agent
-  never uses it for one.
+  `"dryRun": true`, which stops any MCP money move on it whatever the key could do.
+- **Destination settlement**: a second registration for the same B account (it may use the
+  same key), with role `settlement` in the setup record, only if the credit must move from the
+  deposit wallet to another B wallet. The agent never uses the deposit-only profile for a
+  transfer.
 - **Source (A)**: read + withdrawal (+ internal transfer when A moves funds into its
   withdrawal wallet), an exchange-side withdrawal limit and B's address on A's withdrawal
   whitelist. The operator adds that address once in A's security settings with 2FA; the agent
@@ -775,10 +803,10 @@ Expect `version: "0.1.3"`, `ccxtVersion: "4.5.84"`, an empty `configProblems`,
 
 | Profile | Permissions | Required |
 |---|---|---|
-| read-only | read | IP allowlist |
-| Bybit deposit address (Scenario 1) | read-only, main account; profile with `funds` and `dryRun` ([above](#bybit-deposit-profile)) | IP allowlist, no Withdraw label, no transfer or trading write access |
-| recipient read, any venue (Scenario 1, and B in Scenario 2) | read only; profile with `funds` and `dryRun` ([venue profiles](#venue-profiles)) | IP allowlist, no withdrawal, no transfer or trading write access; Gate and WhiteBIT: provisioning consent in the setup record |
-| internal transfer | read + internal transfer; [money-moving registration](#money-moving-registrations) | IP allowlist, no withdrawal |
+| reads (any profile) | read; more rights are fine, the role keeps the profile to reads | IP allowlist recommended |
+| Bybit deposit address (Scenario 1) | read, main account; profile with `funds` and `dryRun` ([above](#bybit-deposit-profile)) | main-account key (Bybit's own requirement) |
+| recipient read, any venue (Scenario 1, and B in Scenario 2) | read; profile with `funds` and `dryRun` ([venue profiles](#venue-profiles)) | MEXC: `SPOT_WITHDRAW_READ`; Gate and WhiteBIT: provisioning consent |
+| internal transfer | read + internal transfer; [money-moving registration](#money-moving-registrations) | IP allowlist recommended |
 | withdrawal (exchange A) | read + withdrawal (+ transfer); [money-moving registration](#money-moving-registrations) | IP allowlist, address whitelist (the human adds B's address with 2FA), exchange-side withdrawal limit |
 | Hyperliquid | no key needed | public address only |
 

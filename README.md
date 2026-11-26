@@ -4,14 +4,31 @@ An Agent Skill that lets an AI agent move USDT between a crypto wallet and excha
 human approving every write. The skill itself is Markdown. The agent talks to exchanges through
 the official MCP server [`ccxt-mcp@0.1.3`](https://github.com/ccxt/ccxt/tree/master/mcp),
 pinned with `ccxt@4.5.85`, the last ccxt release with which the server's `withdraw` still
-passes network, fee and memo to the exchange. Works in Claude Code and Codex. An optional
-helper, [`bin/fundkit.mjs`](bin/fundkit.mjs) (Node 20+, standard library only at run time),
-connects exchange profiles for one session from a single Doppler config.
+passes network, fee and memo to the exchange. Works in T3 Code, Claude Code and Codex. An
+optional helper, [`bin/fundkit.mjs`](bin/fundkit.mjs) (Node 20+; standard library plus the
+pinned QR decoder `jsqr@1.4.0` at run time), connects exchange profiles for one session from a
+single Doppler config and adds native tools: a verified deposit address with an inline QR, and
+exchange-to-exchange transfers confirmed by one bound human confirmation.
 
 ## Quick start
 
-**Option 1: session-only Doppler profiles (one command per machine).** On the server, in the
-operator's shell:
+**T3 Code on your own server (recommended).** Once, on the server that runs T3 Code, as the
+user T3 runs as:
+
+```bash
+git clone https://github.com/pogorelov17/fundkit.git ~/fundkit && node ~/fundkit/bin/fundkit.mjs install
+```
+
+Then, in a new T3 chat, ask in your own words: `Дай мой адрес Binance для USDT в BSC`. If no
+session is active, T3 shows **one private card** for the Doppler service token; the agent never
+sees it, and the same request continues by itself. The answer is the QR image inline, the
+address as copyable text, the exact network and the memo (or "none"). `Переведи 300 USDT с
+Bybit на Binance` reads both accounts, prepares an exact plan (or says exactly why it holds) and
+opens one confirmation card; only Approve sends, once. How it works and its limits:
+[native plan](references/t3-native-plan.md).
+
+**Option 1 (Claude Code or Codex in a terminal): session-only Doppler profiles.** On the
+server, in the operator's shell:
 
 ```bash
 git clone https://github.com/pogorelov17/fundkit.git ~/fundkit && node ~/fundkit/bin/fundkit.mjs install
@@ -81,7 +98,7 @@ does not set it up ([loading the skill](references/security.md#loading-the-skill
 
 - **OKX Wallet → exchange.** Picks a network from the exchange's live data. On each of the nine
   exchanges the agent reads the address, network and memo from the operator's own account
-  with a read-only key, or on a session profile with a key fundkit limits to deposit-only reads
+  with the exchange's one key, which fundkit (or the profile's `dryRun`) limits to deposit-only reads
   ([native recipient reads](references/recipients.md)). Whether a network
   qualifies depends on the documented facts per venue (some hold). The operator
   enters the amount, pastes the verified address and memo into OKX Wallet and signs. Send amount, network fee
@@ -181,7 +198,8 @@ The last withdrawal is stuck. Reconcile what actually happened without repeating
 | [`references/exchanges.md`](references/exchanges.md) | wallets, network data, outbound withdraw table, amount steps, account modes |
 | [`references/security.md`](references/security.md) | environment contract, host registration, loading the skill, smoke check, key permissions |
 | [`references/recipients.md`](references/recipients.md) | native recipient reads (address, memo, landing wallet), deposit fee and minimum sources and hard limits per venue |
-| [`bin/fundkit.mjs`](bin/fundkit.mjs), [`lib/`](lib/) | optional: `install`, the private terminal `session`, `passphrase`, the `fundkit` MCP server, `status`, `stop`; role allowlists in [`lib/policy.mjs`](lib/policy.mjs) |
+| [`bin/fundkit.mjs`](bin/fundkit.mjs), [`lib/`](lib/) | optional: `install`, the private terminal `session`, `unlock` (host secret card), `passphrase`, the `fundkit` MCP server, `status`, `stop`; role allowlists in [`lib/policy.mjs`](lib/policy.mjs); native flows in [`lib/broker/native.mjs`](lib/broker/native.mjs), venue reads in [`lib/venues/`](lib/venues/), QR in [`lib/qr/`](lib/qr/) |
+| [`references/t3-native-plan.md`](references/t3-native-plan.md) | the native address and transfer flows on T3 Code: contract, acceptance tests, limits, Hetzner acceptance steps |
 | [`tests/`](tests/) | offline tests for the session: mock Doppler, pseudo-terminals, simulated host, synthetic and pinned ccxt-mcp |
 | [`references/prompts.md`](references/prompts.md) | copyable prompts for setup, diagnosis, read-only checks and planning (the agent replies in the user's language) |
 
@@ -225,7 +243,7 @@ documented venue facts before the run (381 scenarios, 5422 checks, 0 failures,
   on the deposit-only profile, MEXC key rights, TON alphabets, plus every earlier gate and the
   independent review's probes, imported unchanged.
 
-**Session profiles** (`python3 -I -m unittest discover -s tests -t .`, 38 tests; the
+**Session profiles** (`python3 -I -m unittest discover -s tests -t .`, 63 tests in all; the
 pinned-server test also runs inside `unshare -rn` with `FUNDKIT_REAL_CCXT_MCP`) cover these
 cases:
 
@@ -246,8 +264,38 @@ cases:
 - cleanup of processes, files and socket, and reconnecting a running host to a new session;
 - `install` against the real `claude` and `codex` CLIs in a scratch home.
 
+**Native flows** (`tests/test_native.py`, 21 tests, on a host that answers forms and secret
+cards the way T3 Code 0.1.11 does, as read from its runtime):
+
+- the T3 secret file consumed once and deleted; symlink, FIFO, group-readable, oversized, foreign
+  or world-writable locations and non-tokens refused with nothing sent to Doppler; the token in
+  no argv, environment, file, log or output; the background session reused across host restarts;
+  passphrases by the same card;
+- no session → exactly one `secretStep` with `delivery: "file"` → the same call succeeds;
+- the Binance BSC address, network and memo; TON with memo `000123`; the delivered PNG read by
+  the test's own PNG reader and decoded by jsQR to the exact address bytes; identical input,
+  identical PNG; three concurrent requests without mixing; wrong chain, two default rows,
+  missing tag, the contract as address, contract mismatch and disabled deposits show no address
+  and no QR;
+- Bybit → Binance holds on Binance's undocumented minimum with zero dispatch; Binance → Bybit
+  prepares, and one Approve sends exactly once with the plan's arguments on a single-use profile
+  capped at the amount; decline, cancel and no answer send nothing; repeated confirms, a new
+  host process, concurrent confirms, a session restart, an expired plan and edited plans (even
+  with recomputed hashes) send nothing more; "Always allow this session" on one plan does not
+  approve the next; a host without forms cannot confirm.
+
+With the **real pinned ccxt-mcp** (`unshare -rn`, recorder transport): the Binance BSC address
+reads parse through real ccxt and send only GETs signed with the Binance key; the plan card
+matches the real server's own form text and is shown once; decline returns the real
+`CONFIRM_DECLINED` with no request; approval passes the real gate and the one
+`POST /v5/asset/withdraw/create` is refused by the recorder, reported `unknown`, never sent again.
+
+Simulated, not proven: T3 itself (its card behavior is emulated from its code), Doppler,
+every exchange response (synthetic, shaped after the venues' references) and every outcome of a
+real withdrawal.
+
 Development checks: `npm ci`, then `npm run check` (Prettier, ESLint, `node --check`) and
-`ruff format --check tests && ruff check tests`.
+`ruff format --check tests && ruff check tests` (ruff 0.14.5).
 
 No real Doppler service, exchange key or model run was used.
 

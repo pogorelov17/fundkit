@@ -24,6 +24,19 @@ user's language and keeps the approval keywords (`APPROVE`, `WITHDRAW`) in Engli
   read time, as a [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts); the agent
   asks you to read it again just before the withdrawal.
 
+## Native requests (fundkit server connected; T3 Code first)
+
+Ask in your own words; the agent needs nothing else from you except, once per session, the
+token in T3's private card.
+
+```text
+Дай мой адрес Binance для USDT в BSC
+Give me my Bybit USDT deposit address on TRC20.
+Переведи 300 USDT с Bybit на Binance
+Move 15 USDT from Binance to Bybit on BSC.
+What happened to transfer FK-XXXXXXXX?
+```
+
 ## Natural request (fundkit installed)
 
 After `fundkit install` ([scheme D](security.md#scheme-d-session-only-doppler-profiles-optional))
@@ -64,7 +77,7 @@ Nothing can move: only deposit-only profiles are connected, and they keep `"dryR
 Bybit only:
 
 ```text
-Read SKILL.md. This is my first session and it is read only. Check the Bybit profile: versions, configPath, journal, configProblems and whether a native form is available, then the Bybit key check (read-only flag, no Withdraw, main account, IP binding; no UID). Then list Bybit's USDT networks with deposit enabled, minimum, contract, memo requirement and deposit fee with their sources, and show my verified Bybit USDT deposit address for TRC20, BEP20, ERC20 and TON with the raw-row check, the address check, the memo (or none) and batchReleaseLimit. Finish with the setup-record lines I should write from this, and the ones still missing for a withdrawal later. No plan, no writes.
+Read SKILL.md. This is my first session and it is read only. Check the Bybit profile: versions, configPath, journal, configProblems and whether a native form is available, then the Bybit key check (main account; report readOnly, permissions and IP binding as shown; no UID). Then list Bybit's USDT networks with deposit enabled, minimum, contract, memo requirement and deposit fee with their sources, and show my verified Bybit USDT deposit address for TRC20, BEP20, ERC20 and TON with the raw-row check, the address check, the memo (or none) and batchReleaseLimit. Finish with the setup-record lines I should write from this, and the ones still missing for a withdrawal later. No plan, no writes.
 ```
 
 Bybit and BingX in one session (alternative):

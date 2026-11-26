@@ -1,8 +1,8 @@
 # Implementation plan: native address and transfer flows on T3 Code (Hetzner)
 
-Status: in progress on branch `feat/t3-native-address-transfer`. This file is the contract for
-the change. Sections marked **Acceptance** list the tests that must pass before the PR leaves
-draft. **Limitations** are stated up front and kept current.
+Status: implemented on branch `feat/t3-native-address-transfer` (draft PR #5); automated
+acceptance passes offline; the real-T3 acceptance on Hetzner below is still to be run. This file
+is the contract for the change. **Limitations** are stated up front and kept current.
 
 ## Goal
 
@@ -227,6 +227,99 @@ Automated (Boat or any dev machine, no network beyond loopback, no real keys):
 Manual (parent agent, real T3 on Hetzner): see
 [Hetzner acceptance](#hetzner-acceptance-real-t3) below; filled in when the code lands.
 
+## What is proven and what is simulated
+
+| Claim | How it was shown | Status |
+|---|---|---|
+| Secret file consumed once, deleted, never in argv/env/files/logs/output | `tests/test_native.py` HandoffTests, `/proc` scans, file sweep | proven offline |
+| T3 delivers a `0600` file in a `0700` dir, kept 24 h unless removed | read from T3 Code 0.1.11's runtime code (`writeSecretFile`, `sweepExpiredFiles`) | read, not run |
+| One card, then the same call continues | T3-shaped host in tests; real T3 in UAT 1 | simulated until UAT |
+| QR encodes the exact address; the delivered file decodes to it | Python PNG reader + jsQR in tests; runtime self-check with jsQR | proven offline |
+| Binance BSC address parse and GET-only reads | real pinned ccxt-mcp, recorder transport, `unshare -rn` | proven offline |
+| Plan card matches ccxt-mcp's real form; approval passes the real gate; one POST at most | real pinned ccxt-mcp, recorder refuses the POST | proven offline |
+| T3 cannot answer ccxt-mcp's raw form; can answer the plan card | read from T3's `toMcpElicitationResponse` and emulated | read, not run |
+| Inline QR renders in T3; the card renders the message in full | UAT 1 and 3 | not yet shown |
+| Real Doppler, real exchange keys and responses, a real withdrawal | none | not done (by design) |
+
+## Host limitations found
+
+1. **ccxt-mcp's form is unanswerable in T3.** T3 pre-computes the accepted content of an
+   elicitation; a required boolean without enum or default cannot be filled, so T3 cancels it
+   without showing it. fundkit never forwards that raw form on a plan profile; it re-shows it as
+   the plan card. The legacy `fundkit_write` path forwards the raw form and so cannot move money
+   on T3 (it fails closed with `CONFIRM_CANCELED`).
+2. **"Always allow this session"** caches approvals by server and exact message. Every plan card
+   carries a unique plan id and hash, so a grant never matches another transfer (tested).
+3. **One broker owns a profile.** If two T3 threads use fundkit at the same moment, the second
+   gets `ALIAS_IN_USE` for a profile the first holds, until the first thread's MCP server stops.
+4. **Tool permissions.** Depending on the T3 permission mode, the user may have to allow the
+   agent's shell command (`fundkit unlock …`) or the fundkit tools once. That is a host
+   permission prompt, not an operator step; approve it once per session or allowlist it.
+5. **Custom Claude home.** T3 loads user-scope MCP servers and skills only when it runs Claude
+   with the default home (`settingSources` user, project, local). With a custom home it loads
+   project and local settings only; register `fundkit` there instead.
+6. **Binance as destination** holds on its undocumented deposit minimum (see above).
+
 ## Hetzner acceptance (real T3)
 
-Filled in with the final commands once the implementation is pushed.
+Run on the Hetzner host as the user that runs T3 Code. Real Doppler and exchange keys are used
+only for reads; Scenario 2 is tested up to the card and **declined**, so no money moves.
+
+**0. Install (once).**
+
+```bash
+cd ~ && (test -d fundkit || git clone https://github.com/pogorelov17/fundkit.git) && cd fundkit \
+  && git fetch origin && git checkout feat/t3-native-address-transfer && git pull --ff-only \
+  && node bin/fundkit.mjs install --no-codex
+claude mcp get fundkit        # expect: command node, args […/bin/fundkit.mjs, mcp]
+ls -l ~/.claude/skills/usdt-funding
+node bin/fundkit.mjs status   # expect: "no fundkit session"
+```
+
+Pass: `ccxt-mcp`, `ccxt`, `jsqr` pinned in `~/.local/share/fundkit/app/node_modules`; the MCP
+server and the skill link present. Start a **new** T3 thread afterwards (running threads do not
+load new servers).
+
+**1. Address, no session (the primary repro).** In the new thread, as the user, type exactly:
+`Дай мой адрес Binance для USDT в BSC`.
+
+Pass, in this order, with nothing typed by the user except the token in the card:
+- exactly one private card titled "Doppler service token"; paste a Doppler service token whose
+  config has `BINANCE_APIKEY`/`BINANCE_SECRET`;
+- one shell call `…/node …/bin/fundkit.mjs unlock --token-file "<path>"` printing
+  `{"ok":true,"session":"active",…}` and no value;
+- `fundkit_deposit_address` called again by itself;
+- the reply shows the QR image inline, the address as plain text under it, network "BNB Smart
+  Chain (BEP20)" with Binance id `BSC`, and "memo: none" (or the memo first, conspicuously);
+- scan the QR with a phone: it shows exactly the address in the reply; compare with Binance's
+  deposit page for USDT/BSC once, by eye.
+
+Then, on the host:
+
+```bash
+node ~/fundkit/bin/fundkit.mjs status                     # state active, doppler project/config
+ls -la ~/.local/state/fundkit/qr/                          # one <sha256>.png per address
+grep -c "dp.st." ~/.local/state/fundkit/run/daemon.log     # expect 0
+ps -eo args | grep "[f]undkit.mjs daemon"                  # no token in argv
+```
+
+Also check that the card's file is gone (the path printed in the shell call no longer exists).
+
+**2. Address, session active.** In the same or a new thread: `Дай мой адрес Binance для USDT в
+TRC20`. Pass: no card, a new QR for the TRC20 address, the BSC QR not reused.
+
+**3. Transfer up to the card, then Decline.**
+`Переведи 300 USDT с Bybit на Binance`. Expected today: a hold with
+`DESTINATION_MINIMUM_UNDOCUMENTED`, no card, nothing sent, and no request to look anything up.
+To exercise the card itself, use the reverse direction with an amount the Binance account
+holds: `Переведи 15 USDT с Binance на Bybit в сети BSC`. Pass: one plan message, then one T3
+card showing plan id, amount, fee, debit/credit, the Bybit address read from Bybit, network,
+expiry and the plan hash. Press **Decline**. Pass: the result says nothing was sent;
+`fundkit_transfer_status` shows `dispatchAttempted: true` and result `not-sent`; Binance
+withdrawal history shows nothing. Ask the agent to confirm the same plan again: it must answer
+"already handled", with no new card.
+
+**4. Cleanup.** `node ~/fundkit/bin/fundkit.mjs stop`; `status` says no session.
+
+Report back for each step: pass/fail, the exact text of any error, and a screenshot of the
+reply in step 1 and of the card in step 3.

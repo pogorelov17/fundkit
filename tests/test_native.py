@@ -530,6 +530,16 @@ class TransferTests(NativeTestCase):
         self.assertEqual([reason["code"] for reason in body["reasons"]], ["INBOUND_CAP"])
         self.assertEqual(self.dispatches(), [])
 
+    def test_source_key_without_withdrawal_right_holds(self):
+        self.start_session()
+        key = params_key("call_implicit_get", "sapiGetAccountApiRestrictions")
+        self.fixtures["binance"][key]["enableWithdrawals"] = False
+        self.write_fixtures()
+        body = self.prepare(self.t3())
+        self.assertEqual((body["status"], body["dispatch"]), ("hold", "none"))
+        self.assertEqual([reason["code"] for reason in body["reasons"]], ["SOURCE_KEY_CANNOT_WITHDRAW"])
+        self.assertNotIn("read-only", json.dumps(body))
+
     @staticmethod
     def rehash(plan: dict) -> None:
         def canonical(value):

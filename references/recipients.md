@@ -93,8 +93,9 @@ read finds no address, the operator creates one once in the exchange app, and th
 
 1. **Network data** for the venue ([network data sources](exchanges.md#network-data-sources)):
    deposit enabled, minimum, contract, memo-required flag, and any deposit-fee field.
-2. **Key check**: the venue's key-metadata read. For a deposit-only profile, require the
-   read-only scope in the venue row and no withdrawal right. Report the key's scope only. The
+2. **Key check**: the venue's key-metadata read. For a deposit-only profile, require only what
+   the read itself needs ([venue profiles](security.md#venue-profiles)) and report every right
+   as shown; a write-enabled key is fine, and no separate read-only key is ever requested. The
    operator's mapping of the profile to its account is trusted: never fetch, report, record or
    compare an account UID to bind them, also where the key check's result happens to name one.
 3. **Recipient read**: the calls in the venue row. Where the venue has a raw GET, that raw
@@ -219,7 +220,7 @@ a read is not documented.
 | Step | Call | Check |
 |---|---|---|
 | network data | `call_read_method {"exchange":"binance","account":"<alias>","method":"fetchDepositWithdrawFee","args":["USDT"],"includeInfo":true}` | `info.networkList[]`: `network` (`BSC`, `TRX`, `ETH`, `TON`), `depositEnable`, `contractAddress`, `withdrawTag` |
-| key check | `call_implicit_get {"exchange":"binance","account":"<alias>","method":"sapiGetAccountApiRestrictions"}` | `enableReading: true`, `ipRestrict: true`; deposit-only: `enableWithdrawals: false`, `enableInternalTransfer: false`; `permitsUniversalTransfer` only when B will run a settlement transfer |
+| key check | `call_implicit_get {"exchange":"binance","account":"<alias>","method":"sapiGetAccountApiRestrictions"}` | `enableReading: true`; report `enableWithdrawals`, `enableInternalTransfer`, `ipRestrict` and `permitsUniversalTransfer` as shown (a withdrawal-enabled key is fine on a deposit-only profile) |
 | gated read | `call_read_method {"exchange":"binance","account":"<alias>","method":"fetchDepositAddress","args":["USDT"],"params":{"network":"<code>"},"includeInfo":true}` | sends only `GET /sapi/v1/capital/deposit/address` with `network=<id>`; unified `network` (derived by ccxt from the explorer `url`) must be the chosen code |
 | raw read | `call_implicit_get {"exchange":"binance","account":"<alias>","method":"sapiGetCapitalDepositAddressList","params":{"coin":"USDT","network":"<id>"}}` | exactly one row with `isDefault: 1`; its `address` and `tag` equal the gated `info` |
 
@@ -265,7 +266,7 @@ and a new plan or sheet (verified offline).
 | Step | Call | Check |
 |---|---|---|
 | network data | `call_implicit_get {"exchange":"okx","account":"<alias>","method":"privateGetAssetCurrencies","params":{"ccy":"USDT"}}` | one raw row per chain: `chain` `USDT-TRC20`/`USDT-BSC`/`USDT-ERC20`/`USDT-TON`, `canDep`, `canWd`, `minDep`, `minWd`, `fee`, `wdTickSz`, `ctAddr`, `needTag`. Do not use `fetchDepositWithdrawFee` for OKX: its `info` keeps only one row (the last chain), verified offline |
-| key check | `call_implicit_get {"exchange":"okx","account":"<alias>","method":"privateGetAccountConfig"}` | `data[0].perm` exactly `read_only` for a deposit-only key; report `label`, `ip` |
+| key check | `call_implicit_get {"exchange":"okx","account":"<alias>","method":"privateGetAccountConfig"}` | `data[0].perm` includes `read_only`; report the whole `perm` (for example `read_only,withdraw`), `label`, `ip` |
 | gated read | `call_read_method {"exchange":"okx","account":"<alias>","method":"fetchDepositAddress","args":["USDT"],"params":{"network":"<code>"},"includeInfo":true}` | sends only `GET /api/v5/asset/deposit-address?ccy=USDT`; ccxt keeps only `selected: true` rows and one per network |
 | raw read | `call_implicit_get {"exchange":"okx","account":"<alias>","method":"privateGetAssetDepositAddress","params":{"ccy":"USDT"}}` | `code: "0"`; the response lists every chain of the currency: keep rows with `ccy: "USDT"`, the chosen `chain` and `selected: true`, then require exactly one; its `addr`, memo and `chain` equal the gated `info` |
 
@@ -290,7 +291,7 @@ and a new plan or sheet (verified offline).
 | Step | Call | Check |
 |---|---|---|
 | network data | `call_read_method {"exchange":"bitget","account":"<alias>","method":"fetchDepositWithdrawFee","args":["USDT"],"includeInfo":true}` (also works without a key) | `info.chains[]`: `chain`, `rechargeable`, `minDepositAmount`, `contractAddress`, `needTag` |
-| key check | `call_implicit_get {"exchange":"bitget","account":"<alias>","method":"privateSpotGetV2SpotAccountInfo"}` | report `authorities`, `ips`; deposit-only: no authority naming withdrawal. Other values are compared once with Bitget's API page |
+| key check | `call_implicit_get {"exchange":"bitget","account":"<alias>","method":"privateSpotGetV2SpotAccountInfo"}` | report `authorities` and `ips` as shown; an authority naming withdrawal is fine on a deposit-only profile |
 | raw read (alone) | `call_implicit_get {"exchange":"bitget","account":"<alias>","method":"privateSpotGetV2SpotWalletDepositAddress","params":{"coin":"USDT","chain":"<live id>"}}` | `<live id>` is the `chain` of the network-data row whose contract matched the reference (`TRC20`, `BEP20`, `ERC20`, `TON`); `code: "00000"`; `data.chain` equals it, `data.coin` is `USDT`; `address` nonempty; `tag` a string |
 
 - The raw method matches ccxt-mcp's gate pattern, so it is itself funds-gated
@@ -375,7 +376,7 @@ and a new plan or sheet (verified offline).
 | Step | Call | Check |
 |---|---|---|
 | network data | `call_read_method {"exchange":"mexc","account":"<alias>","method":"fetchDepositWithdrawFee","args":["USDT"],"includeInfo":true}` | `info.networkList[]`: the row whose `netWork` is `TRX` / `BSC` / `ETH` / `TONCOIN`, with its `network` string, `depositEnable`, `contract`; no deposit minimum |
-| key check | `call_implicit_get {"exchange":"mexc","account":"<alias>","method":"spotPrivateGetAccount"}` | proves only that the key signs. `canWithdraw`, `canTrade` and `permissions` describe the account, not the key, so the scope comes from the setup record's key rights: deposit-only `SPOT_ACCOUNT_READ` and `SPOT_WITHDRAW_READ` (MEXC's deposit-address and network reads need it), no `SPOT_WITHDRAW_WRITE` (withdraw, and creating a deposit address) or `SPOT_TRANSFER_WRITE`; IP allowlist from the setup record |
+| key check | `call_implicit_get {"exchange":"mexc","account":"<alias>","method":"spotPrivateGetAccount"}` | proves only that the key signs. `canWithdraw`, `canTrade` and `permissions` describe the account, not the key, so the scope comes from the setup record's key rights: the recipient read needs `SPOT_ACCOUNT_READ` and `SPOT_WITHDRAW_READ` (MEXC's deposit-address and network reads need it); further rights such as `SPOT_WITHDRAW_WRITE` are fine, since the profile never calls a write |
 | raw read (alone) | `call_implicit_get {"exchange":"mexc","account":"<alias>","method":"spotPrivateGetCapitalDepositAddress","params":{"coin":"USDT","network":"<network string of that row>"}}` | rows with `coin: "USDT"` and `network` equal to that string: exactly one; any other row: hold; memo in `memo` |
 
 - MEXC's reference documents the address rows as `coin`, `network`, `address` and `memo`, with
@@ -410,7 +411,7 @@ and a new plan or sheet (verified offline).
 | Step | Call | Check |
 |---|---|---|
 | network data | `call_implicit_get {"exchange":"kucoin","method":"publicGetCurrenciesCurrency","params":{"currency":"USDT"}}` | `data.chains[]`: `chainId`, `isDepositEnabled`, `depositMinSize`, `contractAddress`, `needTag` (the fields of KuCoin's published v3 schema) |
-| key check | `call_implicit_get {"exchange":"kucoin","account":"<alias>","method":"privateGetUserApiKey"}` | deposit-only: `permission` is `General` with no `Withdrawal`; report `isMaster`, `ipWhitelist`, `remark` (the server redacts `apiKey`) |
+| key check | `call_implicit_get {"exchange":"kucoin","account":"<alias>","method":"privateGetUserApiKey"}` | `permission` includes `General`; report the whole `permission`, `isMaster`, `ipWhitelist`, `remark` (the server redacts `apiKey`) |
 | raw read | `call_implicit_get {"exchange":"kucoin","account":"<alias>","method":"privateGetDepositAddresses","params":{"currency":"USDT","chain":"<chainId>","version":"v3"}}` | sends only `GET /api/v3/deposit-addresses`; chain-scoped: exactly one row, with `chainId` equal to the chosen id and `currency: "USDT"`, and no row for another chain; full `contractAddress` equals the reference; memo in `memo`; `expirationDate` `0` |
 
 - ccxt's `fetchDepositAddress` uses KuCoin's v1 endpoint, which KuCoin lists as abandoned
