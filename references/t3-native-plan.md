@@ -148,10 +148,13 @@ Available on Bybit FUND: 812.44 USDT; withdrawal minimum 10; maximum 1 000 000; 
 ## Hard limits found while planning
 
 - **Binance deposit minimum.** Binance documents no API deposit minimum (`depositDust` has no
-  documented meaning; [recipients.md](recipients.md#binance)). Flow 2 with Binance as B
-  therefore stops before any dispatch with `DESTINATION_MINIMUM_UNDOCUMENTED`, says exactly
-  that, and does not send the user to look it up. The reverse route (Binance → Bybit) uses
-  Bybit's documented `depositMin` and reaches the confirmation.
+  documented meaning; [recipients.md](recipients.md#binance)). Flow 2 with Binance as B on
+  USDT BEP20 uses Fundkit's operator fallback minimum (5 USDT on the expected credit, inclusive),
+  states in the plan and the card that it is not a Binance figure and does not guarantee the
+  credit, and reads Binance again before the card and after the approval
+  ([rule](binance-bep20-minimum-fallback.md)). On TRC20, ERC20 and TON it still stops before any
+  dispatch with `DESTINATION_MINIMUM_UNDOCUMENTED` and does not send the user to look it up. The
+  reverse route (Binance → Bybit) uses Bybit's documented `depositMin`.
 - **T3 elicitation forms.** T3 Code shows an MCP elicitation as an approval card (Approve,
   Decline, Cancel, "Always allow this session") and fills the accepted content itself. A
   required boolean field without an enum (ccxt-mcp's `confirm`) cannot be filled, so T3
@@ -220,7 +223,9 @@ Automated (Boat or any dev machine, no network beyond loopback, no real keys):
   leading zeros is kept and flagged; concurrent requests for two networks produce two
   different files whose payloads match their own addresses; a failed request after a good
   one returns no QR path.
-- **Transfer.** Bybit → Binance holds on the Binance minimum with zero dispatch. Binance →
+- **Transfer.** Bybit → Binance on BEP20 reaches the card on the operator fallback minimum
+  ([acceptance](binance-bep20-minimum-fallback.md#acceptance)); on the other chains it holds on
+  the Binance minimum with zero dispatch. Binance →
   Bybit prepares a plan; T3-shaped host: Decline, Cancel and no answer give zero dispatch;
   Approve gives exactly one dispatch with the frozen arguments; a second confirm, a new broker
   process and a confirm after expiry give no second dispatch; a changed amount needs a new
@@ -261,7 +266,8 @@ Manual (parent agent, real T3 on Hetzner): see
 5. **Custom Claude home.** T3 loads user-scope MCP servers and skills only when it runs Claude
    with the default home (`settingSources` user, project, local). With a custom home it loads
    project and local settings only; register `fundkit` there instead.
-6. **Binance as destination** holds on its undocumented deposit minimum (see above).
+6. **Binance as destination** relies on Fundkit's operator fallback minimum on BEP20 and holds
+   on its undocumented deposit minimum on the other chains (see above).
 
 ## Hetzner acceptance (real T3)
 
@@ -312,10 +318,12 @@ Also check that the card's file is gone (the path printed in the shell call no l
 address on TRC20`. Pass: no card, a new QR for the TRC20 address, the BSC QR not reused.
 
 **3. Transfer up to the card, then Decline.**
-`Move 300 USDT from Bybit to Binance`. Expected today: a hold with
-`DESTINATION_MINIMUM_UNDOCUMENTED`, no card, nothing sent, and no request to look anything up.
-To exercise the card itself, use the reverse direction with an amount the Binance account
-holds: `Move 15 USDT from Binance to Bybit on BSC`. Pass: one plan message, then one T3
+`Move 10 USDT from Bybit to Binance on BSC` (with at least 10.15 USDT in Bybit Funding).
+Expected: one plan message and one card that show the destination minimum as Fundkit's operator
+fallback with Binance's minimum unknown; press **Decline** (pass as below). On TRC20 the same
+request holds with `DESTINATION_MINIMUM_UNDOCUMENTED`, no card. The reverse direction also
+reaches the card with an amount the Binance account holds:
+`Move 15 USDT from Binance to Bybit on BSC`. Pass: one plan message, then one T3
 card showing plan id, amount, fee, debit/credit, the Bybit address read from Bybit, network,
 expiry and the plan hash. Press **Decline**. Pass: the result says nothing was sent;
 `fundkit_transfer_status` shows `dispatchAttempted: true` and result `not-sent`; Binance

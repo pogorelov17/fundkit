@@ -236,7 +236,10 @@ a read is not documented.
   that field only as an example value and does not say what it means (`withdrawMin` and the
   other fields are named for what they are). A live field without documented meaning is not
   used, so the route holds on `min` unless the user supplies the minimum from Binance's deposit
-  page as a [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts). A description in
+  page as a [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts). The one
+  exception is the native `fundkit_transfer_prepare` flow on USDT BEP20, which uses Fundkit's
+  own [operator fallback minimum](binance-bep20-minimum-fallback.md) (not a Binance value, no
+  guarantee of credit; `depositDust` above it or unreadable holds, and is never the minimum). A description in
   another entity's documentation (for example Binance TH) does not apply to a Binance.com
   account. (BingX is different: its own API docs define `depositMin`, [below](#bingx).)
 - Landing wallet: the response has none. Binance's typical deposit wallet is Spot

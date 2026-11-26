@@ -85,10 +85,16 @@ English, so the agent shows the plan in your language in the chat just before th
   request.
 
 > [!NOTE]
-> **Bybit → Binance holds today.** Binance documents no API deposit minimum (`depositDust` has
-> no documented meaning, [details](references/recipients.md#binance)), so the native transfer
-> stops before anything is sent with `DESTINATION_MINIMUM_UNDOCUMENTED`. The reverse route,
-> Binance → Bybit, uses Bybit's documented `depositMin` and reaches the card.
+> **Binance as destination: BNB Smart Chain (BEP20) only, on an operator fallback.** Binance
+> documents no API deposit minimum (`depositDust` has no documented meaning,
+> [details](references/recipients.md#binance)). For USDT on BEP20 the native transfer uses
+> **5 USDT as Fundkit's own operator fallback minimum** on the expected credit after fees
+> (inclusive), only when every other Binance read is verified and healthy. It is not a Binance
+> figure and does not guarantee the credit; the plan and the card say so, and Binance is read
+> again before the card and after the approval. A minimum Binance itself supplies always wins.
+> Binance on TRC20, ERC20 and TON still holds with `DESTINATION_MINIMUM_UNDOCUMENTED`
+> ([rule](references/binance-bep20-minimum-fallback.md)). The reverse route, Binance → Bybit,
+> uses Bybit's documented `depositMin`.
 
 ## Quick start
 
@@ -207,7 +213,7 @@ set it up ([loading the skill](references/security.md#loading-the-skill)).
 | --- | --- | --- | --- |
 | Deposit address with QR | ✓ | ✓ | `VENUE_NOT_NATIVE` |
 | Transfer, as source | ✓ | ✓ | `VENUE_NOT_NATIVE` |
-| Transfer, as destination | holds on the undocumented minimum | ✓ | `VENUE_NOT_NATIVE` |
+| Transfer, as destination | BEP20: operator fallback minimum, not a Binance figure ([rule](references/binance-bep20-minimum-fallback.md)); other chains hold on the undocumented minimum | ✓ | `VENUE_NOT_NATIVE` |
 
 **Documented flows** ([`SKILL.md`](SKILL.md), all nine exchanges), used when you ask for them:
 
@@ -285,6 +291,7 @@ More, including setup and diagnosis prompts: [`prompts.md`](references/prompts.m
 | --- | --- |
 | [`SKILL.md`](SKILL.md) | agent rules and scenarios |
 | [`references/t3-native-plan.md`](references/t3-native-plan.md) | the native address and transfer flows on T3 Code: contract, acceptance tests, limits, Hetzner acceptance steps |
+| [`references/binance-bep20-minimum-fallback.md`](references/binance-bep20-minimum-fallback.md) | the native flow's operator fallback minimum for Binance USDT BEP20 deposits: scope, rule, recheck, acceptance |
 | [`references/security.md`](references/security.md) | environment contract, host registration, Doppler session, loading the skill, smoke check, key permissions |
 | [`references/recipients.md`](references/recipients.md) | native recipient reads (address, memo, landing wallet), deposit fee and minimum sources and hard limits per venue |
 | [`references/exchanges.md`](references/exchanges.md) | wallets, network data, outbound withdraw table, amount steps, account modes |

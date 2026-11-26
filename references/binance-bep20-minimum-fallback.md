@@ -67,14 +67,18 @@ transport inside `unshare -rn`:
 2. Source twins unchanged: 2 USDT `BELOW_WITHDRAW_MIN`; 10 USDT with 10.14 available
    `INSUFFICIENT_BALANCE`.
 3. Threshold (Bybit `withdrawMin` lowered in the fixture): 4.9999 holds `BELOW_DEPOSIT_MIN`,
-   5 is ready; a fee-subtracted source model at 5.15 − 0.15 and 5.14 − 0.15 checked on the same
-   function.
-4. Venue minimum on the row: 20 holds 10 with `BELOW_DEPOSIT_MIN`, 3 lets 4 through with that
-   value as basis; an unreadable one holds.
-5. Contrary or unhealthy data: depositDust 6 or "n/a", `busy: true`, deposits disabled, contract
-   mismatch, two default addresses: hold, no plan, no card.
-6. Recheck: minimum appears, address changes or deposits close before the card or while it is
-   open: `not-sent`, `DESTINATION_RECHECK_FAILED`, zero dispatch.
+   5 is ready; a fee-subtracted source model at 5.15 − 0.15 (passes) and 5.1499 − 0.15 (holds)
+   checked on the same function. The tests derive every boundary from the one constant.
+4. Venue minimum on the row: 20 holds 10 with `BELOW_DEPOSIT_MIN`; half the fallback lets an
+   amount just above it through with that value as basis and no recheck; an unreadable or `null`
+   one holds.
+5. Contrary, unhealthy or failed data: depositDust 5.01, `busy: true`, deposits disabled,
+   contract mismatch, another coin, two default addresses, wrong chain, missing memo field, an
+   auth error: hold, no plan, no card. depositDust equal to 5 is no contrary evidence.
+6. Recheck: a venue minimum appears (equal or higher), the address changes, deposits close,
+   depositDust turns unreadable or the key check fails before the card, or a minimum appears,
+   the address changes or a read fails while the card is open: `not-sent`,
+   `DESTINATION_RECHECK_FAILED`, zero dispatch (real server: zero POST).
 7. Approve once: exactly one dispatch; a second confirm sends nothing.
 8. Other networks: Bybit → Binance TRC20 still `DESTINATION_MINIMUM_UNDOCUMENTED`; Binance →
    Bybit unchanged (Bybit `depositMin`, no recheck); the address-only QR flow is unchanged and

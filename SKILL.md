@@ -68,14 +68,20 @@ Binance`: call `fundkit_transfer_prepare {"from":"bybit","to":"binance","amount"
   `reasons[].detail` plainly. Do not ask them to look up a value, open a deposit page or change
   a setting to get around it, and do not plan around it yourself.
 - `status: "ready"`: show the `plan` fields in one message in the user's language (route,
-  network, amount, fee, debit, credit, recipient and memo with their source, expiry,
-  `exchangeMayReject`, `onward`) and call `fundkit_transfer_confirm {"planId":"…"}` right away.
+  network, amount, fee, debit, credit, recipient and memo with their source, the destination
+  minimum with `destinationMinimumBasis`, expiry, `exchangeMayReject`, `onward`) and call
+  `fundkit_transfer_confirm {"planId":"…"}` right away. When the basis is the Fundkit operator
+  fallback (Binance USDT on BEP20 only), say plainly that Binance's own minimum is unknown, that
+  the value is Fundkit's assumption and not a Binance figure, and that it does not guarantee the
+  credit; ask nothing more, the card carries the same statement.
   It opens exactly one confirmation card with every plan field. The card's labels are fixed
   English, so your message is where the user reads the plan in their own language. The human
   approves or declines on the card. Do not ask for a typed approval in the chat, and never
   answer the card yourself.
 - The confirm result's `status` is final for that plan: `sent` (report `withdrawalId`; the
-  credit still has to arrive), `not-sent` or `rejected` (nothing was sent: say so), `unknown`
+  credit still has to arrive), `not-sent` or `rejected` (nothing was sent: say so; reason
+  `DESTINATION_RECHECK_FAILED` means the destination changed since the plan, so prepare again
+  only if the user still wants the transfer), `unknown`
   (do not retry; this plan can never be sent again; reconcile read-only). A plan is sent at
   most once: a repeated confirm, a restart or a timeout never sends again. Anything after the
   credit (for example moving it to another wallet) is a separate request that this
@@ -761,6 +767,12 @@ deposit page for this plan. The same rule applies on every venue:
 A plan with such a fact is still an API withdrawal with `APPROVE`, `WITHDRAW` and the native
 form. Report it as "with a per-plan human-read fact", never as automatic, and never presume
 the value holds for the next plan.
+
+The native `fundkit_transfer_prepare` flow is different for one route only: Binance as B, USDT
+on BEP20, where it applies Fundkit's operator fallback minimum by itself
+([rule](references/binance-bep20-minimum-fallback.md)). That fallback is not a documented
+Binance value and does not extend to these manual flows, to other Binance chains or to any
+other venue.
 
 #### Chains
 
