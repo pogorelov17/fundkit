@@ -1,0 +1,4 @@
+# Prettier formats the JavaScript and JSON; the Markdown is hand-wrapped prose.
+*.md
+package-lock.json
+node_modules/

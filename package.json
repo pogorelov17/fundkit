@@ -1,0 +1,23 @@
+{
+  "name": "fundkit",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Development tooling for the fundkit skill and its optional session helper (the helper itself needs no dependencies).",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "check": "prettier --check . && eslint . && node --check bin/fundkit.mjs",
+    "test": "python3 -I -m unittest discover -s tests -t ."
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.1",
+    "eslint": "9.39.1",
+    "globals": "16.5.0",
+    "prettier": "3.10.1"
+  }
+}
