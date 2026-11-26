@@ -127,9 +127,9 @@ rule ([trust model](#trust-model)). The exchange-side restrictions below are man
 For operators who keep every exchange key in one Doppler config and want no key on disk. It is
 opt-in. Schemes A to C and already registered profiles keep working without it, and the agent
 uses those first ([SKILL.md, session profiles](../SKILL.md#session-profiles-optional-doppler)).
-`bin/fundkit.mjs` is one file for Node 20+, using only the standard library. It has four
-parts: `install`, the private terminal step `session`, the host-side MCP server `mcp`, and
-`status`/`stop`.
+`bin/fundkit.mjs` is a thin entry point for Node 20+; the code is in `lib/` and uses only
+the standard library. It has five parts: `install`, the private terminal step `session`, the
+passphrase step `passphrase`, the host-side MCP server `mcp`, and `status`/`stop`.
 
 **Once per machine** (operator's shell, needs Node 20+, npm and network):
 
@@ -156,21 +156,87 @@ start with `Read SKILL.md` ([loading the skill](#loading-the-skill)), `/usdt-fun
 Code) or `$usdt-funding` (Codex). The `fundkit` server's `initialize` instructions and tool
 descriptions also point to `SKILL.md`.
 
-**The Doppler config.** One project config holds every key, by these names. `<EX>` is
-`BINANCE`, `BYBIT`, `GATE`, `OKX`, `BITGET`, `WHITEBIT`, `BINGX`, `MEXC` or `KUCOIN`:
+**The Doppler config.** One project config holds **one account per exchange**, under exactly
+two names per venue and nothing else:
 
-| Role ([venue profiles](#venue-profiles) for the rights) | Names |
+| Exchange | Doppler names |
 |---|---|
-| deposit-only (B, read-only key) | `<EX>_DEPOSIT_APIKEY`, `<EX>_DEPOSIT_SECRET` |
-| source (A, withdrawal key) | `<EX>_SOURCE_APIKEY`, `<EX>_SOURCE_SECRET` |
-| settlement (B, internal-transfer key) | `<EX>_SETTLEMENT_APIKEY`, `<EX>_SETTLEMENT_SECRET` |
+| Binance | `BINANCE_APIKEY`, `BINANCE_SECRET` |
+| Bybit | `BYBIT_APIKEY`, `BYBIT_SECRET` |
+| Gate | `GATE_APIKEY`, `GATE_SECRET` |
+| OKX | `OKX_APIKEY`, `OKX_SECRET` (+ API passphrase typed in the private terminal) |
+| Bitget | `BITGET_APIKEY`, `BITGET_SECRET` (+ API passphrase typed in the private terminal) |
+| WhiteBIT | `WHITEBIT_APIKEY`, `WHITEBIT_SECRET` |
+| BingX | `BINGX_APIKEY`, `BINGX_SECRET` |
+| MEXC | `MEXC_APIKEY`, `MEXC_SECRET` |
+| KuCoin | `KUCOIN_APIKEY`, `KUCOIN_SECRET` (+ API passphrase typed in the private terminal) |
 
-OKX, Bitget and KuCoin also need `<EX>_<ROLE>_PASSWORD` (the API passphrase). Only the profiles
-a route uses need to exist. Create a **service token** for that config: it is read-only unless
-write access is granted, so do not grant it. An expiry is optional
+Only the exchanges a route uses need to exist. fundkit fetches exactly those two names for the
+exchange it connects. There are no role suffixes (`_SOURCE_`, `_DEPOSIT_`, `_SETTLEMENT_`), no
+third name and no fallback: a passphrase stored in Doppler (`OKX_PASSWORD` or any other name) is
+never requested, and the old role-suffixed names do not stand in for the plain ones
+(`MISSING_SECRETS` lists the plain names). Create a **service token** for that config: it is
+read-only unless write access is granted, so do not grant it. An expiry is optional
 ([Doppler service tokens](https://docs.doppler.com/docs/service-tokens)). Only `dp.st.…`
 tokens are accepted. Personal and CLI tokens reach every project of the account and are
 refused.
+
+**One key, several local roles.** Because the config has one key per exchange, the same key
+serves that exchange as source A on one route and as destination B on the reversed route, and
+as settlement on B. The key's **exchange-side capability** (what the exchange lets it do: read,
+transfer, withdraw) is whatever the operator granted when creating it, and it is usually
+write-enabled if the exchange is ever a source. The **local role** is what fundkit forwards on
+one profile, and the session daemon (the process that holds the credentials) enforces it on
+every call, whatever the key could do:
+
+| Local role (alias) | fundkit forwards | Never forwarded |
+|---|---|---|
+| deposit-only (`<ex>-dst`) | `get_safety_status`, `list_accounts`, `get_balance`; `call_read_method` `fetchBalance`, `fetchDepositWithdrawFee`, `fetchAccounts`, `fetchDeposits`, `fetchDepositAddress`, `fetchDepositAddressesByNetwork`; `call_implicit_get` only the venue's documented key-check, network-data and recipient endpoints. Always `dryRun: true`, `maxTransferValue: 10` | `withdraw`, `transfer`, every other method |
+| settlement (`<ex>-settle`) | the same state and network reads, `fetchTransfers`, `fetchTransfer`, `fetchLedger`, Gate's transfer-proof read; `transfer` after approval | `withdraw`, recipient reads |
+| source (`<ex>-src`) | the same state and network reads, `fetchWithdrawals`, `fetchTransfers`, `fetchTransfer`, `fetchLedger`, the Binance and Gate saved-address reads; `withdraw` and `transfer` after approval | recipient reads |
+| every role | | `get_deposit_address`, `call_write_method`, `call_implicit_write`, the trading tier, any tool or method not listed |
+
+The allowlists are in [`lib/policy.mjs`](../lib/policy.mjs). Arguments must name the profile's
+own `exchange` and `account`. Account-bound calls are bound to the account UID:
+
+- a recipient read (and a provisioning read) runs only after this profile's key check in this
+  session (`KEY_CHECK_REQUIRED` names the call);
+- every `withdraw` and `transfer` names the UID from the setup record as `uid`, and it must equal
+  the UID that this profile's key check showed (`UID_REQUIRED`, `UID_MISMATCH`);
+- one Doppler config is one account per exchange: if two profiles of one exchange show different
+  UIDs (for example the key was replaced mid-session), every account-bound call on that exchange
+  holds (`ACCOUNT_CONFLICT`). fundkit never treats the same names as a second account;
+- WhiteBIT has no key read, so no UID can be bound: fundkit forwards no `withdraw` or `transfer`
+  on a WhiteBIT session profile, and WhiteBIT's identity and key rights come from the setup
+  record only. The manual sheet in WhiteBIT's UI remains;
+- the Gate and WhiteBIT address reads that may create an address are forwarded only on a session
+  started with `--allow-provisioning gate` (or `whitebit`, or both), in addition to the setup
+  record's provisioning line.
+
+A deposit-only profile on a write-enabled key is therefore deposit-only **locally**: the agent
+reports what the venue key check shows (for example "withdrawal right present, deposit-only
+role enforced by fundkit") and never calls such a key read-only. Profiles outside Doppler keep
+the stricter setup: a separate read-only key per destination profile
+([venue profiles](#venue-profiles)).
+
+**API passphrase (OKX, Bitget, KuCoin).** These venues sign with a third credential. It is a real
+credential, not a placeholder, and it is **not** in Doppler. The operator types it in a private
+terminal, once per exchange and session; it stays in the session's memory and goes only to that
+exchange's profile processes as `<EX>_PASSWORD`. It never goes to the chat, a native form, argv,
+a file, a log, the host, `fundkit mcp` or Doppler, and it is redacted from everything a profile
+prints. Three ways, all with hidden input:
+
+| Launch | How the passphrase is entered |
+|---|---|
+| two terminals (`fundkit session` in terminal 2) | When a profile first needs it, `fundkit_connect` answers `PASSPHRASE_NEEDED`, and terminal 2 beeps and shows `OKX API passphrase (for the key in OKX_APIKEY):`. The operator types it there and tells the agent; the agent connects again. |
+| up front, any launch | `fundkit session --passphrase okx,kucoin` asks for each right after the token, before the host starts. Enter on an empty line skips one; Ctrl-C cancels the session start. |
+| `fundkit session -- claude` (the host runs in that terminal) | The session cannot prompt there. `PASSPHRASE_NEEDED` says to run `fundkit passphrase okx` in another terminal on the machine (for example a second SSH session), which sends it over the session's `0600` socket. |
+
+Ctrl-C at the on-demand prompt (or an empty line) skips it without ending the session; the next
+`fundkit_connect` reports `PASSPHRASE_CANCELLED` once, and the one after asks again. With no answer
+for 300 s it reports `PASSPHRASE_TIMEOUT`. Nothing starts without the passphrase. A mistyped one
+shows as the venue's key error at the key check: run `fundkit passphrase <exchange>` to replace
+it, then disconnect and reconnect that profile. The host-side broker cannot set a passphrase.
 
 **Once per session: the private terminal step.** When the agent needs a profile that is not
 connected, it tells the user to run, in a second terminal on the same machine (over SSH, a
@@ -179,31 +245,34 @@ second SSH session):
 ```bash
 fundkit session                                   # money-moving profiles dryRun
 fundkit session --writes --max-transfer 300 --max-daily 600
-fundkit session -- claude                         # or -- codex: ask first, then start the host here
+fundkit session --passphrase okx -- claude        # or -- codex: ask first, then start the host here
+fundkit passphrase okx                            # another terminal: OKX passphrase for a running session
 ```
 
 The token is pasted at the hidden prompt. The terminal shows the Doppler project and config
 it reads, then one line per profile with the names fetched (never values). Options: `--ttl`
 (default `8h`), `--keep` (outlive the host session), `--writes` (only together with
 `--max-transfer <USD>`; it sets `dryRun: false` and `maxTransferValue` on source and
-settlement profiles), `--max-daily <USD>`. Deposit-only profiles get `dryRun: true` and
-`maxTransferValue: 10` always. Every profile gets `confirm: "always"`, `funds: "live"`,
-`strictPermissions` and `hideDisabledTools`. With profiles already connected, nothing here
-runs and nothing asks.
+settlement profiles), `--max-daily <USD>`, `--passphrase okx,bitget,kucoin` (ask those
+passphrases up front), `--allow-provisioning gate,whitebit` (forward the address reads that may
+create an address). Deposit-only profiles get `dryRun: true` and `maxTransferValue: 10` always.
+Every profile gets `confirm: "always"`, `funds: "live"`, `strictPermissions` and
+`hideDisabledTools`. With profiles already connected, nothing here runs and nothing asks.
 
 **Where each value goes.**
 
 | Value | Path | Never |
 |---|---|---|
 | service token | the session opens `/dev/tty` and turns echo off before it prints the prompt. The token stays in that process's memory and goes only as `Authorization: Bearer` to `https://api.doppler.com` (HTTPS, redirects refused) | argv, any process environment, files, logs, MCP messages, the host, the agent, ccxt-mcp, exchanges. It is not read from stdin, argv or the environment; a `DOPPLER_TOKEN` in the shell is ignored and removed from the environment of a host started with `--` |
-| exchange keys | one `GET /v3/configs/config/secrets/download?format=json&secrets=<names>` per profile with exactly that exchange and role's names ([Doppler API](https://docs.doppler.com/reference/secrets-download)). A response that holds any unrequested name not starting with `DOPPLER_` is refused whole. The values go as `<EXCHANGE>_APIKEY`, `_SECRET` and `_PASSWORD` into the environment of that profile's ccxt-mcp process only. That process gets a minimal environment: `PATH`, `HOME`, `LANG`, `TZ`, `XDG_CACHE_HOME`, proxy and CA variables, `CCXT_MCP_CONFIG` | other profiles' processes, argv, files, tool results. Everything the process prints is redacted (raw, JSON-escaped and URL-encoded forms) before it leaves the session, on top of ccxt-mcp's own redaction |
+| exchange keys | one `GET /v3/configs/config/secrets/download?format=json&secrets=<EX>_APIKEY,<EX>_SECRET` per profile ([Doppler API](https://docs.doppler.com/reference/secrets-download)), never a bulk download. A response that holds any unrequested name not starting with `DOPPLER_` is refused whole. The values go as `<EX>_APIKEY` and `<EX>_SECRET` into the environment of that profile's ccxt-mcp process only. That process gets a minimal environment: `PATH`, `HOME`, `LANG`, `TZ`, `XDG_CACHE_HOME`, proxy and CA variables, `CCXT_MCP_CONFIG` | other profiles' processes, argv, files, tool results. Everything the process prints is redacted (raw, JSON-escaped and URL-encoded forms) before it leaves the session, on top of ccxt-mcp's own redaction |
+| API passphrase (OKX, Bitget, KuCoin) | typed hidden in the session terminal, before the session with `--passphrase`, or with `fundkit passphrase <ex>` over the session socket; kept in the session's memory, passed as `<EX>_PASSWORD` to that exchange's profile processes only, dropped when the session ends | Doppler, the chat, native forms, argv, files, logs, MCP messages, the host, other exchanges' processes |
 | profile `config.json` | `~/.local/state/fundkit/run/profiles/<alias>/config.json`, `chmod 600`, in a `0700` directory, removed when the profile stops | no credentials in it |
 | session control | a Unix socket `~/.local/state/fundkit/run/session.sock` (`0600`, directory `0700`). The host-side `fundkit mcp` holds neither the token nor any value. No message on the socket returns a secret, so the agent gets no generic secret reader: it can only name an exchange and a role | |
 
 Before the token, the session checks it with one request for Doppler's own metadata names
 (`DOPPLER_PROJECT`, `DOPPLER_CONFIG`, `DOPPLER_ENVIRONMENT`) and shows the project and config.
 
-**End of a session.** Each of these drops the token and every fetched value. It also stops
+**End of a session.** Each of these drops the token, every fetched value and every typed passphrase. It also stops
 every profile process and removes the profile files and the socket:
 
 - Ctrl-C, closing the terminal (`SIGHUP`), `SIGTERM` or `fundkit stop`;
@@ -236,12 +305,19 @@ under the [trust model](#trust-model):
   agent's shell, can read `/proc/<pid>/environ` of a profile process, and can connect to the
   socket and drive a profile without the host's form. Rule 1 of
   [`SKILL.md`](../SKILL.md#hard-rules) forbids both; nothing prevents them.
-- JavaScript cannot wipe strings, so the token and the values stay in process memory (and
-  possibly swap) until the process exits.
+- JavaScript cannot wipe strings, so the token, the values and the passphrases stay in process
+  memory (and possibly swap) until the process exits.
+- The role allowlists and the UID binding run in the session daemon. A process of the operator's
+  user that talks to the socket directly gets the same decisions, but it could also read a
+  profile's `/proc/<pid>/environ` or start its own ccxt-mcp with the key; see the first point.
+  Exchange-side rights stay the real limit: a write-enabled key is write-enabled.
+- The UID is read from the field the venue documents in its key check
+  ([recipients.md](recipients.md#status-by-destination-venue)), checked only against offline
+  fixtures and the pinned server's result shape, not a live account.
 - Ending a session while a `withdraw` or `transfer` is open kills its process. Treat the
   outcome as unknown and reconcile ([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
 
-**Verified offline** (2026-11-25, `tests/test_session.py`, Node 24, Python 3.12). All values
+**Verified offline** (2026-11-26, `tests/`, Node 24, Python 3.12). All values
 were synthetic. The Doppler API was a disposable loopback mock, the private terminal a real
 pseudo-terminal, and the host a simulated MCP client; the details are in
 [ccxt-mcp.md](ccxt-mcp.md#verification). Not verified: the real Doppler service, real
@@ -424,7 +500,9 @@ venue's API key page; confirm them there once and record them in the setup recor
 | Gate | withdrawal right per the setup record (the key read has no permission fields); `ip_whitelist` nonempty | transfer right, no withdrawal, per the setup record; `ip_whitelist` nonempty |
 | WhiteBIT | per the setup record (no key read) | per the setup record; proof is operator or manual |
 
-Create a separate key per role, each with an IP allowlist:
+Outside Doppler (schemes A to C), create a separate key per role, each with an IP allowlist. A
+[scheme D](#scheme-d-session-only-doppler-profiles-optional) config has one key per exchange
+instead, and fundkit enforces the roles locally:
 
 - **Destination (B) recipient profile**: read only. The profile needs `"funds": "live"` and a
   `maxTransferValue` because ccxt-mcp gates address reads behind `funds`; keep
@@ -515,9 +593,18 @@ Profile <registration name>: alias <alias>, exchange <id>, environment <live|san
 For a [scheme D](#scheme-d-session-only-doppler-profiles-optional) session profile, the
 registration name is `fundkit/<alias>` (aliases `<exchange>-src`, `-dst`, `-settle`). The
 `configPath` is the stable `~/.local/state/fundkit/run/profiles/<alias>/config.json`, with
-`~` expanded as `get_safety_status` shows it. The `journal` is the one it reports. The UID
-and key-rights lines are confirmed once, as for any profile, and stay valid across sessions
-while the Doppler names hold the same key.
+`~` expanded as `get_safety_status` shows it. The `journal` is the one it reports. All roles of
+one exchange use the one key in `<EX>_APIKEY`/`<EX>_SECRET`, so they share one account UID and
+one key-rights line, written as that key's real exchange-side rights (for example `withdraw,
+read`), never as read-only unless the key is. The role line says which local roles are used
+on it. The UID and key-rights lines stay valid across sessions while the Doppler names hold the
+same key; a replaced key needs new lines:
+
+```text
+Profile fundkit/okx-src and fundkit/okx-dst: exchange okx, environment live, roles source and deposit-only (deposit-only enforced locally by fundkit)
+  Doppler OKX_APIKEY/OKX_SECRET, passphrase typed in the private terminal; configPath ~/.local/state/fundkit/run/profiles/<alias>/config.json, journal <path>
+  account UID <id> (confirmed on OKX's API page <UTC>), key rights <perm as shown, e.g. read_only,withdraw>, IP allowlist <yes>
+```
 
 A missing line means "not established": the gate that needs it holds. A changed key, alias,
 registration, entity, pinned contract or whitelist entry needs a new record line. Entity lines

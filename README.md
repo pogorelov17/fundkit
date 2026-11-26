@@ -5,8 +5,8 @@ human approving every write. The skill itself is Markdown. The agent talks to ex
 the official MCP server [`ccxt-mcp@0.1.3`](https://github.com/ccxt/ccxt/tree/master/mcp),
 pinned with `ccxt@4.5.85`, the last ccxt release with which the server's `withdraw` still
 passes network, fee and memo to the exchange. Works in Claude Code and Codex. An optional
-helper, [`bin/fundkit.mjs`](bin/fundkit.mjs) (Node 20+, standard library only), connects
-exchange profiles for one session from a single Doppler config.
+helper, [`bin/fundkit.mjs`](bin/fundkit.mjs) (Node 20+, standard library only at run time),
+connects exchange profiles for one session from a single Doppler config.
 
 ## Quick start
 
@@ -23,8 +23,29 @@ example `переведи 300 USDT с OKX на Bybit`. The agent first uses any 
 already connected. If the route needs one that is not, it asks you to run `fundkit session` in
 a second terminal on that machine and paste a read-only Doppler service token at the hidden
 prompt, once per session. It then connects exactly the profiles the route needs, under aliases
-it picks itself (`okx-src`, `bybit-dst`). Doppler naming, data flow and limits:
-[scheme D](references/security.md#scheme-d-session-only-doppler-profiles-optional).
+it picks itself (`okx-src`, `bybit-dst`).
+
+The Doppler config holds one account per exchange under exactly two names, and nothing else:
+
+```text
+BINANCE_APIKEY   BINANCE_SECRET
+BYBIT_APIKEY     BYBIT_SECRET
+GATE_APIKEY      GATE_SECRET
+OKX_APIKEY       OKX_SECRET
+BITGET_APIKEY    BITGET_SECRET
+WHITEBIT_APIKEY  WHITEBIT_SECRET
+BINGX_APIKEY     BINGX_SECRET
+MEXC_APIKEY      MEXC_SECRET
+KUCOIN_APIKEY    KUCOIN_SECRET
+```
+
+The same key serves an exchange as source on one route and as destination on the reversed
+one; fundkit enforces the local role (a destination profile forwards no money move, whatever
+the key could do). OKX, Bitget and KuCoin also need their API passphrase, which is not in
+Doppler: when a profile first needs it, the `fundkit session` terminal asks for it with hidden
+input, once per exchange and session (or up front with `--passphrase okx`, or from another
+terminal with `fundkit passphrase okx` when the session runs the host). Data flow, roles and
+limits: [scheme D](references/security.md#scheme-d-session-only-doppler-profiles-optional).
 
 **Option 2: explicit read with your own profiles.** From the repository root, in Claude Code
 or Codex:
@@ -60,7 +81,8 @@ does not set it up ([loading the skill](references/security.md#loading-the-skill
 
 - **OKX Wallet → exchange.** Picks a network from the exchange's live data. On each of the nine
   exchanges the agent reads the address, network and memo from the operator's own account
-  with a read-only key ([native recipient reads](references/recipients.md)). Whether a network
+  with a read-only key, or on a session profile with a key fundkit limits to deposit-only reads
+  ([native recipient reads](references/recipients.md)). Whether a network
   qualifies depends on the documented facts per venue (some hold). The operator
   enters the amount, pastes the verified address and memo into OKX Wallet and signs. Send amount, network fee
   (quoted amount or cap, asset and treatment) and expected credit are kept apart. The deposit is matched by transaction
@@ -87,10 +109,12 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
 
 ## Safety model
 
-- **Doppler (optional).** The service token is typed only into the private terminal step
-  (`/dev/tty`, echo off), never into the chat, a native form, argv, a file or any other
-  process. Each profile gets only its own exchange-and-role names, fetched for that session
-  and dropped when it ends
+- **Doppler (optional).** The service token and the OKX, Bitget and KuCoin API passphrases are
+  typed only into a private terminal (`/dev/tty`, echo off), never into the chat, a native form,
+  argv, a file or any other process. Each profile gets only its own exchange's two names,
+  fetched for that session, plus that exchange's passphrase, all dropped when it ends. One key
+  per exchange may be write-enabled, so fundkit enforces each profile's local role with
+  per-venue method allowlists and binds money moves to the account UID its key check showed
   ([scheme D](references/security.md#scheme-d-session-only-doppler-profiles-optional)).
 - **Keys.** The agent knows only account aliases and never reads the environment. One server
   per account. Claude Code passes its whole environment to every server; Codex forwards only
@@ -156,8 +180,8 @@ The last withdrawal is stuck. Reconcile what actually happened without repeating
 | [`references/exchanges.md`](references/exchanges.md) | wallets, network data, outbound withdraw table, amount steps, account modes |
 | [`references/security.md`](references/security.md) | environment contract, host registration, loading the skill, smoke check, key permissions |
 | [`references/recipients.md`](references/recipients.md) | native recipient reads (address, memo, landing wallet), deposit fee and minimum sources and hard limits per venue |
-| [`bin/fundkit.mjs`](bin/fundkit.mjs) | optional: `install`, the private terminal `session`, the `fundkit` MCP server, `status`, `stop` |
-| [`tests/`](tests/) | offline tests for the session: mock Doppler, pseudo-terminal, simulated host, synthetic and pinned ccxt-mcp |
+| [`bin/fundkit.mjs`](bin/fundkit.mjs), [`lib/`](lib/) | optional: `install`, the private terminal `session`, `passphrase`, the `fundkit` MCP server, `status`, `stop`; role allowlists in [`lib/policy.mjs`](lib/policy.mjs) |
+| [`tests/`](tests/) | offline tests for the session: mock Doppler, pseudo-terminals, simulated host, synthetic and pinned ccxt-mcp |
 | [`references/prompts.md`](references/prompts.md) | copyable prompts for setup, diagnosis, read-only checks and planning (the agent replies in the user's language) |
 
 ## Verification and limits
@@ -200,17 +224,28 @@ documented venue facts before the run (381 scenarios, 5422 checks, 0 failures,
   on the deposit-only profile, MEXC key rights, TON alphabets, plus every earlier gate and the
   independent review's probes, imported unchanged.
 
-**Session profiles** (`python3 -I tests/test_session.py`; the pinned-server class also runs
-inside `unshare -rn` with `FUNDKIT_REAL_CCXT_MCP`) cover these cases:
+**Session profiles** (`python3 -I -m unittest discover -s tests -t .`, 38 tests; the
+pinned-server test also runs inside `unshare -rn` with `FUNDKIT_REAL_CCXT_MCP`) cover these
+cases:
 
 - no prior setup, and profiles already connected (no Doppler request, no prompt);
-- the private terminal step on a real pseudo-terminal, with nothing echoed;
-- fetching only the route's names, forwarding only those values, to that profile's process only;
+- the private terminal steps on real pseudo-terminals, with nothing echoed;
+- exactly `<EXCHANGE>_APIKEY` and `<EXCHANGE>_SECRET` fetched for every venue, no third name,
+  no role-suffixed alias, values forwarded only to that profile's process;
+- the API passphrase on OKX, Bitget and KuCoin: asked in the session terminal, up front, or with
+  `fundkit passphrase` beside a wrapped host; once per exchange and session; cancel and empty
+  input; never in Doppler, the host, a file or another process;
+- one key in both roles when a route reverses, wrong-role denial on every write surface,
+  key check before recipient reads, exact UID for money moves, account conflicts, provisioning
+  and WhiteBIT restrictions, and the same decisions for a raw socket client;
 - redaction, and the native form forwarded with decline, accept and no answer;
-- a missing passphrase, an expired token, Ctrl-C at the prompt, a refused token type, no
-  terminal, Doppler ignoring the name filter, outages, `--ttl`, `SIGHUP` and `fundkit stop`;
+- an expired token, Ctrl-C at the prompt, a refused token type, no terminal, Doppler ignoring
+  the name filter, outages, `--ttl`, `SIGHUP` and `fundkit stop`;
 - cleanup of processes, files and socket, and reconnecting a running host to a new session;
 - `install` against the real `claude` and `codex` CLIs in a scratch home.
+
+Development checks: `npm ci`, then `npm run check` (Prettier, ESLint, `node --check`) and
+`ruff format --check tests && ruff check tests`.
 
 No real Doppler service, exchange key or model run was used.
 

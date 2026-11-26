@@ -47,7 +47,8 @@ only what the human pastes carries over.
    token: the user types it only into their own private terminal
    ([session profiles](#session-profiles-optional-doppler)), never into the chat. If one is
    pasted here, do not use it, do not repeat it, and ask the user to revoke it in Doppler and
-   create a new one.
+   create a new one. The same again for an exchange API passphrase (OKX, Bitget, KuCoin): it is
+   typed only in the private terminal; one pasted here means the user replaces that API key.
 2. **A plan is bound to exact arguments and an expiry.** Writes are `transfer`, `withdraw`,
    `create_order`, `cancel_*`, `set_*`, `call_write_method` and `call_implicit_write`. Before any
    write, show a plan with the **full JSON arguments** of every call and `expires <UTC>`, and get
@@ -203,20 +204,48 @@ order, without asking the user for aliases:
      Doppler service token there (the input is hidden), then say they are done. Do not ask
      for the token, do not wait in a loop, and do not run the command yourself. Then call
      `fundkit_profiles` again.
+   - `PASSPHRASE_NEEDED` (OKX, Bitget, KuCoin): pass on the result's `userStep` in the user's
+     language and stop until they say they are done; then call the same `fundkit_connect` again.
+     The passphrase is typed only in their private terminal, never in the chat. In Russian, for
+     example: «Для OKX нужен API passphrase. Переключитесь в терминал, где запущен
+     `fundkit session`: там появился запрос `OKX API passphrase`. Введите его там (ввод скрыт),
+     не в этот чат, и напишите «готово».» When the session runs the host (`-- claude`), the step
+     is `fundkit passphrase okx` in another terminal: «…откройте второй терминал на этой машине и
+     выполните `fundkit passphrase okx`…». `PASSPHRASE_CANCELLED` or `PASSPHRASE_TIMEOUT`: the
+     operator did not enter it; say so, and connect again only if the user asks for it.
 3. **Neither.** Follow the last paragraph of [Step 0](#step-0-preflight-read-only).
 
-How a session profile works. `fundkit_connect` starts one pinned `ccxt-mcp` process for that
-account. The session fetches only that exchange and role's fixed Doppler names
-(`<EXCHANGE>_<DEPOSIT|SOURCE|SETTLEMENT>_<APIKEY|SECRET|PASSWORD>`, `PASSWORD` for OKX, Bitget
-and KuCoin) and gives them to that process alone. No value ever reaches you.
-Call every tool of a session profile through `fundkit_read
+How a session profile works. The operator's Doppler config holds one account per exchange,
+under exactly `<EXCHANGE>_APIKEY` and `<EXCHANGE>_SECRET`
+([scheme D](references/security.md#scheme-d-session-only-doppler-profiles-optional)). OKX,
+Bitget and KuCoin also need their API passphrase, which is not in Doppler: the operator types it
+in the private terminal once per exchange and session. `fundkit_connect` starts one pinned
+`ccxt-mcp` process for that account and role, with only those values. No value ever reaches
+you. Call every tool of a session profile through `fundkit_read
 {"alias":"<alias>","tool":"<tool>","arguments":{…}}`, with exactly the JSON you would pass to
-that tool directly ([call syntax](#call-syntax)). Money moves go only through `fundkit_write`
-(`withdraw`, `transfer`), after `APPROVE <PLAN-ID>` and `WITHDRAW <PLAN-ID>` as in 2.5. The
-call opens the same native form and the human's answer decides. Everything else in this
-skill applies unchanged: Step 0 runs on every session profile, and so do the key checks, the
-setup record and the rules.
+that tool directly ([call syntax](#call-syntax)). Money moves go only through `fundkit_write
+{"alias":"<alias>","tool":"withdraw|transfer","uid":"<UID from the setup record>","arguments":{…}}`,
+after `APPROVE <PLAN-ID>` and `WITHDRAW <PLAN-ID>` as in 2.5. The call opens the same native form
+and the human's answer decides. Everything else in this skill applies unchanged: Step 0 runs on
+every session profile, and so do the key checks, the setup record and the rules.
 
+- **One key, several local roles.** Every role of one exchange uses the same key and account:
+  `okx-src` on an OKX → Bybit route and `okx-dst` on the reversed route are the same OKX account,
+  and the connect result's `account.sameAccountAs` says so. Never present them as two accounts.
+  The key's exchange-side rights are whatever the operator granted (`keyCapability`): report what
+  the venue key check shows and never call a key read-only unless the check shows that. The role
+  is enforced by fundkit (`roleScope`): a deposit-only profile forwards only Step 0, key-check,
+  network, recipient and deposit-history reads, and no money move; settlement forwards `transfer`
+  but not `withdraw`; source forwards `withdraw` and `transfer`. `ROLE_DENIED` means you used the
+  wrong profile: never retry it on another role to get around the refusal.
+- **UID binding.** Recipient reads and money moves need this profile's key check first
+  (`KEY_CHECK_REQUIRED` names the call). `fundkit_write` needs `uid`, the setup record's UID for
+  that exchange, equal to what the key check showed (`UID_REQUIRED`, `UID_MISMATCH`: stop).
+  `ACCOUNT_CONFLICT`: two profiles of one exchange showed different UIDs; stop and tell the
+  operator. Read `venueScope` and surface its restrictions to the user (WhiteBIT: no key read, so
+  no API money move; Gate and MEXC: key rights from the setup record; Gate and WhiteBIT
+  provisioning reads need the session's `--allow-provisioning`, `PROVISIONING_NOT_AUTHORIZED`
+  otherwise).
 - The registration name is `fundkit/<alias>`. `configPath` and `journal` are what
   `get_safety_status` reports, and the setup record must name them for a money-moving role.
 - `list_accounts` shows `credentials: []` on a session profile because the key comes from
@@ -227,9 +256,10 @@ setup record and the rules.
   session.
 - Errors: `NO_SESSION`, `TOKEN_REJECTED` (the token is expired or revoked; the session has
   ended) and `SESSION_ENDED` mean the user repeats the private terminal step. `MISSING_SECRETS`
-  lists the missing names: the operator adds them to the Doppler config, and the session
-  stays active. `DOPPLER_UNAVAILABLE`, `DOPPLER_RATE_LIMITED` and `DOPPLER_TIMEOUT`: try once
-  later, then hold. `ALIAS_IN_USE`: another host session holds that profile.
+  lists the missing names (always the plain `<EXCHANGE>_APIKEY` / `<EXCHANGE>_SECRET`): the
+  operator adds them to the Doppler config, and the session stays active.
+  `DOPPLER_UNAVAILABLE`, `DOPPLER_RATE_LIMITED` and `DOPPLER_TIMEOUT`: try once later, then hold.
+  `ALIAS_IN_USE`: another host session holds that profile.
 - If the session ends while a `withdraw` or `transfer` is open, the result says the outcome
   is unknown. Retry nothing and reconcile ([2.7](#27-reconciliation)) on a new session.
 
@@ -298,7 +328,11 @@ For each server involved:
    exchange's API page and keeps it in the [setup record](references/security.md#setup-record):
    registration name, alias, exchange, environment, `configPath`, `journal`, account UID and
    role. Later chats compare every field against that record without opening the exchange. Any
-   difference is a stop. A deposit-only profile must show no withdrawal right. A source profile
+   difference is a stop. A deposit-only profile registered outside fundkit must show no
+   withdrawal right. A deposit-only **session profile** may sit on a write-enabled key, because
+   scheme D keeps one key per exchange and fundkit enforces the role: report the key's real
+   rights ("withdrawal right present; deposit-only enforced by fundkit"), never "read-only", and
+   check that every role of that exchange shows the same UID. A source profile
    that will withdraw must show the withdrawal right and an IP binding. Where the venue has no
    such read (WhiteBIT), or its reads show no key permissions (Gate; MEXC, whose `canWithdraw`
    is an account flag, not a key right), the setup record's key-rights line stands behind the
@@ -423,7 +457,9 @@ Match what you see:
 | You see | Tell the operator |
 |---|---|
 | `fundkit_profiles` says `session: "none"`, or `NO_SESSION`, `TOKEN_REJECTED`, `SESSION_ENDED` | Run `fundkit session` in a separate private terminal on this machine and paste the read-only Doppler service token there (input hidden); keep that terminal open ([session profiles](#session-profiles-optional-doppler)) |
-| `MISSING_SECRETS` with names | Add exactly those names to the Doppler config the token reads; nothing else is fetched. The session stays active |
+| `MISSING_SECRETS` with names | Add exactly those names (`<EXCHANGE>_APIKEY`, `<EXCHANGE>_SECRET`) to the Doppler config the token reads; nothing else is fetched. The session stays active |
+| `PASSPHRASE_NEEDED`, `PASSPHRASE_CANCELLED`, `PASSPHRASE_TIMEOUT` | Type the exchange's API passphrase where the `userStep` says: the `fundkit session` terminal, or `fundkit passphrase <exchange>` in another terminal; never in the chat ([session profiles](#session-profiles-optional-doppler)) |
+| `ROLE_DENIED`, `KEY_CHECK_REQUIRED`, `UID_REQUIRED`, `UID_MISMATCH`, `ACCOUNT_CONFLICT`, `PROVISIONING_NOT_AUTHORIZED`, `UID_NOT_VERIFIABLE` | Quote the message. A local role, UID or venue gate held; nothing reached the exchange ([session profiles](#session-profiles-optional-doppler)) |
 | `SERVER_NOT_INSTALLED` | Run `fundkit install` once on this machine ([security.md](references/security.md#scheme-d-session-only-doppler-profiles-optional)) |
 | no `ccxt-mcp` and no `fundkit` tools | No server is connected to this chat; you cannot see why. Set up the [venue profile](references/security.md#venue-profiles) for each named exchange, restart the host, start a new chat with the [setup prompt](references/prompts.md#setup-and-diagnosis) |
 | `get_safety_status` lists no account for the venue (`list_accounts` may be missing: with `hideDisabledTools` and no accounts it is not listed), or `UNKNOWN_ACCOUNT` | The connected server has no account for this exchange: add it to its `config.json`, or register a server whose `CCXT_MCP_CONFIG` points to that profile; restart |
@@ -448,7 +484,9 @@ matters for `10005`). The Bybit-specific rows, with the
 | You see | Tell the operator |
 |---|---|
 | `fundkit_profiles` says `session: "none"`, or `NO_SESSION`, `TOKEN_REJECTED`, `SESSION_ENDED` | Run `fundkit session` in a separate private terminal on this machine and paste the read-only Doppler service token there (input hidden); keep that terminal open ([session profiles](#session-profiles-optional-doppler)) |
-| `MISSING_SECRETS` with names | Add exactly those names to the Doppler config the token reads; nothing else is fetched. The session stays active |
+| `MISSING_SECRETS` with names | Add exactly those names (`<EXCHANGE>_APIKEY`, `<EXCHANGE>_SECRET`) to the Doppler config the token reads; nothing else is fetched. The session stays active |
+| `PASSPHRASE_NEEDED`, `PASSPHRASE_CANCELLED`, `PASSPHRASE_TIMEOUT` | Type the exchange's API passphrase where the `userStep` says: the `fundkit session` terminal, or `fundkit passphrase <exchange>` in another terminal; never in the chat ([session profiles](#session-profiles-optional-doppler)) |
+| `ROLE_DENIED`, `KEY_CHECK_REQUIRED`, `UID_REQUIRED`, `UID_MISMATCH`, `ACCOUNT_CONFLICT`, `PROVISIONING_NOT_AUTHORIZED`, `UID_NOT_VERIFIABLE` | Quote the message. A local role, UID or venue gate held; nothing reached the exchange ([session profiles](#session-profiles-optional-doppler)) |
 | `SERVER_NOT_INSTALLED` | Run `fundkit install` once on this machine ([security.md](references/security.md#scheme-d-session-only-doppler-profiles-optional)) |
 | no `ccxt-mcp` and no `fundkit` tools | No server is connected to this chat; you cannot see why. Set up the [Bybit deposit profile](references/security.md#bybit-deposit-profile), restart the host and start a new chat |
 | `get_safety_status` has no Bybit account (`list_accounts` may be missing: with `hideDisabledTools` and no accounts it is not listed), or `UNKNOWN_ACCOUNT` | The connected server has no Bybit account: add one to its `config.json`, or register a server whose `CCXT_MCP_CONFIG` points to the Bybit profile; restart |
@@ -479,6 +517,10 @@ Use one alias with `"funds": "live"` for every read below.
    gives deposit addresses only to main-account keys). Otherwise stop and ask for a new
    read-only main-account key. A transfer or trading category can appear in the metadata of
    a read-only key. The read-only flag must be explicit; keep the separate Withdraw exclusion.
+   On a scheme D session profile (`bybit-dst`) the one Bybit key of the Doppler config may be
+   write-enabled: then report `readOnly: 0` and its permissions exactly as shown, say that the
+   deposit-only role is enforced by fundkit, never call the key read-only, and keep
+   `isMaster: true` as a requirement ([session profiles](#session-profiles-optional-doppler)).
    Report `userID`, `note` and `ips`; never repeat `apiKey` (the
    server redacts it). The operator confirms that `userID` is their Bybit UID (shown when
    they created the key).
@@ -526,6 +568,8 @@ destination profile for B (read-only key, `funds` for the recipient read), and, 
 move the credit, a separate settlement registration for the same B account (read + internal
 transfer, no withdrawal), each in its own server with its own credentials
 ([scheme C](references/security.md#scheme-c-per-profile-credential-files-two-profile-session)).
+With session profiles (scheme D) every role of one exchange uses that exchange's one Doppler key
+instead, and fundkit enforces the roles ([session profiles](#session-profiles-optional-doppler)).
 Every profile that moves money is a
 [money-moving registration](references/security.md#money-moving-registrations), and every
 registration matches the [setup record](references/security.md#setup-record) (Step 0).
@@ -985,7 +1029,8 @@ Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | as
    `10005`), and the deposit-only profile keeps `dryRun: true` throughout. Only the settlement
    registration has `dryRun` removed. The settlement registration must be a separate registration with role
    `settlement` in the setup record, show no withdrawal right and an internal-transfer right in
-   its key check, and report the same account UID as the deposit-only profile's key check and
+   its key check (a scheme D `<B>-settle` profile shares B's one key: report its rights as shown,
+   since fundkit forwards no `withdraw` on it), and report the same account UID as the deposit-only profile's key check and
    the setup record. Without such a registration, finish as credited and report that the
    transfer is held. If no onward transfer was requested, the route ends with the credit.
    Immediately before the plan, re-read B's deposit by the same hash (fresh credit: still one

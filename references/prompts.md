@@ -35,10 +35,26 @@ a fresh Claude Code or Codex session needs no `Read SKILL.md` line and no aliase
 
 The agent uses connected profiles first. If OKX (source) or Bybit (deposit-only) is missing, it
 asks you to run `fundkit session` in a second terminal on that machine and paste a read-only
-Doppler service token there (hidden), then connects `okx-src` and `bybit-dst` itself. It runs
-Step 0 and the key checks, asks for the operation record, and stops at the plan. If the host
-does not pick the skill by itself, start with `/usdt-funding` (Claude Code), `$usdt-funding`
-(Codex) or `Read SKILL.md` and the same sentence.
+Doppler service token there (hidden), then connects `okx-src` and `bybit-dst` itself. The
+Doppler config needs only `OKX_APIKEY`, `OKX_SECRET`, `BYBIT_APIKEY` and `BYBIT_SECRET`.
+OKX also needs its API passphrase: the agent tells you, in your language, to type it in that
+second terminal, which is already asking for it, for example:
+
+```text
+Для OKX нужен API passphrase. Переключитесь в терминал, где запущен `fundkit session`: там появился запрос `OKX API passphrase (for the key in OKX_APIKEY):`. Введите его там (ввод скрыт), не в этот чат, и напишите «готово».
+```
+
+You type it there once per session, reply `готово`, and the agent continues. It runs Step 0 and
+the key checks, asks for the operation record, and stops at the plan. The reverse route
+(`переведи 200 USDT с Bybit на OKX`) in the same session uses the same two keys in the other
+roles (`bybit-src`, `okx-dst`) and asks for nothing new. If the host does not pick the skill by
+itself, start with `/usdt-funding` (Claude Code), `$usdt-funding` (Codex) or `Read SKILL.md` and
+the same sentence.
+
+One terminal instead of two: `fundkit session --passphrase okx -- claude` asks for the token and
+the OKX passphrase first, then starts Claude Code there. If a passphrase is needed later in that
+setup, the agent asks you to run `fundkit passphrase <exchange>` in another terminal on the
+machine.
 
 ## Read-only starting prompt
 
