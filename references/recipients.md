@@ -14,7 +14,11 @@ no real key was used. Readiness for a real account is not established by these t
 ## Status by destination venue
 
 `d` is B's deposit fee and `min` B's deposit minimum ([2.3](../SKILL.md#23-debit-withdraw-amount-and-credit)).
-"Native" means the agent reads every recipient field itself (the read still relies on the
+Where B's healthy lookup publishes no applicable `min` (marked "fallback" below), `min` is
+Fundkit's [operator fallback](deposit-minimum-fallback.md): 1 unit of the coin on the
+conservative credit, inclusive, recorded as Fundkit's assumption with the venue minimum
+unknown, never as the venue's figure. A `min` field that is present but not an exact decimal,
+or contrary evidence, holds. "Native" means the agent reads every recipient field itself (the read still relies on the
 profile's setup-record lines: [prerequisites by route](#prerequisites-by-route)). "Hold" means
 the route needs a fact that no live field or official source supplies, so the agent stops. For
 B's minimum or deposit fee the user may choose to supply that one value as a
@@ -26,15 +30,15 @@ it for another (Binance.com).
 
 | Destination | Recipient read | Key scope (no UID binding) | `d` | `min` | Status |
 |---|---|---|---|---|---|
-| Bybit | [SKILL.md flow](../SKILL.md#bybit-deposit-address) | `query-api`: `readOnly`, `permissions`, `isMaster` | 0, [Bybit fees page](https://www.bybit.com/en/help-center/article/Bybit-Fees-You-Need-to-Know) | `depositMin` | native; `batchReleaseLimit` must be `"-1"` ([cap](#bybit-inbound-cap)) |
-| OKX | currency-wide list, filtered to `ccy`, chain and `selected`, then exactly one | `account/config`: `perm`, `label`, `ip` | 0, [OKX help](https://www.okx.com/en-eu/help/do-i-need-to-pay-fees-for-deposit-and-withdrawal): no fee on deposits above the minimum | `minDep` from the raw currency rows | native |
-| Bitget (classic) | raw funds-gated address read alone, with the live chain id | `spot/account/info`: `authorities`, `ips` | 0, [Bitget article](https://www.bitget.com/support/articles/12560603820706): "Bitget does not charge any fees for deposits." | `minDepositAmount` | native on all four, BEP20 included ([Bitget](#bitget)); UTA: hold |
-| BingX | one row per network in the address list | `apiPermissions` (numeric codes) | 0, [BingX Learn](https://bingx.com/en/learn/how-to-deposit-crypto-with-bingx): "BingX does not charge fees for crypto deposits." (a venue article, not a fee schedule) | the chosen chain's live `depositMin` in `config/getall`, which [BingX's API docs](https://bingx-api.github.io/docs/#/en-us/common/wallet-api.html) define as "Minimum deposit amount" ([BingX](#bingx)) | native; deposit credit only on raw status `6` |
-| Binance | default row of the address list | `apiRestrictions` flags | 0, [Binance fee page](https://www.binance.com/en/fee/cryptoFee): "Binance does not charge deposit fees." | `depositDust` is not described in Binance's reference (only an example value), so it is not a minimum | address native; `min` hold |
-| MEXC | raw funds-gated address list alone, rows matched by the config row's `network` string | `account` proves only that the key signs; key rights and IP allowlist from the setup record (`canWithdraw` is an account flag) | 0, [MEXC Learn, 2026-10-20](https://www.mexc.com/learn/article/mexc-fees-explained-complete-trading-futures-withdrawal-fees-guide/1): "MEXC does not charge to receive crypto deposits" (a venue article, not a fee schedule) | no API field; `depositTips` is free text | address native; `min` hold |
-| KuCoin (classic) | v3 address list | `user/api-key`: `permission`, `isMaster` | live `depositFeeRate` × amount when it is a decimal and `depositTierFee` is empty; absent (both empty, as on the live read of 2026-11-25), a tier fee (undocumented semantics) or a non-decimal: unknown. KuCoin's fee pages say part of their content is outdated, and no entity-specific deposit-fee statement was found | `depositMinSize` (`null` = unknown) | address native; `d` hold while the fields are empty; UTA: hold |
-| WhiteBIT | address object for the requested network (may provision, [below](#provisioning-reads)) | none in ccxt 4.5.85 | `required.fixedFee` and `required.flexFee` in the same response | `required.minAmount` | native with operator setup evidence: the contract is the operator's one-time reading pinned in the setup record, and the [entity line](exchanges.md#entity-lines) must give a jurisdiction outside the EEA and Turkey ([WhiteBIT](#whitebit)); without the pin: hold |
-| Gate | `multichain_addresses` row (may provision, [below](#provisioning-reads)) | `account/detail`: `ip_whitelist`, `key.mode` (no permission fields) | `withdraw_status.deposit`, documented as "Deposit fee" (currency-level; there is no per-chain deposit-fee field) | top-level `min_deposit_amount` counts only when the unfiltered list has exactly one row, for the chosen chain, eligible ([Gate](#gate)) | address native; `min` hold unless that holds |
+| Bybit | [SKILL.md flow](../SKILL.md#bybit-deposit-address) | `query-api`: `readOnly`, `permissions`, `isMaster` | 0, [Bybit fees page](https://www.bybit.com/en/help-center/article/Bybit-Fees-You-Need-to-Know) | `depositMin`; absent: fallback | native; `batchReleaseLimit` must be `"-1"` ([cap](#bybit-inbound-cap)) |
+| OKX | currency-wide list, filtered to `ccy`, chain and `selected`, then exactly one | `account/config`: `perm`, `label`, `ip` | 0, [OKX help](https://www.okx.com/en-eu/help/do-i-need-to-pay-fees-for-deposit-and-withdrawal): no fee on deposits above the minimum | `minDep` from the raw currency rows; absent: fallback | native |
+| Bitget (classic) | raw funds-gated address read alone, with the live chain id | `spot/account/info`: `authorities`, `ips` | 0, [Bitget article](https://www.bitget.com/support/articles/12560603820706): "Bitget does not charge any fees for deposits." | `minDepositAmount`; absent: fallback | native on all four, BEP20 included ([Bitget](#bitget)); UTA: hold |
+| BingX | one row per network in the address list | `apiPermissions` (numeric codes) | 0, [BingX Learn](https://bingx.com/en/learn/how-to-deposit-crypto-with-bingx): "BingX does not charge fees for crypto deposits." (a venue article, not a fee schedule) | the chosen chain's live `depositMin` in `config/getall`, which [BingX's API docs](https://bingx-api.github.io/docs/#/en-us/common/wallet-api.html) define as "Minimum deposit amount" ([BingX](#bingx)); absent: fallback | native; deposit credit only on raw status `6` |
+| Binance | default row of the address list | `apiRestrictions` flags | 0, [Binance fee page](https://www.binance.com/en/fee/cryptoFee): "Binance does not charge deposit fees." | none published (`depositDust` is not described in Binance's reference, only an example value, so it is never the minimum; unreadable or above 1 is contrary evidence): fallback | native; `min` fallback |
+| MEXC | raw funds-gated address list alone, rows matched by the config row's `network` string | `account` proves only that the key signs; key rights and IP allowlist from the setup record (`canWithdraw` is an account flag) | 0, [MEXC Learn, 2026-10-20](https://www.mexc.com/learn/article/mexc-fees-explained-complete-trading-futures-withdrawal-fees-guide/1): "MEXC does not charge to receive crypto deposits" (a venue article, not a fee schedule) | no API field (`depositTips` is free text): fallback | native; `min` fallback |
+| KuCoin (classic) | v3 address list | `user/api-key`: `permission`, `isMaster` | live `depositFeeRate` × amount when it is a decimal and `depositTierFee` is empty; absent (both empty, as on the live read of 2026-11-25), a tier fee (undocumented semantics) or a non-decimal: unknown. KuCoin's fee pages say part of their content is outdated, and no entity-specific deposit-fee statement was found | `depositMinSize`; `null` (KuCoin's unset value) or absent: fallback | address native; `d` hold while the fields are empty; UTA: hold |
+| WhiteBIT | address object for the requested network (may provision, [below](#provisioning-reads)) | none in ccxt 4.5.85 | `required.fixedFee` and `required.flexFee` in the same response | `required.minAmount`; absent: fallback | native with operator setup evidence: the contract is the operator's one-time reading pinned in the setup record, and the [entity line](exchanges.md#entity-lines) must give a jurisdiction outside the EEA and Turkey ([WhiteBIT](#whitebit)); without the pin: hold |
+| Gate | `multichain_addresses` row (may provision, [below](#provisioning-reads)) | `account/detail`: `ip_whitelist`, `key.mode` (no permission fields) | `withdraw_status.deposit`, documented as "Deposit fee" (currency-level; there is no per-chain deposit-fee field) | top-level `min_deposit_amount` counts only when the unfiltered list has exactly one row, for the chosen chain, eligible ([Gate](#gate)); otherwise fallback (a currency-level value above 1 is contrary evidence) | native; `min` fallback unless single-chain |
 
 Network ids for Bitget, KuCoin, Gate and WhiteBIT were also compared with their keyless public
 endpoints on 2026-11-25. Fee and policy pages were checked on the same day. The sheet or plan names the page as the source of
@@ -52,10 +56,14 @@ one route can use all three, so per-class counts do not add up.
 | Venue-specific setup | once; only the routes that touch that venue | whitelist entry in the setup record (sources other than Binance and Gate); [entity line](exchanges.md#entity-lines) (Binance, Bybit, OKX, BingX sources; WhiteBIT either side); key rights or IP line where no read shows them (key rights: Gate, MEXC, WhiteBIT; IP: MEXC, WhiteBIT); BingX permission-code meanings; provisioning consent (Gate, WhiteBIT as B); WhiteBIT contract pin |
 | Per-plan fact | only if the user opts in, for one plan | B's deposit minimum or fee read on B's deposit page ([rule](../SKILL.md#per-plan-human-read-facts)) |
 
-Offline result for the 72 directed pairs (synthetic fixtures, each expectation fixed before the
-run; [verification](ccxt-mcp.md#verification)); none of this shows that a real route is ready:
+Result for the 72 directed USDT pairs; none of this shows that a real route is ready. The
+offline run (synthetic fixtures, each expectation fixed before the run;
+[verification](ccxt-mcp.md#verification)) found 36 settling after setup, 28 needing a per-plan
+fact and 8 holding. The [operator fallback](deposit-minimum-fallback.md) then moved the 21
+routes into Binance, MEXC and multi-chain Gate that needed only a minimum. That move follows
+from the rule; it was not re-run offline:
 
-- **36 settle after the one-time setup**, with the human's per-plan part limited to
+- **36 settle after the one-time setup on published fields**, with the human's per-plan part limited to
   `APPROVE`, `WITHDRAW` and the native forms: A ∈ Binance, Bybit, Gate, OKX, Bitget, BingX,
   MEXC, KuCoin → B ∈ Bybit, OKX, Bitget, BingX, WhiteBIT (A ≠ B). Every one uses the common
   setup **and** at least one venue-specific fact; none runs on live fields alone. Of the 36:
@@ -63,9 +71,12 @@ run; [verification](ccxt-mcp.md#verification)); none of this shows that a real r
   IP allowlist from the setup record 12 (MEXC sources; WhiteBIT, which has no key read, as B),
   BingX permission codes 11, provisioning consent 8, WhiteBIT contract pin 8. 28 of them also run the separate settlement plan on B (Bybit, OKX, Bitget,
   BingX); the 8 to WhiteBIT end credited.
-- **28 more settle only with a per-plan human-read fact** the user opts to supply: every
-  source except WhiteBIT → Binance or MEXC (minimum), Gate (minimum on a multi-chain address
-  response) or KuCoin (deposit fee). Without it they hold before any money call.
+- **21 more settle after the one-time setup on the operator fallback minimum**: every source
+  except WhiteBIT → Binance, MEXC or Gate (multi-chain address response), each recorded as
+  Fundkit's assumption, not the venue's figure. The user may still supply the venue's own
+  minimum as a per-plan human-read fact; it then wins.
+- **7 settle only with a per-plan human-read fact** the user opts to supply: every source
+  except WhiteBIT → KuCoin (deposit fee). Without it they hold before any money call.
 - **8 hold for an API withdrawal whatever the user supplies**: WhiteBIT as source (its
   available amount is not visible through these tools). The safer alternative that remains is
   the [manual withdrawal sheet](../SKILL.md#29-manual-withdrawal-in-exchange-as-ui) in
@@ -76,9 +87,15 @@ run; [verification](ccxt-mcp.md#verification)); none of this shows that a real r
 Recipient reads (Scenario 1, 9 venues × 4 networks): all 36 verify address, memo, chain and
 contract, each relying on the profile's registration line, and on Gate, MEXC and WhiteBIT also
 on the key-rights line (MEXC and WhiteBIT also the IP line; BingX the permission codes; Gate and
-WhiteBIT provisioning consent; WhiteBIT the contract pin). A send can be planned without a per-plan fact to 20 of
-them (Bybit, OKX, Bitget, BingX, WhiteBIT); 16 need one (Binance, MEXC, multi-chain Gate
-minimum; KuCoin fee).
+WhiteBIT provisioning consent; WhiteBIT the contract pin). A send can be planned without a per-plan fact to 32 of
+them: 20 on published minimums (Bybit, OKX, Bitget, BingX, WhiteBIT) and 12 on the operator
+fallback (Binance, MEXC, multi-chain Gate; by the rule, not re-run offline); 4 need one
+(KuCoin fee).
+
+USDC: the native tools read Binance and Bybit for USDC on BEP20 and ERC20 with the calls below,
+the coin replacing `USDT` in every argument ([rule](deposit-minimum-fallback.md#scope-policy-versus-support)).
+These documented reads were verified for USDT only, so a USDC request outside the native tools
+holds with `ASSET_NOT_VERIFIED`.
 
 ## Common procedure
 
@@ -235,11 +252,13 @@ a read is not documented.
 - **Minimum.** ccxt 4.5.85 maps `depositDust` to the deposit minimum. Binance's reference shows
   that field only as an example value and does not say what it means (`withdrawMin` and the
   other fields are named for what they are). A live field without documented meaning is not
-  used, so the route holds on `min` unless the user supplies the minimum from Binance's deposit
-  page as a [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts). The one
-  exception is the native `fundkit_transfer_prepare` flow on USDT BEP20, which uses Fundkit's
-  own [operator fallback minimum](binance-bep20-minimum-fallback.md) (not a Binance value, no
-  guarantee of credit; `depositDust` above it or unreadable holds, and is never the minimum). A description in
+  used as a minimum, so Binance publishes none on any chain and `min` is Fundkit's
+  [operator fallback](deposit-minimum-fallback.md), 1 unit of the coin (not a Binance value, no
+  guarantee of credit). `depositDust` that is unreadable or above it is contrary evidence and
+  holds; `busy: true` holds. A `depositMin` on the row, if Binance ever supplies one, is applied
+  instead whatever its value; an unreadable one holds. The user may supply the minimum from
+  Binance's deposit page as a [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts);
+  it then wins. A description in
   another entity's documentation (for example Binance TH) does not apply to a Binance.com
   account. (BingX is different: its own API docs define `depositMin`, [below](#bingx).)
 - Landing wallet: the response has none. Binance's typical deposit wallet is Spot
@@ -333,7 +352,8 @@ and a new plan or sheet (verified offline).
   `Network` object as "Minimum deposit amount", one per network row. ccxt's
   `fetchDepositWithdrawFee` reads that endpoint, so `info["<code>"].info.depositMin` is the
   minimum for that chain. Use the row whose `network` equals the chosen id, never another
-  chain's row. A missing, `null`, non-decimal or negative value holds on `min`; a changed value
+  chain's row. A `null`, non-decimal or negative value holds on `min`; a row without the field
+  takes the [operator fallback](deposit-minimum-fallback.md); a changed value
   or `depositEnable: false` at the recheck means zero dispatch (verified offline). Captured
   2026-11-25 07:44 UTC: the docs page loads `static/js/app.4dcba784df17c52faa47.js`
   (sha256 `77094f2a99bdca9c1b8e41a260c3657a6ed6b8febe30818b486cb54fe0b14d8f`,
@@ -389,10 +409,11 @@ and a new plan or sheet (verified offline).
   the config row (sourced from the same network data), never from the network name.
 - Memo: on TRC20, BEP20 and ERC20 a `memo: null` means none
   ([memo rule](#memo-absent-versus-empty)). A TON row without a string memo holds.
-- **Minimum: hold.** MEXC's [API reference](https://mexcdevelop.github.io/apidocs/spot_v3_en/)
+- **Minimum: operator fallback.** MEXC's [API reference](https://mexcdevelop.github.io/apidocs/spot_v3_en/)
   lists no deposit-minimum field for `capital/config/getall`. `depositTips` is free text with no
-  defined format, so the skill does not read a minimum from it. The route holds on `min` unless
-  the user supplies it from MEXC's deposit page as a
+  defined format, so the skill does not read a minimum from it. `min` is Fundkit's
+  [operator fallback](deposit-minimum-fallback.md), 1 unit of the coin, recorded as such, unless
+  the user supplies MEXC's own minimum from its deposit page as a
   [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts).
 - **Rights.** MEXC documents a permission per endpoint: `GET /api/v3/capital/deposit/address`,
   `capital/config/getall` and the deposit and withdrawal histories need `SPOT_WITHDRAW_READ`,
@@ -451,17 +472,18 @@ and a new plan or sheet (verified offline).
   `min_deposit_amount` at the top level of the address response, next to `currency`, not per
   chain. It counts as the chain's minimum only when the unfiltered `multichain_addresses` list
   has exactly one row, that row is the chosen chain and it is eligible (`obtain_failed: 0`).
-  A single row for another chain, several rows, or a failed row: the minimum is not established
-  for that chain, and the send holds on `min` (verified offline all three ways).
+  A single row for another chain, several rows, or a failed row: Gate's minimum is not
+  established for that chain (verified offline all three ways), so `min` is Fundkit's
+  [operator fallback](deposit-minimum-fallback.md). A currency-level `min_deposit_amount` above
+  1 on such a response is contrary evidence and holds; an unreadable one holds.
 - **Deposit fee.** `call_implicit_get {"exchange":"gate","account":"<alias>","method":"privateWalletGetWithdrawStatus","params":{"currency":"USDT"}}`
   returns `deposit`, which Gate's reference and the official SDK model describe as "Deposit fee".
   Gate has no per-chain deposit-fee field, so this currency-level value is `d` (verified offline,
   including a response without the field, which holds).
-- Routes to Gate therefore hold on `min` unless the address response is single-chain as above
-  (then the route qualifies, verified offline). Otherwise the user may supply the minimum
-  from Gate's deposit page as a [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts)
-  for an API plan, or send through the
-  [withdrawal sheet](../SKILL.md#29-manual-withdrawal-in-exchange-as-ui) or Scenario 1.
+- Routes to Gate therefore use Gate's minimum when the address response is single-chain as
+  above (verified offline), and the operator fallback otherwise. The user may still supply
+  Gate's own minimum from its deposit page as a
+  [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts); it then wins.
 
 ## Hyperliquid
 

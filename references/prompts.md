@@ -19,10 +19,12 @@ user's language and keeps the approval keywords (`APPROVE`, `WITHDRAW`) in Engli
   and history. It asks only for a fact that neither a tool nor the setup record supplies, and
   names that fact. It does not promise a route without questions when such a fact is missing.
 - After the one-time setup, a route's per-plan human part is `APPROVE`, `WITHDRAW` and the
-  native forms. Where B's minimum or deposit fee has no documented source (Binance, MEXC,
-  multi-chain Gate minimum; KuCoin fee), you may add that value from B's deposit page with its
-  read time, as a [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts); the agent
-  asks you to read it again just before the withdrawal.
+  native forms. Where B publishes no deposit minimum (Binance, MEXC, multi-chain Gate), the
+  agent uses Fundkit's [operator fallback](deposit-minimum-fallback.md) of 1 unit and says it is
+  not the exchange's figure; you may instead add B's own minimum from its deposit page. Where
+  B's deposit fee has no documented source (KuCoin), you may add it. Either value is a
+  [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts) with its read time, and the
+  agent asks you to read it again just before the withdrawal.
 
 ## Native requests (fundkit server connected; T3 Code first)
 

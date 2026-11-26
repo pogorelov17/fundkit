@@ -11,7 +11,8 @@ description: >-
   the connected exchange profiles itself and, with the optional fundkit server, connects
   missing ones for one session from a Doppler config after one private secret card (T3 Code) or
   a private terminal step. Native tools return a verified deposit address with an inline QR and
-  prepare exchange-to-exchange transfers confirmed by one bound human confirmation. Enforces
+  prepare exchange-to-exchange transfers confirmed by one bound human confirmation, for USDT and,
+  on Binance and Bybit (BEP20, ERC20), USDC. Enforces
   live network checks, an exact expiring plan, the host's native confirmation for every money
   move, and no retries on unknown outcomes.
 ---
@@ -44,7 +45,8 @@ They need no setup record, no UID, no typed `APPROVE`/`WITHDRAW`, no operator `-
 option and no questions about credentials, amounts, minimums or deposit pages.
 
 **"My deposit address"**, for example `Show my Binance USDT deposit address on BSC`: call
-`fundkit_deposit_address {"exchange":"binance","network":"BSC"}`. On `status: "verified"`,
+`fundkit_deposit_address {"exchange":"binance","network":"BSC"}` (add `"coin":"USDC"` when the
+user asks for USDC; USDC is native on BEP20 and ERC20 only). On `status: "verified"`,
 answer in the user's language with, in this order:
 
 1. If `memo.required`: the memo first, conspicuously, exactly as given (leading zeros kept),
@@ -62,7 +64,9 @@ no address: report its `message` as the exact reason.
 
 **A transfer between the user's exchanges**, for example `Move 300 USDT from Bybit to
 Binance`: call `fundkit_transfer_prepare {"from":"bybit","to":"binance","amount":"300"}`
-(pass `network` only if the user named one). Then:
+(pass `network` only if the user named one, and `"coin":"USDC"` for USDC). An error
+`ASSET_NETWORK_UNSUPPORTED` or `UNSUPPORTED_COIN` means fundkit does not support that coin on
+that chain: say so; nothing was read. Then:
 
 - `status: "hold"`: nothing was sent and nothing needs confirming. Tell the user each
   `reasons[].detail` plainly. Do not ask them to look up a value, open a deposit page or change
@@ -71,9 +75,10 @@ Binance`: call `fundkit_transfer_prepare {"from":"bybit","to":"binance","amount"
   network, amount, fee, debit, credit, recipient and memo with their source, the destination
   minimum with `destinationMinimumBasis`, expiry, `exchangeMayReject`, `onward`) and call
   `fundkit_transfer_confirm {"planId":"…"}` right away. When the basis is the Fundkit operator
-  fallback (Binance USDT on BEP20 only), say plainly that Binance's own minimum is unknown, that
-  the value is Fundkit's assumption and not a Binance figure, and that it does not guarantee the
-  credit; ask nothing more, the card carries the same statement.
+  fallback ([deposit minimum rule](#destination-deposit-minimum)), say plainly that the
+  destination's own minimum is unknown, that the value (one unit of the coin) is Fundkit's
+  assumption and not the exchange's figure, and that it does not guarantee the credit; ask
+  nothing more, the card carries the same statement.
   It opens exactly one confirmation card with every plan field. The card's labels are fixed
   English, so your message is where the user reads the plan in their own language. The human
   approves or declines on the card. Do not ask for a typed approval in the chat, and never
@@ -170,9 +175,12 @@ manual flows below only if the user asks for them.
 7. **Never guess the network, fee, minimum, contract or chain.** If a field did not come in a
    live response and [`exchanges.md`](references/exchanges.md) names no documented value for
    it, it is "unknown", and a network with an unknown field does not qualify. Sources that
-   disagree make the field unknown too. The one exception is a
-   [per-plan human-read fact](#per-plan-human-read-facts), which the user may choose to supply
-   for B's deposit minimum or deposit fee only. Do not suggest small "test" transfers.
+   disagree make the field unknown too. Two exceptions, both for B only: when B's healthy
+   lookup publishes no applicable deposit minimum, the minimum is the
+   [operator fallback](#destination-deposit-minimum), stated as Fundkit's assumption and never
+   as B's figure; and a [per-plan human-read fact](#per-plan-human-read-facts), which the user
+   may choose to supply for B's deposit minimum or deposit fee only. Do not suggest small
+   "test" transfers.
 8. **Hyperliquid is watch-only** by public address. No transfers, withdrawals, orders or
    private keys (collateral there is USDC).
 9. **Do not trust addresses from the chat.** The deposit address and memo have one source:
@@ -204,7 +212,8 @@ manual flows below only if the user asks for them.
    the selected network, fee (asset and amount), and applicable minimum from its live data or
    deposit page (deposit fee: a live field, or the venue's documented policy in the
    [destination status table](references/recipients.md#status-by-destination-venue), unless
-   a live field or the page shows otherwise). Recalculate net credit. If anything changed, cancel, replace the sheet, and
+   a live field or the page shows otherwise; minimum: B's published value or, where B still
+   publishes none, the [operator fallback](#destination-deposit-minimum)). Recalculate net credit. If anything changed, cancel, replace the sheet, and
    get fresh approval; if a field is unavailable or the minimum is missed, hold the send.
 
 ### Manual confirmation
@@ -449,11 +458,15 @@ sends from OKX Wallet, using the checked sheet.
    venue's documented policy in the
    [destination status table](references/recipients.md#status-by-destination-venue), so the
    human does not open the exchange for it. BingX's minimum is the chosen chain's live
-   `depositMin`, which BingX's API docs define as "Minimum deposit amount". If a field has
-   neither (the Binance and MEXC deposit minimum, the Gate minimum unless the address response
-   lists the chosen chain alone, the KuCoin deposit fee unless a live `depositFeeRate` without
-   a `depositTierFee` gives it), hold and name the missing field. The user may then choose to
-   supply that one value as a [per-plan human-read fact](#per-plan-human-read-facts). The
+   `depositMin`, which BingX's API docs define as "Minimum deposit amount". Where B publishes
+   no applicable deposit minimum (Binance and MEXC; Gate unless the address response lists the
+   chosen chain alone; any venue whose minimum field is absent), the minimum is the
+   [operator fallback](#destination-deposit-minimum): one unit of the coin, stated as such. A
+   minimum field that is present but not an exact decimal, or contrary evidence, holds. If the
+   deposit fee has neither a live field nor a documented policy (the KuCoin deposit fee unless a
+   live `depositFeeRate` without a `depositTierFee` gives it), hold and name the missing field.
+   The user may then choose to supply that one value as a
+   [per-plan human-read fact](#per-plan-human-read-facts). The
    WhiteBIT contract comes only from the operator's one-time pinned setup evidence, named as
    such on the sheet. If ccxt's id for the chain differs from the venue's live id on a call
    ccxt builds (Bitget BEP20 outbound), that network does not qualify: pick another one. If a
@@ -510,7 +523,9 @@ sends from OKX Wallet, using the checked sheet.
    exchange states it, require `C` ≥ minimum (that covers both). Example: `S = 150`, gas in
    TRX, `d = 1`, minimum 150: `C = 149` fails; `S = 151` gives `C = 150` and passes. Show the
    human a draft send sheet with the source wallet, destination account, network and contract,
-   `S`, network fee <amount or cap, asset, treatment>, `N`, `d`, expected `C`, the minimum and its basis, and the recorded memo requirement. Include
+   `S`, network fee <amount or cap, asset, treatment>, `N`, `d`, expected `C`, the minimum and its basis
+   (`venue <field>`, `human, <venue> deposit page, <UTC>`, or `Fundkit operator fallback 1 USDT,
+   venue minimum unknown, no guarantee of credit`), and the recorded memo requirement. Include
    the sources and UTC time of the route checks. Include the full recipient
    and exact memo and issue `SEND SHEET <ID>, created <UTC>, expires <UTC + 15 min>`.
 6. Follow [manual confirmation](#manual-confirmation). Refresh B's conditions, compare the
@@ -713,10 +728,11 @@ because it passes these gates offline.
    `call_implicit_get` response), with different field names per exchange. A field with no
    live source and no documented value in
    [`recipients.md`](references/recipients.md#status-by-destination-venue) is unknown and the
-   network does not qualify. Name the field. The user may supply it as a
-   [per-plan human-read fact](#per-plan-human-read-facts) if it is B's minimum or deposit fee,
-   or send manually ([2.9](#29-manual-withdrawal-in-exchange-as-ui)). Infer nothing from the
-   network name.
+   network does not qualify. Name the field. B's deposit minimum is the exception: when B
+   publishes none that applies, the [operator fallback](#destination-deposit-minimum) is the
+   minimum. The user may supply B's minimum or deposit fee as a
+   [per-plan human-read fact](#per-plan-human-read-facts), or send manually
+   ([2.9](#29-manual-withdrawal-in-exchange-as-ui)). Infer nothing from the network name.
 3. For **every route**, verify that A allows withdrawal and B allows deposit on the same
    [reference chain and USDT contract](#chains). Record each venue's network ID or UI label,
    the source and UTC time of each check, and all applicable minima and maxima. Compare
@@ -750,10 +766,11 @@ because it passes these gates offline.
 
 #### Per-plan human-read facts
 
-Where no live documented field and no documented policy gives B's **deposit minimum** or
-**deposit fee** (Binance and MEXC minimum, Gate's minimum on a multi-chain address response,
-KuCoin's fee while its fields are empty), the user may choose to read that one value on B's
-deposit page for this plan. The same rule applies on every venue:
+Where no live documented field and no documented policy gives B's **deposit fee** (KuCoin's
+fee while its fields are empty), or where the user prefers B's own **deposit minimum** to the
+[operator fallback](#destination-deposit-minimum) (Binance and MEXC, Gate on a multi-chain
+address response, any venue whose minimum field is absent), the user may choose to read that one
+value on B's deposit page for this plan. The same rule applies on every venue:
 
 - only those two fields, only where nothing documented supplies them. A human value never
   replaces a network id, contract, recipient, available amount, A's fee or step, a whitelist
@@ -768,17 +785,38 @@ A plan with such a fact is still an API withdrawal with `APPROVE`, `WITHDRAW` an
 form. Report it as "with a per-plan human-read fact", never as automatic, and never presume
 the value holds for the next plan.
 
-The native `fundkit_transfer_prepare` flow is different for one route only: Binance as B, USDT
-on BEP20, where it applies Fundkit's operator fallback minimum by itself
-([rule](references/binance-bep20-minimum-fallback.md)). That fallback is not a documented
-Binance value and does not extend to these manual flows, to other Binance chains or to any
-other venue.
+#### Destination deposit minimum
+
+One rule for every destination of the nine exchanges, for USDT and USDC, at every entry point:
+wallet top-ups (Scenario 1), API withdrawals (Scenario 2), manual withdrawals (2.9) and the
+native `fundkit_transfer_prepare` tool, which applies it by itself
+([full rule](references/deposit-minimum-fallback.md)):
+
+- **B's own minimum wins.** A minimum B publishes for that coin and chain, read live from its
+  healthy lookup and an exact non-negative decimal, is the minimum, whatever its value (0, lower
+  or higher than 1). Record its field. A user's per-plan human-read minimum is B's figure too.
+- **Otherwise the operator fallback:** when that lookup publishes no applicable minimum (the
+  field is absent, or B's only value does not apply to that chain; per venue in the
+  [status table](references/recipients.md#status-by-destination-venue)), the minimum is **1
+  unit of the actual coin** (1 USDT). Require `C_min ≥ 1`, inclusive, on the conservative
+  expected credit after every fee (2.3). Record it on the plan or sheet as
+  `Fundkit operator fallback 1 <coin>, venue minimum unknown`, with the statement that it is
+  Fundkit's assumption, not B's figure, and does not guarantee the credit. Never report it as
+  B's value. It needs no extra question or step.
+- **Still hold:** a minimum field that is present but not an exact decimal (`null`, empty,
+  text, negative); contrary evidence (Binance `depositDust` unreadable or above 1, Gate's
+  currency-level `min_deposit_amount` above 1 on a multi-chain response); any failed read,
+  disabled or suspended deposits, a wrong coin, chain or contract, an unsupported coin or chain,
+  and every recipient gate. The fallback never gets a route past them.
+- **Recheck.** At every refresh of B's conditions (Scenario 1 step 6, 2.5, 2.9), read B's
+  minimum source again. A minimum that has appeared, even one the amount clears, or any change
+  in the conditions above, means a new plan or sheet.
 
 #### Chains
 
 Only these chains and contracts. A chain qualifies only if **both** sides (the wallet or A,
-and B) support USDT on that exact chain at exactly that contract. The reference contracts
-matched across Gate, KuCoin and Bitget.
+and B) support the coin on that exact chain at exactly that contract. The USDT reference
+contracts matched across Gate, KuCoin and Bitget.
 
 | ccxt code | Chain | USDT reference contract |
 |---|---|---|
@@ -786,6 +824,19 @@ matched across Gate, KuCoin and Bitget.
 | `BEP20` | BNB Smart Chain, EVM chainId 56 only (not opBNB, not BNB Beacon Chain) | `0x55d398326f99059fF775485246999027B3197955`, the only allowed BSC token (BscScan: Binance-Peg BSC-USD, listed by exchanges as USDT BEP20/BSC); no other USDT-named BSC contract |
 | `ERC20` | Ethereum mainnet, EVM chainId 1 | `0xdAC17F958D2ee523a2206206994597C13D831ec7` |
 | `TON` | TON mainnet (memo required if the exchange asks for one) | `EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs` |
+
+USDC has two reference contracts, and fundkit supports it nowhere else (no bridged or other
+variant is substituted; USDC on Tron or TON is not supported):
+
+| ccxt code | USDC reference contract |
+|---|---|
+| `BEP20` | `0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d` (BscScan: Binance-Peg USD Coin, listed by Binance and Bybit as USDC BSC) |
+| `ERC20` | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` (Circle's USDC on Ethereum) |
+
+USDC moves only through the native tools on Binance and Bybit. In the documented flows of
+this skill, a USDC request holds with `ASSET_NOT_VERIFIED`: the venue tables they rely on
+(outbound wire ids, whitelist evidence rows, WhiteBIT's `"USDT (<NET>)"` keys, amount steps,
+entity restrictions) were verified for USDT only. Say so; do not adapt a USDT row for USDC.
 
 ### 2.3 Debit, withdraw amount and credit
 
@@ -840,7 +891,9 @@ Example (target credit): B must receive 300 USDT, `f = 1`, `d = 0`, model unconf
   minimum. Check `W` against A's per-transaction maximum where the venue reports one (OKX
   `maxWd`, Bybit `remainAmount`), against OKX's 24 h USD quota (`wdQuota − usedWdQuota` at
   least 1.02 × `W`, a margin of this skill for the USD value of USDT) and against the
-  profile's `maxTransferValue` and `maxDailyValue`. For OKX as B, a nonempty `depQuotaFixed`
+  profile's `maxTransferValue` and `maxDailyValue`. B's deposit minimum is B's own published
+  value or, where B publishes none that applies, the
+  [operator fallback](#destination-deposit-minimum). For OKX as B, a nonempty `depQuotaFixed`
   needs `depQuotaFixed − usedDepQuotaFixed` of at least 1.02 × the upper bound of `C`.
   Exceeded or unreadable: hold.
 - **Entities.** The skill sends no travel-rule data: no Binance questionnaire, no OKX
@@ -882,6 +935,7 @@ Registrations: A <registration> / <alias> / <environment> / journal <path>; B <s
 B deposit: address <full address>, memo <none | exact memo>, source <native read: <venue> alias <B alias>, read <UTC> | B's UI, by the human>; address check <EVM format | TON OK>
 Whitelist on A: <saved-address row: <fields> | setup record <UTC>>, equal character for character; entity line: <venue label / jurisdiction, not required, evidence | n/a>
 Relies on: common setup <registration lines, interactive-form line>; venue-specific <whitelist entry | entity line | key rights or IP line | BingX codes | provisioning | WhiteBIT contract pin | none>; per-plan <B minimum or fee: value, source: human, <venue> deposit page, read <UTC> | none>
+B minimum: <value> USDT, <venue: <field>, read <UTC> | Fundkit operator fallback, venue minimum unknown, not a <B> figure, no guarantee of credit | human: <venue> deposit page, read <UTC>>; C_min ≥ minimum (inclusive)
 Memo requirement: <required | not required | no published flag>; evidence <source, UTC>
 Bybit inbound cap: <batchReleaseLimit "-1" (unlimited), read <UTC> | n/a>
 Expected on B: C=<C_min>…<C_max> USDT, lands in <B wallet> (source: <recipient read | typical, unverified>); d=<…> (<live field | documented policy URL>)
@@ -914,7 +968,8 @@ To approve: APPROVE <PLAN-ID>
      does not call `transfer`.
    - **Withdrawal from A**, immediately before the call, with fresh reads: A's network row
      (withdraw enabled, id, fee, withdrawal minimum, steps, contract), B's network row (deposit
-     enabled, id, deposit minimum, deposit fee, contract, memo-required flag), B's recipient
+     enabled, id, deposit minimum or its absence, deposit fee, contract, memo-required flag; a
+     minimum that appeared on a fallback plan is a change), B's recipient
      read (address, memo, unique row, Bybit `batchReleaseLimit`, Gate's top-level minimum and
      its single-chain condition, WhiteBIT `required`), A's available field against
      `D_max + reserve`, `maxTransferValue` from `list_accounts`, and any per-plan human-read
@@ -1149,7 +1204,7 @@ To: <B exchange>, address <full address>, memo <none | exact memo> (from B's dep
 Memo requirement: <required | not required | no published flag>; evidence <source, UTC>
 Enter: W=<…> (multiple of A's UI step, ≥ A's withdrawal minimum <…>)
 Fee: f=<…> <asset>, model <on top | deducted>; exact debit D=<…>; exact receive amount on A's preview <…>
-Expected on B: exact C=<…> USDT after deposit fee d=<…> <asset>, B deposit minimum <…> (<stated | assumed>)
+Expected on B: exact C=<…> USDT after deposit fee d=<…> <asset>, B deposit minimum <…> (<venue: field | human: deposit page, UTC | Fundkit operator fallback, venue minimum unknown>)
 User: limit <USDT> | target credit <USDT>
 ```
 
@@ -1226,10 +1281,12 @@ finds no unique eligible row or conflicting fields ([`recipients.md`](references
 a key check shows rights other than the profile's; a registration, `configPath`, `journal`,
 or environment differs from the setup record, a money-moving server lacks the native form or
 the setup record's interactive-form line, or the deposit-only profile reports `dryRun: false`;
-the account mode, available amount, network flag, minimum, fee, chain, contract,
-fee asset or amount step is unknown; an amount is not exactly representable; a transfer has
+the account mode, available amount, network flag, fee, chain, contract, fee asset or amount
+step is unknown, or B's minimum field is present but unreadable or contradicted (an absent one
+takes the [operator fallback](#destination-deposit-minimum)); a USDC request outside the native
+tools (`ASSET_NOT_VERIFIED`); an amount is not exactly representable; a transfer has
 no proof route and is not done manually; the "exchange + network" pair is not in the outbound
-withdraw table, or a gate in the destination or outbound table holds (missing minimum, fee or
+withdraw table, or a gate in the destination or outbound table holds (missing fee or
 contract; Bybit's finite release limit, also when it changes before dispatch; no whitelist
 evidence equal character for character; an entity line that is missing, names an unknown or
 regional entity, gives no valid or a listed jurisdiction, or says "required" or "unknown"; a

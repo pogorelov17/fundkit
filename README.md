@@ -85,16 +85,15 @@ English, so the agent shows the plan in your language in the chat just before th
   request.
 
 > [!NOTE]
-> **Binance as destination: BNB Smart Chain (BEP20) only, on an operator fallback.** Binance
-> documents no API deposit minimum (`depositDust` has no documented meaning,
-> [details](references/recipients.md#binance)). For USDT on BEP20 the native transfer uses
-> **5 USDT as Fundkit's own operator fallback minimum** on the expected credit after fees
-> (inclusive), only when every other Binance read is verified and healthy. It is not a Binance
-> figure and does not guarantee the credit; the plan and the card say so, and Binance is read
-> again before the card and after the approval. A minimum Binance itself supplies always wins.
-> Binance on TRC20, ERC20 and TON still holds with `DESTINATION_MINIMUM_UNDOCUMENTED`
-> ([rule](references/binance-bep20-minimum-fallback.md)). The reverse route, Binance → Bybit,
-> uses Bybit's documented `depositMin`.
+> **Destination minimum: the exchange's own, or a 1-unit operator fallback.** Some exchanges
+> publish no deposit minimum for a coin and chain (Binance on every chain, MEXC, Gate on a
+> multi-chain address). Then the plan uses **1 USDT (or 1 USDC) as Fundkit's own operator
+> fallback minimum**, on the expected credit after fees, inclusive. It does so only when every
+> other read of that exchange is verified and healthy. The rule is the same for all nine
+> exchanges, for USDT and USDC. The fallback is not the exchange's figure and does not guarantee
+> the credit; the plan and the card say so, and a native plan on the fallback is read again
+> before the card and after the approval. A minimum the exchange publishes, 0 included, always
+> wins. A malformed or contradicted one holds ([rule](references/deposit-minimum-fallback.md)).
 
 ## Quick start
 
@@ -207,13 +206,14 @@ set it up ([loading the skill](references/security.md#loading-the-skill)).
 
 ## Venues and hosts
 
-**Native tools** (fundkit server; USDT on TRC20, BEP20/BSC, ERC20 and TON):
+**Native tools** (fundkit server; USDT on TRC20, BEP20/BSC, ERC20 and TON; USDC on BEP20/BSC
+and ERC20 only, `ASSET_NETWORK_UNSUPPORTED` elsewhere):
 
 | | Binance | Bybit | Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin |
 | --- | --- | --- | --- |
-| Deposit address with QR | ✓ | ✓ | `VENUE_NOT_NATIVE` |
-| Transfer, as source | ✓ | ✓ | `VENUE_NOT_NATIVE` |
-| Transfer, as destination | BEP20: operator fallback minimum, not a Binance figure ([rule](references/binance-bep20-minimum-fallback.md)); other chains hold on the undocumented minimum | ✓ | `VENUE_NOT_NATIVE` |
+| Deposit address with QR | ✓ USDT, USDC | ✓ USDT, USDC | `VENUE_NOT_NATIVE` |
+| Transfer, as source | ✓ USDT, USDC | ✓ USDT, USDC | `VENUE_NOT_NATIVE` |
+| Transfer, as destination | ✓ on the operator fallback minimum, not a Binance figure ([rule](references/deposit-minimum-fallback.md)) | ✓ Bybit's `depositMin`; fallback only when the field is absent | `VENUE_NOT_NATIVE` |
 
 **Documented flows** ([`SKILL.md`](SKILL.md), all nine exchanges), used when you ask for them:
 
@@ -223,10 +223,12 @@ set it up ([loading the skill](references/security.md#loading-the-skill)).
 - **Exchange A → exchange B, semi-automatic.** Both accounts in one session; you approve the
   plan with `APPROVE <PLAN-ID>` and `WITHDRAW <PLAN-ID>` and confirm each money move in the
   host's native form, after the operator's one-time
-  [setup record](references/security.md#setup-record). Where B documents no deposit minimum or
-  fee (Binance and MEXC minimum, multi-chain Gate minimum, KuCoin fee), the route holds unless
-  you supply that one value from B's deposit page for that plan
-  ([per-plan human-read fact](SKILL.md#per-plan-human-read-facts)). Route by route:
+  [setup record](references/security.md#setup-record). Where B publishes no deposit minimum
+  (Binance, MEXC, multi-chain Gate), the plan uses the 1-unit
+  [operator fallback](references/deposit-minimum-fallback.md). Where B documents no deposit fee
+  (KuCoin), the route holds unless you supply that value from B's deposit page for that plan
+  ([per-plan human-read fact](SKILL.md#per-plan-human-read-facts)). These flows are USDT only;
+  USDC holds there with `ASSET_NOT_VERIFIED`. Route by route:
   [status by destination venue](references/recipients.md#status-by-destination-venue).
 - **Funding ↔ trading/margin** on one exchange.
 - **Hyperliquid**: watch-only margin and position checks by public address.
@@ -291,7 +293,7 @@ More, including setup and diagnosis prompts: [`prompts.md`](references/prompts.m
 | --- | --- |
 | [`SKILL.md`](SKILL.md) | agent rules and scenarios |
 | [`references/t3-native-plan.md`](references/t3-native-plan.md) | the native address and transfer flows on T3 Code: contract, acceptance tests, limits, Hetzner acceptance steps |
-| [`references/binance-bep20-minimum-fallback.md`](references/binance-bep20-minimum-fallback.md) | the native flow's operator fallback minimum for Binance USDT BEP20 deposits: scope, rule, recheck, acceptance |
+| [`references/deposit-minimum-fallback.md`](references/deposit-minimum-fallback.md) | the destination deposit minimum on every venue and coin: the venue's own value or the 1-unit operator fallback, holds, USDT/USDC scope, recheck, acceptance |
 | [`references/security.md`](references/security.md) | environment contract, host registration, Doppler session, loading the skill, smoke check, key permissions |
 | [`references/recipients.md`](references/recipients.md) | native recipient reads (address, memo, landing wallet), deposit fee and minimum sources and hard limits per venue |
 | [`references/exchanges.md`](references/exchanges.md) | wallets, network data, outbound withdraw table, amount steps, account modes |
