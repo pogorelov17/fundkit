@@ -470,7 +470,7 @@ class LimitsAndFormsTests(SessionTestCase):
         host.form_answer = "decline"
         body, _ = host.tool("fundkit_write", write)
         self.assertEqual(body["code"], "CONFIRM_DECLINED")
-        self.assertIn("withdraw 300 USDT on bybit-src", host.forms[0]["message"])
+        self.assertIn('Confirm: withdrawal on bybit (account "bybit-src", LIVE)', host.forms[0]["message"])
         host.form_answer = "accept"
         body, _ = host.tool("fundkit_write", write)
         self.assertEqual(body["dryRun"], True)  # no --writes: dryRun

@@ -6,13 +6,14 @@ description: >-
   server (ccxt 4.5.85), OKX Wallet deposits to an exchange address read from the operator's
   own account, and watch-only Hyperliquid margin checks. Use whenever the user wants to move,
   send, transfer, withdraw, top up or fund USDT between exchanges or wallets, in any language
-  (for example "переведи 300 USDT с OKX на Bybit"), pick a network, get a verified deposit
+  (for example "move 300 USDT from OKX to Bybit"), pick a network, get a verified deposit
   address, move funds between funding and trading wallets, or check Hyperliquid margin. Finds
   the connected exchange profiles itself and, with the optional fundkit server, connects
-  missing ones for one session from a Doppler config after a private terminal step. Enforces
-  live network checks, an exact expiring plan with human approval, a separate withdrawal
-  approval, the host's native confirmation form for every money move, and no retries on
-  unknown outcomes.
+  missing ones for one session from a Doppler config after one private secret card (T3 Code) or
+  a private terminal step. Native tools return a verified deposit address with an inline QR and
+  prepare exchange-to-exchange transfers confirmed by one bound human confirmation. Enforces
+  live network checks, an exact expiring plan, the host's native confirmation for every money
+  move, and no retries on unknown outcomes.
 ---
 
 # USDT funding: OKX Wallet → exchange, exchange A → exchange B, funding ↔ trading
@@ -22,8 +23,9 @@ plan and execute writes only through `ccxt-mcp` servers: registered directly in 
 connected for one session through the optional `fundkit` MCP server
 ([session profiles](#session-profiles-optional-doppler)). Read the state first, then
 build an exact plan. Execute writes only after explicit human approval. Do not write or run
-programs or scripts of your own, and never run the `fundkit` command yourself. The one
-exception is the fixed TON address check in
+programs or scripts of your own, and never run the `fundkit` command yourself. Two exceptions:
+the exact `secretStep.then` command a fundkit result gives you, with the path from the host's
+secret card ([native flows](#native-flows-start-here)), and the fixed TON address check in
 [`recipients.md`](references/recipients.md#address-checks), which reads only its argument.
 
 Detailed tables live in [`references/`](references/): pins, schemas and gates in
@@ -35,6 +37,69 @@ Detailed tables live in [`references/`](references/): pins, schemas and gates in
 on it. A new chat or host launch remembers nothing: it starts by reading this file again, and
 only what the human pastes carries over.
 
+## Native flows (start here)
+
+When the `fundkit` MCP server is connected, these two requests go through its native tools.
+They need no setup record, no UID, no typed `APPROVE`/`WITHDRAW`, no operator `--writes`
+option and no questions about credentials, amounts, minimums or deposit pages.
+
+**"My deposit address"**, for example `Show my Binance USDT deposit address on BSC`: call
+`fundkit_deposit_address {"exchange":"binance","network":"BSC"}`. On `status: "verified"`,
+answer in the user's language with, in this order:
+
+1. If `memo.required`: the memo first, conspicuously, exactly as given (leading zeros kept),
+   and that the QR carries only the address, so the memo must be entered separately.
+2. The QR inline: paste `qr.markdown` exactly (a Markdown image with the absolute path).
+3. The address as plain text in a code block, character for character from `address`.
+4. The exact network: `network.label`, the exchange's network id `network.venueId`, and
+   "memo: none" when no memo is needed.
+5. Where and when it was read (`source.alias`, `source.readAt`). Never say anything was sent.
+
+Never show a QR from another call, never re-use an image path from earlier in the chat for a
+new answer, and never describe a QR without its `qr.markdown`. If `qr` is null, show the
+address and network and say that no QR could be verified (`qrError`). An error result shows
+no address: report its `message` as the exact reason.
+
+**A transfer between the user's exchanges**, for example `Move 300 USDT from Bybit to
+Binance`: call `fundkit_transfer_prepare {"from":"bybit","to":"binance","amount":"300"}`
+(pass `network` only if the user named one). Then:
+
+- `status: "hold"`: nothing was sent and nothing needs confirming. Tell the user each
+  `reasons[].detail` plainly. Do not ask them to look up a value, open a deposit page or change
+  a setting to get around it, and do not plan around it yourself.
+- `status: "ready"`: show the `plan` fields in one message in the user's language (route,
+  network, amount, fee, debit, credit, recipient and memo with their source, expiry,
+  `exchangeMayReject`, `onward`) and call `fundkit_transfer_confirm {"planId":"…"}` right away.
+  It opens exactly one confirmation card with every plan field. The card's labels are fixed
+  English, so your message is where the user reads the plan in their own language. The human
+  approves or declines on the card. Do not ask for a typed approval in the chat, and never
+  answer the card yourself.
+- The confirm result's `status` is final for that plan: `sent` (report `withdrawalId`; the
+  credit still has to arrive), `not-sent` or `rejected` (nothing was sent: say so), `unknown`
+  (do not retry; this plan can never be sent again; reconcile read-only). A plan is sent at
+  most once: a repeated confirm, a restart or a timeout never sends again. Anything after the
+  credit (for example moving it to another wallet) is a separate request that this
+  confirmation did not authorize: say so if relevant and do not do it silently.
+- Changed amount, network or recipient: prepare again; the old plan is not reused.
+
+**No session yet.** A result with `error: "NO_SESSION"` (or `PASSPHRASE_NEEDED`) carries
+`secretStep` and `resume`:
+
+1. If you have a private secret card tool with file delivery (T3 Code: `request_secret`),
+   call it once with exactly `secretStep.request` (label, reason, `delivery: "file"`).
+2. Run `secretStep.then` in the shell with `<FILE>` replaced by the returned `file` path,
+   unchanged. It reads the file once, deletes it and starts the session; it prints no value.
+   Never read, print or copy the file yourself.
+3. Call `resume.tool` with `resume.arguments` at once, in the same turn. Do not ask the user
+   to say they are done, to run anything, or to open a terminal, Docker, SSH or a browser.
+
+If the card is declined or times out, say so and stop. If you have no such tool, say plainly
+that this host cannot take the token privately in chat (`secretStep.hostWithoutCard`); where
+the operator has a terminal on that machine, `fundkit session` there is the alternative. If
+the user already has configured `ccxt-mcp` profiles (Step 0 finds them), use those and never
+push Doppler on them. Venues other than Binance and Bybit return `VENUE_NOT_NATIVE`: use the
+manual flows below only if the user asks for them.
+
 ## Hard rules
 
 1. **You never see or ask for keys.** You only know account aliases (`okx-main`) and tool
@@ -44,15 +109,17 @@ only what the human pastes carries over.
    `echo $…_SECRET`. Do not use the shell to read `.env` files, profile configs or the server
    journal. Diagnose setup only from tool results ([setup check](#setup-check)),
    and never ask whether a key is set or what it is. The same holds for a Doppler service
-   token: the user types it only into their own private terminal
-   ([session profiles](#session-profiles-optional-doppler)), never into the chat. If one is
+   token: the user enters it only in the host's private secret card or their own private
+   terminal ([native flows](#native-flows-start-here)), never into the chat. If one is
    pasted here, do not use it, do not repeat it, and ask the user to revoke it in Doppler and
    create a new one. The same again for an exchange API passphrase (OKX, Bitget, KuCoin): it is
    typed only in the private terminal; one pasted here means the user replaces that API key.
 2. **A plan is bound to exact arguments and an expiry.** Writes are `transfer`, `withdraw`,
    `create_order`, `cancel_*`, `set_*`, `call_write_method` and `call_implicit_write`. Before any
    write, show a plan with the **full JSON arguments** of every call and `expires <UTC>`, and get
-   the reply `APPROVE <PLAN-ID>`. **Never call `get_deposit_address`**: when the read fails it
+   the reply `APPROVE <PLAN-ID>`. The one exception is `fundkit_transfer_confirm`: its plan is
+   bound by fundkit (hash, expiry, single dispatch) and its one confirmation card shows every
+   field, so it replaces `APPROVE` and `WITHDRAW` there ([native flows](#native-flows-start-here)). **Never call `get_deposit_address`**: when the read fails it
    creates an address on its own (KuCoin, MEXC, WhiteBIT), with no form and even under `dryRun`.
    Recipient reads ([`recipients.md`](references/recipients.md)) need no plan. Two of them are
    documented as provisioning reads that may create an address (Gate, WhiteBIT). Send those only
@@ -206,12 +273,12 @@ order, without asking the user for aliases:
      `fundkit_profiles` again.
    - `PASSPHRASE_NEEDED` (OKX, Bitget, KuCoin): pass on the result's `userStep` in the user's
      language and stop until they say they are done; then call the same `fundkit_connect` again.
-     The passphrase is typed only in their private terminal, never in the chat. In Russian, for
-     example: «Для OKX нужен API passphrase. Переключитесь в терминал, где запущен
-     `fundkit session`: там появился запрос `OKX API passphrase`. Введите его там (ввод скрыт),
-     не в этот чат, и напишите «готово».» When the session runs the host (`-- claude`), the step
-     is `fundkit passphrase okx` in another terminal: «…откройте второй терминал на этой машине и
-     выполните `fundkit passphrase okx`…». `PASSPHRASE_CANCELLED` or `PASSPHRASE_TIMEOUT`: the
+     The passphrase is typed only in their private terminal, never in the chat. For example
+     (translate it into the user's language): "OKX needs its API passphrase. Switch to the
+     terminal running `fundkit session`: it now shows the prompt `OKX API passphrase`. Type it
+     there (the input is hidden), not in this chat, and then reply done." When the session runs
+     the host (`-- claude`), the step is `fundkit passphrase okx` in another terminal: "…open a
+     second terminal on this machine and run `fundkit passphrase okx`…". `PASSPHRASE_CANCELLED` or `PASSPHRASE_TIMEOUT`: the
      operator did not enter it; say so, and connect again only if the user asks for it.
 3. **Neither.** Follow the last paragraph of [Step 0](#step-0-preflight-read-only).
 
@@ -333,12 +400,14 @@ For each server involved:
    [setup record](references/security.md#setup-record): registration name, alias, exchange,
    environment, `configPath`, `journal` and role. Later chats compare those fields against that
    record without opening the exchange. Any difference is a stop. An account UID in an older
-   setup record is ignored: never compare it and never ask for it. A deposit-only profile
-   registered outside fundkit must show no withdrawal right. A deposit-only **session profile**
-   may sit on a write-enabled key, because scheme D keeps one key per exchange and fundkit
-   enforces the role: report the key's real rights ("withdrawal right present; deposit-only
-   enforced by fundkit"), never "read-only". A source profile
-   that will withdraw must show the withdrawal right and an IP binding. Where the venue has no
+   setup record is ignored: never compare it and never ask for it. One key per exchange may
+   serve every role, on all nine venues: a deposit-only profile on a write-enabled key is
+   deposit-only because of its role (fundkit's allowlists on a session profile, `dryRun: true`
+   and the skill's read-only calls on a registered one), not because of the key. Report the
+   key's real rights ("withdrawal right present; deposit-only enforced locally"), never
+   "read-only" unless the check shows that, and never ask the operator for a separate read-only
+   key or to remove rights from a key. A source profile that will withdraw must show the
+   withdrawal right (the exchange refuses a withdrawal without it). Where the venue has no
    such read (WhiteBIT), or its reads show no key permissions (Gate; MEXC, whose `canWithdraw`
    is an account flag, not a key right), the setup record's key-rights line stands behind the
    scope: say so. The deposit-only profile keeps `dryRun: true` in `list_accounts`, also when
@@ -472,7 +541,8 @@ Match what you see:
 | `TIER_DISABLED` on a recipient read | Recipient reads need `"funds": "live"` and a `maxTransferValue` in the profile; restart |
 | `AUTH_FAILED` with `requires "apiKey"`, `"secret"` or `"password"` credential | This server process received no such credential. Scheme C: add the field (`apiKey`, `secret`, and for OKX, Bitget and KuCoin also `password`, the API passphrase) to that profile's `config.json`. Schemes A and B: set the [variables](references/security.md#venue-profiles) where the server is launched (Codex: also list them in `env_vars`). Restart the host, start a new chat |
 | `AUTH_FAILED`, `EXCHANGE_ERROR` or `BAD_REQUEST` quoting the venue's key error (Binance `-2015`, OKX `50120`, Bitget `40014`, KuCoin `400007`, BingX `100413`, MEXC `10072`, Gate `FORBIDDEN`, WhiteBIT `unauthorized`) | The exchange rejected the key or its permission for this read: check the key's rights, IP binding and passphrase against the [venue profile](references/security.md#venue-profiles); replace the key if needed |
-| a key check shows a withdrawal right on a deposit-only profile, or no withdrawal right on a source profile that must withdraw | Stop. Issue a key with exactly the profile's rights |
+| a key check shows a withdrawal right on a deposit-only profile | Not a problem: report it as shown; the role keeps the profile to reads |
+| a key check shows no withdrawal right on a source profile that must withdraw | Stop the withdrawal: say exactly that this exchange's key cannot withdraw. Reads continue |
 | any other error | Quote the code and message; do not guess the cause |
 
 When a check fails or a value is unknown, hold. You may offer the manual path (the human
@@ -518,14 +588,10 @@ Use one alias with `"funds": "live"` for every read below.
    [published policy](references/exchanges.md#bybit-deposit-address); name that source on the
    sheet.
 2. **Key check.** `call_implicit_get {"exchange":"bybit","account":"<alias>","method":"privateGetV5UserQueryApi"}`.
-   Require `readOnly: 1`, no `Withdraw` in `permissions.Wallet`, and `isMaster: true` (Bybit
-   gives deposit addresses only to main-account keys). Otherwise stop and ask for a new
-   read-only main-account key. A transfer or trading category can appear in the metadata of
-   a read-only key. The read-only flag must be explicit; keep the separate Withdraw exclusion.
-   On a scheme D session profile (`bybit-dst`) the one Bybit key of the Doppler config may be
-   write-enabled: then report `readOnly: 0` and its permissions exactly as shown, say that the
-   deposit-only role is enforced by fundkit, never call the key read-only, and keep
-   `isMaster: true` as a requirement ([session profiles](#session-profiles-optional-doppler)).
+   Require `isMaster: true` (Bybit gives deposit addresses only to main-account keys; without
+   it, say exactly that). Report `readOnly` and `permissions` exactly as shown: the one Bybit key
+   may be write-enabled, the deposit-only role keeps this profile to reads, and you never ask
+   for a separate read-only key or a rights change ([session profiles](#session-profiles-optional-doppler)).
    Report `note`, `ips` and the permissions; never repeat `apiKey` (the server redacts it).
    The result also shows `userID`: it is not an account check, so do not report it as one, ask
    the operator to confirm it, or compare it with anything.
@@ -569,9 +635,9 @@ Use one alias with `"funds": "live"` for every read below.
 
 **Two profiles, one session.** The default setup connects both accounts to the same host
 session: a source profile for A (read + withdrawal, IP-bound, B's address whitelisted) and a
-destination profile for B (read-only key, `funds` for the recipient read), and, only if B must
+destination profile for B (reads only, on B's one key; `funds` for the recipient read), and, only if B must
 move the credit, a separate settlement registration for the same B account (read + internal
-transfer, no withdrawal), each in its own server with its own credentials
+transfer; it may use the same key), each in its own server
 ([scheme C](references/security.md#scheme-c-per-profile-credential-files-two-profile-session)).
 With session profiles (scheme D) every role of one exchange uses that exchange's one Doppler key
 instead, and fundkit enforces the roles ([session profiles](#session-profiles-optional-doppler)).
@@ -1030,10 +1096,10 @@ Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | as
 5. If the block's `then` asks for a transfer, make a **new plan** with one `transfer`, its
    own PLAN-ID (`<PLAN-ID>-B`), a new expiry and its proof route (2.5). The A plan's approvals
    do not cover it. The transfer runs on B's **settlement registration**, never on the
-   deposit-only profile: a read-only key cannot transfer (Bybit `readOnly: 1` is refused with
-   `10005`), and the deposit-only profile keeps `dryRun: true` throughout. Only the settlement
+   deposit-only profile, which keeps `dryRun: true` throughout (and whose key may be unable to
+   transfer: Bybit refuses a `readOnly: 1` key with `10005`). Only the settlement
    registration has `dryRun` removed. The settlement registration must be a separate registration with role
-   `settlement` in the setup record, show no withdrawal right and an internal-transfer right in
+   `settlement` in the setup record, show an internal-transfer right in
    its key check (a scheme D `<B>-settle` profile shares B's one key: report its rights as shown,
    since fundkit forwards no `withdraw` on it), and be the registration the setup record names for
    the same B account as the deposit-only profile (the operator's mapping; no UID is compared).

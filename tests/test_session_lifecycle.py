@@ -23,7 +23,17 @@ from tests.support import (
     withdraw_args,
 )
 
-TOOL_NAMES = ["fundkit_profiles", "fundkit_connect", "fundkit_read", "fundkit_write", "fundkit_disconnect"]
+TOOL_NAMES = [
+    "fundkit_deposit_address",
+    "fundkit_transfer_prepare",
+    "fundkit_transfer_confirm",
+    "fundkit_transfer_status",
+    "fundkit_profiles",
+    "fundkit_connect",
+    "fundkit_read",
+    "fundkit_write",
+    "fundkit_disconnect",
+]
 
 
 class NoSessionTests(SessionTestCase):
@@ -32,7 +42,9 @@ class NoSessionTests(SessionTestCase):
         tools = [tool["name"] for tool in host.request("tools/list", {})["result"]["tools"]]
         self.assertEqual(tools, TOOL_NAMES)
         self.assertIn("SKILL.md", host.instructions)
-        self.assertIn("переведи 300 USDT с OKX на Bybit", host.instructions)  # noqa: RUF001 (Russian on purpose)
+        self.assertIn("in any language", host.instructions)
+        self.assertIn("move 300 USDT from OKX to Bybit", host.instructions)
+        self.assertIn("Reply in the user's language", host.instructions)
 
         body, is_error = host.tool("fundkit_profiles", {"from": "OKX", "to": "Bybit"})
         self.assertFalse(is_error)

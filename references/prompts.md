@@ -24,13 +24,26 @@ user's language and keeps the approval keywords (`APPROVE`, `WITHDRAW`) in Engli
   read time, as a [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts); the agent
   asks you to read it again just before the withdrawal.
 
+## Native requests (fundkit server connected; T3 Code first)
+
+Ask in your own words; the agent needs nothing else from you except, once per session, the
+token in T3's private card.
+
+```text
+Show my Binance USDT deposit address on BSC.
+Give me my Bybit USDT deposit address on TRC20.
+Move 300 USDT from Bybit to Binance.
+Move 15 USDT from Binance to Bybit on BSC.
+What happened to transfer FK-XXXXXXXX?
+```
+
 ## Natural request (fundkit installed)
 
 After `fundkit install` ([scheme D](security.md#scheme-d-session-only-doppler-profiles-optional))
 a fresh Claude Code or Codex session needs no `Read SKILL.md` line and no aliases. Just ask:
 
 ```text
-переведи 300 USDT с OKX на Bybit
+move 300 USDT from OKX to Bybit
 ```
 
 The agent uses connected profiles first. If OKX (source) or Bybit (deposit-only) is missing, it
@@ -41,12 +54,12 @@ OKX also needs its API passphrase: the agent tells you, in your language, to typ
 second terminal, which is already asking for it, for example:
 
 ```text
-Для OKX нужен API passphrase. Переключитесь в терминал, где запущен `fundkit session`: там появился запрос `OKX API passphrase (for the key in OKX_APIKEY):`. Введите его там (ввод скрыт), не в этот чат, и напишите «готово».
+OKX needs its API passphrase. Switch to the terminal running `fundkit session`: it now shows the prompt `OKX API passphrase (for the key in OKX_APIKEY):`. Type it there (the input is hidden), not in this chat, and then reply "done".
 ```
 
-You type it there once per session, reply `готово`, and the agent continues. It runs Step 0 and
+You type it there once per session, reply `done` (in any language), and the agent continues. It runs Step 0 and
 the key checks, asks for the operation record, and stops at the plan. The reverse route
-(`переведи 200 USDT с Bybit на OKX`) in the same session uses the same two keys in the other
+(`move 200 USDT from Bybit to OKX`) in the same session uses the same two keys in the other
 roles (`bybit-src`, `okx-dst`) and asks for nothing new. If the host does not pick the skill by
 itself, start with `/usdt-funding` (Claude Code), `$usdt-funding` (Codex) or `Read SKILL.md` and
 the same sentence.
@@ -64,7 +77,7 @@ Nothing can move: only deposit-only profiles are connected, and they keep `"dryR
 Bybit only:
 
 ```text
-Read SKILL.md. This is my first session and it is read only. Check the Bybit profile: versions, configPath, journal, configProblems and whether a native form is available, then the Bybit key check (read-only flag, no Withdraw, main account, IP binding; no UID). Then list Bybit's USDT networks with deposit enabled, minimum, contract, memo requirement and deposit fee with their sources, and show my verified Bybit USDT deposit address for TRC20, BEP20, ERC20 and TON with the raw-row check, the address check, the memo (or none) and batchReleaseLimit. Finish with the setup-record lines I should write from this, and the ones still missing for a withdrawal later. No plan, no writes.
+Read SKILL.md. This is my first session and it is read only. Check the Bybit profile: versions, configPath, journal, configProblems and whether a native form is available, then the Bybit key check (main account; report readOnly, permissions and IP binding as shown; no UID). Then list Bybit's USDT networks with deposit enabled, minimum, contract, memo requirement and deposit fee with their sources, and show my verified Bybit USDT deposit address for TRC20, BEP20, ERC20 and TON with the raw-row check, the address check, the memo (or none) and batchReleaseLimit. Finish with the setup-record lines I should write from this, and the ones still missing for a withdrawal later. No plan, no writes.
 ```
 
 Bybit and BingX in one session (alternative):
