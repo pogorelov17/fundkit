@@ -15,7 +15,7 @@ user's language and keeps the approval keywords (`APPROVE`, `WITHDRAW`) in Engli
 - `<setup record>` is your [setup record](security.md#setup-record) (no secrets in it).
   `<operation record>` is the latest operation record (Step 0), or "first use, no prior attempt".
   The agent reads everything a tool can show by itself: versions, `configPath`, `journal`,
-  aliases, UIDs, key rights, network data, recipients, whitelist rows where a venue has a read,
+  aliases, key rights, network data, recipients, whitelist rows where a venue has a read,
   and history. It asks only for a fact that neither a tool nor the setup record supplies, and
   names that fact. It does not promise a route without questions when such a fact is missing.
 - After the one-time setup, a route's per-plan human part is `APPROVE`, `WITHDRAW` and the
@@ -64,13 +64,13 @@ Nothing can move: only deposit-only profiles are connected, and they keep `"dryR
 Bybit only:
 
 ```text
-Read SKILL.md. This is my first session and it is read only. Check the Bybit profile: versions, configPath, journal, configProblems and whether a native form is available, then the Bybit key check (read-only flag, no Withdraw, main account, UID, IP binding). Then list Bybit's USDT networks with deposit enabled, minimum, contract, memo requirement and deposit fee with their sources, and show my verified Bybit USDT deposit address for TRC20, BEP20, ERC20 and TON with the raw-row check, the address check, the memo (or none) and batchReleaseLimit. Finish with the setup-record lines I should write from this, and the ones still missing for a withdrawal later. No plan, no writes.
+Read SKILL.md. This is my first session and it is read only. Check the Bybit profile: versions, configPath, journal, configProblems and whether a native form is available, then the Bybit key check (read-only flag, no Withdraw, main account, IP binding; no UID). Then list Bybit's USDT networks with deposit enabled, minimum, contract, memo requirement and deposit fee with their sources, and show my verified Bybit USDT deposit address for TRC20, BEP20, ERC20 and TON with the raw-row check, the address check, the memo (or none) and batchReleaseLimit. Finish with the setup-record lines I should write from this, and the ones still missing for a withdrawal later. No plan, no writes.
 ```
 
 Bybit and BingX in one session (alternative):
 
 ```text
-Read SKILL.md. This is my first session and it is read only. Two deposit-only profiles are connected: Bybit and BingX. For each: Step 0 (versions, configPath, journal, configProblems, dryRun, native form), the key check with UID and IP binding (BingX: report the numeric permission codes so I can record what they mean), the USDT networks with deposit enabled, the deposit minimum (BingX: the chosen network's depositMin), contract, memo requirement and deposit fee with their sources, and my verified USDT deposit address and memo per network. Then tell me which setup-record lines to write from this and which facts a later withdrawal between the two would still need (whitelist entry, entity line, interactive-form line, source and settlement registrations). No plan, no writes.
+Read SKILL.md. This is my first session and it is read only. Two deposit-only profiles are connected: Bybit and BingX. For each: Step 0 (versions, configPath, journal, configProblems, dryRun, native form), the key check with the key's rights and IP binding (BingX: report the numeric permission codes so I can record what they mean), the USDT networks with deposit enabled, the deposit minimum (BingX: the chosen network's depositMin), contract, memo requirement and deposit fee with their sources, and my verified USDT deposit address and memo per network. Then tell me which setup-record lines to write from this and which facts a later withdrawal between the two would still need (whitelist entry, entity line, interactive-form line, source and settlement registrations). No plan, no writes.
 ```
 
 ## Setup and diagnosis
@@ -82,11 +82,11 @@ Read SKILL.md. Check my setup for <exchange>: which ccxt-mcp servers and account
 ```
 
 ```text
-Read SKILL.md. Run Step 0 and the key check for every connected profile. For each alias report the registration, environment, configPath, journal, account UID, the key's permissions and IP binding, and whether it fits its role (deposit-only, settlement or source). Then list which lines of a setup record I still need to write. Read only, no plan.
+Read SKILL.md. Run Step 0 and the key check for every connected profile. For each alias report the registration, environment, configPath, journal, the key's permissions and IP binding, and whether it fits its role (deposit-only, settlement or source). Then list which lines of a setup record I still need to write. Read only, no plan.
 ```
 
 ```text
-Read SKILL.md. Here is my setup record: <setup record>. Run Step 0 and the key checks and compare every field with the record: registration, alias, environment, configPath, journal, UID, role, provisioning consent, whitelist entries character for character (read them from the exchange where a read exists), key-rights lines where no read shows them (Gate, MEXC, WhiteBIT), entity lines (Binance, Bybit, OKX, BingX, WhiteBIT) under the one entity rule, the interactive-form line and WhiteBIT pinned contracts. Report each difference. Read only, no plan.
+Read SKILL.md. Here is my setup record: <setup record>. Run Step 0 and the key checks and compare every field with the record: registration, alias, environment, configPath, journal, role, provisioning consent, whitelist entries character for character (read them from the exchange where a read exists), key-rights lines where no read shows them (Gate, MEXC, WhiteBIT), entity lines (Binance, Bybit, OKX, BingX, WhiteBIT) under the one entity rule, the interactive-form line and WhiteBIT pinned contracts. Report each difference. Read only, no plan.
 ```
 
 ```text
@@ -96,7 +96,7 @@ Read SKILL.md. I see no ccxt-mcp tools in this chat. Explain what I have to inst
 ## Read-only checks
 
 ```text
-Read SKILL.md. Show my <exchange> USDT deposit address for <TRC20 | BEP20 | ERC20 | TON> from my own account, with the venue's raw-row check, the address check, the memo (or none), the landing wallet and the account UID. Read only, no plan.
+Read SKILL.md. Show my <exchange> USDT deposit address for <TRC20 | BEP20 | ERC20 | TON> from my own account, with the venue's raw-row check, the address check, the memo (or none) and the landing wallet. Read only, no plan.
 ```
 
 ```text

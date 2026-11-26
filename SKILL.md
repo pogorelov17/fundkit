@@ -224,7 +224,7 @@ in the private terminal once per exchange and session. `fundkit_connect` starts 
 you. Call every tool of a session profile through `fundkit_read
 {"alias":"<alias>","tool":"<tool>","arguments":{…}}`, with exactly the JSON you would pass to
 that tool directly ([call syntax](#call-syntax)). Money moves go only through `fundkit_write
-{"alias":"<alias>","tool":"withdraw|transfer","uid":"<UID from the setup record>","arguments":{…}}`,
+{"alias":"<alias>","tool":"withdraw|transfer","arguments":{…}}`,
 after `APPROVE <PLAN-ID>` and `WITHDRAW <PLAN-ID>` as in 2.5. The call opens the same native form
 and the human's answer decides. Everything else in this skill applies unchanged: Step 0 runs on
 every session profile, and so do the key checks, the setup record and the rules.
@@ -238,14 +238,16 @@ every session profile, and so do the key checks, the setup record and the rules.
   network, recipient and deposit-history reads, and no money move; settlement forwards `transfer`
   but not `withdraw`; source forwards `withdraw` and `transfer`. `ROLE_DENIED` means you used the
   wrong profile: never retry it on another role to get around the refusal.
-- **UID binding.** Recipient reads and money moves need this profile's key check first
-  (`KEY_CHECK_REQUIRED` names the call). `fundkit_write` needs `uid`, the setup record's UID for
-  that exchange, equal to what the key check showed (`UID_REQUIRED`, `UID_MISMATCH`: stop).
-  `ACCOUNT_CONFLICT`: two profiles of one exchange showed different UIDs; stop and tell the
-  operator. Read `venueScope` and surface its restrictions to the user (WhiteBIT: no key read, so
-  no API money move; Gate and MEXC: key rights from the setup record; Gate and WhiteBIT
-  provisioning reads need the session's `--allow-provisioning`, `PROVISIONING_NOT_AUTHORIZED`
-  otherwise).
+- **Key check, no UID binding.** Recipient reads and money moves need a successful key check
+  on this profile first, where the venue has one (`KEY_CHECK_REQUIRED` names the call). fundkit
+  does not bind a profile to an account UID: the operator's mapping of the selected exchange and
+  profile to its two Doppler names is trusted. Never fetch, ask for, record or compare a UID for
+  that, also where a key check happens to show one, and never ask for another identity proof in
+  its place. `fundkit_write` takes no `uid` (an older caller's is ignored). Read `venueScope` and
+  surface its restrictions to the user (WhiteBIT: no key read, so its key rights come from the
+  setup record, and as a source its available amount is not visible, so an API withdrawal plan
+  still holds; Gate and MEXC: key rights from the setup record; Gate and WhiteBIT provisioning
+  reads need the session's `--allow-provisioning`, `PROVISIONING_NOT_AUTHORIZED` otherwise).
 - The registration name is `fundkit/<alias>`. `configPath` and `journal` are what
   `get_safety_status` reports, and the setup record must name them for a money-moving role.
 - `list_accounts` shows `credentials: []` on a session profile because the key comes from
@@ -321,18 +323,21 @@ For each server involved:
    user or container runs a server is host configuration. The skill neither relies on it nor
    checks it. A money-moving server under the agent's own OS user is the normal case and no
    reason to stop ([trust model](references/security.md#trust-model)).
-4. **Account identity and key scope.** An alias is a label and does not prove which exchange
-   account the key belongs to. Before the first write or recipient read in a launch, run the
-   venue's key check from [`recipients.md`](references/recipients.md) and report the account
-   identifier and scope. The operator confirms the identifier once at setup against the
-   exchange's API page and keeps it in the [setup record](references/security.md#setup-record):
-   registration name, alias, exchange, environment, `configPath`, `journal`, account UID and
-   role. Later chats compare every field against that record without opening the exchange. Any
-   difference is a stop. A deposit-only profile registered outside fundkit must show no
-   withdrawal right. A deposit-only **session profile** may sit on a write-enabled key, because
-   scheme D keeps one key per exchange and fundkit enforces the role: report the key's real
-   rights ("withdrawal right present; deposit-only enforced by fundkit"), never "read-only", and
-   check that every role of that exchange shows the same UID. A source profile
+4. **Account mapping and key scope.** Which exchange account a key belongs to is the operator's
+   mapping: the registration (or, on a session profile, the exchange's two Doppler names) they
+   chose for that exchange. Trust it. Do not fetch, ask for, record or compare an account UID to
+   bind the alias to an account, also where a key check happens to show one, and do not ask for
+   another identity proof instead. Before the first write or recipient read in a launch, run the
+   venue's key check from [`recipients.md`](references/recipients.md) and report the key's scope
+   (rights, IP binding, main account where the venue shows it). The operator keeps the
+   [setup record](references/security.md#setup-record): registration name, alias, exchange,
+   environment, `configPath`, `journal` and role. Later chats compare those fields against that
+   record without opening the exchange. Any difference is a stop. An account UID in an older
+   setup record is ignored: never compare it and never ask for it. A deposit-only profile
+   registered outside fundkit must show no withdrawal right. A deposit-only **session profile**
+   may sit on a write-enabled key, because scheme D keeps one key per exchange and fundkit
+   enforces the role: report the key's real rights ("withdrawal right present; deposit-only
+   enforced by fundkit"), never "read-only". A source profile
    that will withdraw must show the withdrawal right and an IP binding. Where the venue has no
    such read (WhiteBIT), or its reads show no key permissions (Gate; MEXC, whose `canWithdraw`
    is an account flag, not a key right), the setup record's key-rights line stands behind the
@@ -459,7 +464,7 @@ Match what you see:
 | `fundkit_profiles` says `session: "none"`, or `NO_SESSION`, `TOKEN_REJECTED`, `SESSION_ENDED` | Run `fundkit session` in a separate private terminal on this machine and paste the read-only Doppler service token there (input hidden); keep that terminal open ([session profiles](#session-profiles-optional-doppler)) |
 | `MISSING_SECRETS` with names | Add exactly those names (`<EXCHANGE>_APIKEY`, `<EXCHANGE>_SECRET`) to the Doppler config the token reads; nothing else is fetched. The session stays active |
 | `PASSPHRASE_NEEDED`, `PASSPHRASE_CANCELLED`, `PASSPHRASE_TIMEOUT` | Type the exchange's API passphrase where the `userStep` says: the `fundkit session` terminal, or `fundkit passphrase <exchange>` in another terminal; never in the chat ([session profiles](#session-profiles-optional-doppler)) |
-| `ROLE_DENIED`, `KEY_CHECK_REQUIRED`, `UID_REQUIRED`, `UID_MISMATCH`, `ACCOUNT_CONFLICT`, `PROVISIONING_NOT_AUTHORIZED`, `UID_NOT_VERIFIABLE` | Quote the message. A local role, UID or venue gate held; nothing reached the exchange ([session profiles](#session-profiles-optional-doppler)) |
+| `ROLE_DENIED`, `KEY_CHECK_REQUIRED`, `PROVISIONING_NOT_AUTHORIZED`, `NOT_FORWARDED` | Quote the message. A local role, key-check or venue gate held; nothing reached the exchange ([session profiles](#session-profiles-optional-doppler)) |
 | `SERVER_NOT_INSTALLED` | Run `fundkit install` once on this machine ([security.md](references/security.md#scheme-d-session-only-doppler-profiles-optional)) |
 | no `ccxt-mcp` and no `fundkit` tools | No server is connected to this chat; you cannot see why. Set up the [venue profile](references/security.md#venue-profiles) for each named exchange, restart the host, start a new chat with the [setup prompt](references/prompts.md#setup-and-diagnosis) |
 | `get_safety_status` lists no account for the venue (`list_accounts` may be missing: with `hideDisabledTools` and no accounts it is not listed), or `UNKNOWN_ACCOUNT` | The connected server has no account for this exchange: add it to its `config.json`, or register a server whose `CCXT_MCP_CONFIG` points to that profile; restart |
@@ -486,7 +491,7 @@ matters for `10005`). The Bybit-specific rows, with the
 | `fundkit_profiles` says `session: "none"`, or `NO_SESSION`, `TOKEN_REJECTED`, `SESSION_ENDED` | Run `fundkit session` in a separate private terminal on this machine and paste the read-only Doppler service token there (input hidden); keep that terminal open ([session profiles](#session-profiles-optional-doppler)) |
 | `MISSING_SECRETS` with names | Add exactly those names (`<EXCHANGE>_APIKEY`, `<EXCHANGE>_SECRET`) to the Doppler config the token reads; nothing else is fetched. The session stays active |
 | `PASSPHRASE_NEEDED`, `PASSPHRASE_CANCELLED`, `PASSPHRASE_TIMEOUT` | Type the exchange's API passphrase where the `userStep` says: the `fundkit session` terminal, or `fundkit passphrase <exchange>` in another terminal; never in the chat ([session profiles](#session-profiles-optional-doppler)) |
-| `ROLE_DENIED`, `KEY_CHECK_REQUIRED`, `UID_REQUIRED`, `UID_MISMATCH`, `ACCOUNT_CONFLICT`, `PROVISIONING_NOT_AUTHORIZED`, `UID_NOT_VERIFIABLE` | Quote the message. A local role, UID or venue gate held; nothing reached the exchange ([session profiles](#session-profiles-optional-doppler)) |
+| `ROLE_DENIED`, `KEY_CHECK_REQUIRED`, `PROVISIONING_NOT_AUTHORIZED`, `NOT_FORWARDED` | Quote the message. A local role, key-check or venue gate held; nothing reached the exchange ([session profiles](#session-profiles-optional-doppler)) |
 | `SERVER_NOT_INSTALLED` | Run `fundkit install` once on this machine ([security.md](references/security.md#scheme-d-session-only-doppler-profiles-optional)) |
 | no `ccxt-mcp` and no `fundkit` tools | No server is connected to this chat; you cannot see why. Set up the [Bybit deposit profile](references/security.md#bybit-deposit-profile), restart the host and start a new chat |
 | `get_safety_status` has no Bybit account (`list_accounts` may be missing: with `hideDisabledTools` and no accounts it is not listed), or `UNKNOWN_ACCOUNT` | The connected server has no Bybit account: add one to its `config.json`, or register a server whose `CCXT_MCP_CONFIG` points to the Bybit profile; restart |
@@ -494,7 +499,7 @@ matters for `10005`). The Bybit-specific rows, with the
 | `TIER_DISABLED` | Address reads need `"funds": "live"` and a `maxTransferValue` in the profile; restart |
 | `AUTH_FAILED` with `requires "apiKey" credential` or `requires "secret" credential` | This server process received no Bybit key or secret. Scheme C: put `apiKey` and `secret` into the Bybit profile's `config.json`. Schemes A and B: set `BYBIT_APIKEY` and `BYBIT_SECRET` where the server is launched ([environment contract](references/security.md#environment-contract); in Codex also list both in `env_vars`). Restart the host, start a new chat |
 | `AUTH_FAILED` with `retCode` `10003` (invalid key), `10004` (signature) or `10010` (IP not bound) | Bybit rejected the key: check that both values belong to one live main-account key and the IP allowlist; replace the key if needed |
-| `AUTH_FAILED` with `retCode` `10005` on the network data read (step 1) | Bybit denied this key its coin list (`/v5/asset/coin/query-info`). The key identity is still unverified. If the initial market load failed, subsequent calls in this process repeat that error. A later coin-info denial alone does not establish that the initial load failed. Check the key in Bybit's API management, then restart the host |
+| `AUTH_FAILED` with `retCode` `10005` on the network data read (step 1) | Bybit denied this key its coin list (`/v5/asset/coin/query-info`). The key's rights are still unverified. If the initial market load failed, subsequent calls in this process repeat that error. A later coin-info denial alone does not establish that the initial load failed. Check the key in Bybit's API management, then restart the host |
 | `AUTH_FAILED` with `retCode` `10005` on the key check (step 2) after step 1 succeeded | Bybit denied the key check itself, so the key's rights are unknown: stop the Bybit read |
 | any other error | Quote the code and message; do not guess the cause |
 
@@ -521,9 +526,9 @@ Use one alias with `"funds": "live"` for every read below.
    write-enabled: then report `readOnly: 0` and its permissions exactly as shown, say that the
    deposit-only role is enforced by fundkit, never call the key read-only, and keep
    `isMaster: true` as a requirement ([session profiles](#session-profiles-optional-doppler)).
-   Report `userID`, `note` and `ips`; never repeat `apiKey` (the
-   server redacts it). The operator confirms that `userID` is their Bybit UID (shown when
-   they created the key).
+   Report `note`, `ips` and the permissions; never repeat `apiKey` (the server redacts it).
+   The result also shows `userID`: it is not an account check, so do not report it as one, ask
+   the operator to confirm it, or compare it with anything.
 3. **Gated address read** for the chosen network:
    `call_read_method {"exchange":"bybit","account":"<alias>","method":"fetchDepositAddressesByNetwork","args":["USDT"],"params":{"network":"<code>"},"includeInfo":true}`.
    ccxt-mcp allows it only on a `funds` account. `dryRun` does not stop it; the client sends
@@ -552,7 +557,7 @@ Use one alias with `"funds": "live"` for every read below.
    the operator can prepare the unsigned preview.
 5. **Show it.** Put the address and the memo (or `none`) each in its own code block, copied
    character for character from the unique raw row in step 4, with the provenance
-   `Bybit UID <userID>, alias <alias>, read <UTC>, chain <chain>`. Copy the same values into
+   `Bybit alias <alias>, read <UTC>, chain <chain>`. Copy the same values into
    the send sheet. The human pastes the address from your code block and later checks the
    wallet's final screen against the latest step 4 raw result (rule 9). To see the
    full tool result, they use their host's own view of the tool call: in Claude Code,
@@ -590,8 +595,8 @@ fact is missing, and those routes hold. Without a B profile in this session (sch
 ([prerequisites by route](references/recipients.md#prerequisites-by-route)):
 
 - **Common setup** (one-time, every API route): one setup-record line per registration
-  (registration, alias, exchange, environment, `configPath`, `journal`, role, account UID
-  confirmed once on the API page) and the interactive-form line. No API route runs on live
+  (registration, alias, exchange, environment, `configPath`, `journal`, role) and the
+  interactive-form line. No API route runs on live
   fields alone.
 - **Venue-specific setup** (one-time, only some routes): a whitelist entry in the setup record
   (every source except Binance and Gate, which have a saved-address read), an entity line
@@ -795,8 +800,8 @@ Candidates: <network / A withdraw / B deposit / fee / min / field source>
 Available on A: <field>=<value>, reserve <R>, transferable <T>; needs D_max + R
 Amounts: D=<…>, W=<…>, C=<…> (fee model: <on top | deducted | unconfirmed>); f=<…> <asset>, d=<…> <asset>
 Amount steps: currency <…>, network <…>, exchange <…> (<source>); W and transfer amounts are multiples of all, ≤ 15 significant digits, ≥ 0.000001
-Registrations: A <registration> / <alias> / UID <id> / <environment> / journal <path>; B <same>  (each equal to the setup record)
-B deposit: address <full address>, memo <none | exact memo>, source <native read: <venue> UID <id>, alias <B alias>, read <UTC> | B's UI, by the human>; address check <EVM format | TON OK>
+Registrations: A <registration> / <alias> / <environment> / journal <path>; B <same>  (each equal to the setup record)
+B deposit: address <full address>, memo <none | exact memo>, source <native read: <venue> alias <B alias>, read <UTC> | B's UI, by the human>; address check <EVM format | TON OK>
 Whitelist on A: <saved-address row: <fields> | setup record <UTC>>, equal character for character; entity line: <venue label / jurisdiction, not required, evidence | n/a>
 Relies on: common setup <registration lines, interactive-form line>; venue-specific <whitelist entry | entity line | key rights or IP line | BingX codes | provisioning | WhiteBIT contract pin | none>; per-plan <B minimum or fee: value, source: human, <venue> deposit page, read <UTC> | none>
 Memo requirement: <required | not required | no published flag>; evidence <source, UTC>
@@ -987,7 +992,7 @@ the route even if B already displays a deposit.
 
 ```text
 HANDOFF <PLAN-ID> A→B, written <UTC>
-B: exchange <ccxt id>, account <B alias>, identity <nonsecret UID or account label shown in B's UI>
+B: exchange <ccxt id>, account <B alias>
 Lands in: <B wallet> (source: <B UI | typical, unverified>); then: <nothing | transfer to <B wallet>>
 User: limit <USDT> | target credit <USDT>
 Chain: <name>, EVM chainId <56 | 1 | none>, contract <…>, ccxt code <…>, B network id <…>
@@ -1001,9 +1006,9 @@ Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | as
 
 1. Run Step 0 on B's server (in a two-profile session it already ran for the plan).
    Require the source proof above before advancing; an incomplete
-   handoff is for read-only reconciliation. The alias must match the plan's route or the block's `B:` line. Where Step 0 reads
-   an account identifier, it must match the block's identity. Where it cannot, the operator
-   confirms that this alias's key belongs to that account. Otherwise stop.
+   handoff is for read-only reconciliation. The alias must match the plan's route or the block's
+   `B:` line; otherwise stop. The operator's mapping of that alias to B's account is trusted: no
+   UID or other identity check.
 2. A missing or unreadable field is re-established by a read (B's deposit history, or A's
    `fetchWithdrawals` in an A session), or by the operator reading it in the exchange UI.
    Never infer a missing value. Keep the pre-send A/B chain and token verification with
@@ -1030,9 +1035,9 @@ Expected credit: C=<C_min>…<C_max> USDT, B deposit minimum <…> (<stated | as
    registration has `dryRun` removed. The settlement registration must be a separate registration with role
    `settlement` in the setup record, show no withdrawal right and an internal-transfer right in
    its key check (a scheme D `<B>-settle` profile shares B's one key: report its rights as shown,
-   since fundkit forwards no `withdraw` on it), and report the same account UID as the deposit-only profile's key check and
-   the setup record. Without such a registration, finish as credited and report that the
-   transfer is held. If no onward transfer was requested, the route ends with the credit.
+   since fundkit forwards no `withdraw` on it), and be the registration the setup record names for
+   the same B account as the deposit-only profile (the operator's mapping; no UID is compared).
+   Without such a registration, finish as credited and report that the transfer is held. If no onward transfer was requested, the route ends with the credit.
    Immediately before the plan, re-read B's deposit by the same hash (fresh credit: still one
    record, same amount and status) and the holding wallet's available field on the settlement
    registration. The amount is at most the attributed credit, that available field and the
@@ -1112,7 +1117,7 @@ Before any potentially dispatching call or manual confirmation, put this record 
 Use the approved arguments or the exact send sheet; omit secrets and confirmation tokens.
 
 ```text
-OPEN <plan/step> | <journal path or manual wallet, exchange/account identity> | snapshot <UTC> | <exact arguments/sheet> | id/hash <known values or pending>
+OPEN <plan/step> | <journal path or manual wallet, exchange and account alias> | snapshot <UTC> | <exact arguments/sheet> | id/hash <known values or pending>
 ```
 
 Keep it current on every response. Pending, missing, lost or ambiguous results keep the step
@@ -1137,12 +1142,11 @@ mistakenly confirms there was no prior attempt. Example of a reconciliation entr
 A required profile or tier is missing; the version is not `0.1.3` / `4.5.84`;
 `configProblems` is not empty; a crash hold applies (`unresolvedIntents` not empty, or a hold
 recorded for the journal path: reads only, permanently); more than one connected server or
-alias has the keyed exchange in a scheme A launch; the human could not match the account
-identifier; a Bybit key check or address read fails, or the gated and raw address reads
+alias has the keyed exchange in a scheme A launch; a Bybit key check or address read fails, or the gated and raw address reads
 disagree ([Bybit deposit address](#bybit-deposit-address)), or any venue's recipient read
 finds no unique eligible row or conflicting fields ([`recipients.md`](references/recipients.md));
 a key check shows rights other than the profile's; a registration, `configPath`, `journal`,
-environment or UID differs from the setup record, a money-moving server lacks the native form or
+or environment differs from the setup record, a money-moving server lacks the native form or
 the setup record's interactive-form line, or the deposit-only profile reports `dryRun: false`;
 the account mode, available amount, network flag, minimum, fee, chain, contract,
 fee asset or amount step is unknown; an amount is not exactly representable; a transfer has
@@ -1155,7 +1159,7 @@ provisioning read without consent); a per-plan human-read fact that is stale, un
 restated at the recheck or disagrees with a documented value; any value
 changed between the plan and the recheck before dispatch; a receipt on either venue with
 another asset or chain; a settlement plan without its own approval, expiry, funds, fresh credit
-or same-UID registration; a TON address fails
+or settlement registration for the same B account in the setup record; a TON address fails
 its check; the full address, network or
 memo differs anywhere; the preview, form or exchange confirmation screen does not match the
 plan or sheet; the plan has expired; there was no explicit `APPROVE` or `WITHDRAW`; the

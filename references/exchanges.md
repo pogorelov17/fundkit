@@ -98,7 +98,8 @@ responses unless noted:
 - Bybit serves this endpoint only to main-account keys (Bybit docs).
 - `privateGetV5UserQueryApi` (`GET /v5/user/query-api`, any key may call it) returns
   `readOnly`, `permissions`, `ips`, `userID` and `isMaster`. The server replaces the key value
-  in `apiKey` with `[redacted:apiKey]`.
+  in `apiKey` with `[redacted:apiKey]`. `userID` is incidental metadata: fundkit does not use
+  it to bind the key to an account.
 - **Coin list first.** Before its first Bybit call, and already at startup, the server loads
   Bybit's markets and, with a key, its coin list (`GET /v5/asset/coin/query-info`). The load
   is cached on disk for a day. If Bybit answers `10005` there, the key check and every other

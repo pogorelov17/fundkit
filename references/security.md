@@ -42,7 +42,7 @@ with the native form; otherwise it is done in the exchange UI. An A → B route 
    expected credit bounds; the human notes where B credits deposits. The chat ends with the
    filled-in HANDOFF block ([SKILL.md, 2.8](../SKILL.md#28-settlement-on-b)).
 2. **Launch with B's key (settlement).** The human pastes the HANDOFF block and follows Step 0 for prior operations. The agent
-   matches B's account identity, attributes the deposit by hash, finds the wallet holding it
+   checks that B's alias is the block's, attributes the deposit by hash, finds the wallet holding it
    and, if needed, makes a new plan with its own approval for the exact B transfer. B's
    wallets, steps and caps are read only here.
 
@@ -67,8 +67,8 @@ exchange and removes or disables the others:
   then shows it as `disabled` (verified).
 
 In the session, Step 0 of [`SKILL.md`](../SKILL.md#step-0-preflight-read-only) stops if more
-than one connected server or alias has the keyed exchange, and has the human match an account
-identifier (OKX: UID and API key label from `fetchAccounts`) against the exchange UI.
+than one connected server or alias has the keyed exchange. With exactly one, the operator's
+mapping of that registration to the account is trusted: no UID is read or compared.
 
 The agent in such a launch can technically read that key (same OS user; rule 1 of
 [`SKILL.md`](../SKILL.md#hard-rules) forbids it). The skill relies on the agent following that
@@ -197,18 +197,21 @@ every call, whatever the key could do:
 | every role | | `get_deposit_address`, `call_write_method`, `call_implicit_write`, the trading tier, any tool or method not listed |
 
 The allowlists are in [`lib/policy.mjs`](../lib/policy.mjs). Arguments must name the profile's
-own `exchange` and `account`. Account-bound calls are bound to the account UID:
+own `exchange` and `account`. There is no account-UID binding: one Doppler config is one
+account per exchange, and the operator's mapping of the selected exchange and profile to
+`<EX>_APIKEY`/`<EX>_SECRET` is trusted. fundkit never reads a UID for that purpose (the reads
+that only return one, Binance `privateGetAccount`, BingX `accountV1PrivateGetUid` and MEXC
+`spotPrivateGetUid`, are `NOT_FORWARDED`), never stores or compares one, and `fundkit_write`
+takes no `uid` (an older caller's is ignored). A key check whose metadata also names a UID is
+used for its key rights only.
 
-- a recipient read (and a provisioning read) runs only after this profile's key check in this
-  session (`KEY_CHECK_REQUIRED` names the call);
-- every `withdraw` and `transfer` names the UID from the setup record as `uid`, and it must equal
-  the UID that this profile's key check showed (`UID_REQUIRED`, `UID_MISMATCH`);
-- one Doppler config is one account per exchange: if two profiles of one exchange show different
-  UIDs (for example the key was replaced mid-session), every account-bound call on that exchange
-  holds (`ACCOUNT_CONFLICT`). fundkit never treats the same names as a second account;
-- WhiteBIT has no key read, so no UID can be bound: fundkit forwards no `withdraw` or `transfer`
-  on a WhiteBIT session profile, and WhiteBIT's identity and key rights come from the setup
-  record only. The manual sheet in WhiteBIT's UI remains;
+- a recipient read (and a provisioning read), and every `withdraw` and `transfer`, runs only
+  after a successful key check on this profile in this session, where the venue has a key read
+  (`KEY_CHECK_REQUIRED` names the call). A failed key check opens nothing;
+- WhiteBIT has no key read, so its key rights come from the setup record only, and its
+  `withdraw` and `transfer` go to the native form like every other venue's. The route gates
+  still apply: as a source its available amount is not visible through these tools, so an API
+  withdrawal plan from WhiteBIT holds, and the manual sheet in WhiteBIT's UI remains;
 - the Gate and WhiteBIT address reads that may create an address are forwarded only on a session
   started with `--allow-provisioning gate` (or `whitebit`, or both), in addition to the setup
   record's provisioning line.
@@ -307,13 +310,13 @@ under the [trust model](#trust-model):
   [`SKILL.md`](../SKILL.md#hard-rules) forbids both; nothing prevents them.
 - JavaScript cannot wipe strings, so the token, the values and the passphrases stay in process
   memory (and possibly swap) until the process exits.
-- The role allowlists and the UID binding run in the session daemon. A process of the operator's
+- The role allowlists and the key-check gate run in the session daemon. A process of the operator's
   user that talks to the socket directly gets the same decisions, but it could also read a
   profile's `/proc/<pid>/environ` or start its own ccxt-mcp with the key; see the first point.
   Exchange-side rights stay the real limit: a write-enabled key is write-enabled.
-- The UID is read from the field the venue documents in its key check
-  ([recipients.md](recipients.md#status-by-destination-venue)), checked only against offline
-  fixtures and the pinned server's result shape, not a live account.
+- Which account a profile signs for is the operator's mapping, not something fundkit checks: a
+  Doppler config whose names hold another account's key moves that account's funds (within the
+  key's exchange-side rights, the caps and the human's form).
 - Ending a session while a `withdraw` or `transfer` is open kills its process. Treat the
   outcome as unknown and reconcile ([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
 
@@ -332,8 +335,9 @@ of these hold:
 
 - the [setup record](#setup-record) names it with role `source` or `settlement`, and Step 0
   shows the same registration, alias, exchange, environment, `configPath` and `journal`;
-- its key check shows the role's rights and the account UID in the setup record. A settlement
-  registration must show the same UID as B's deposit-only profile;
+- its key check shows the role's rights (WhiteBIT: the setup record's key-rights line). A
+  settlement registration is the one the setup record names for the same B account as B's
+  deposit-only profile; that mapping is the operator's, and no UID is compared;
 - `get_safety_status` reports `elicitationSupported: true`, so every `withdraw` and `transfer`
   opens the host's native form, and the setup record states that the form is an interactive
   dialog nobody answers automatically ([interactive form](#interactive-native-form));
@@ -383,7 +387,7 @@ start with nothing installed:
 2. **Key.** In Bybit's API management, create a key on the **main** account (Bybit gives
    deposit addresses only to main-account keys) with **read-only** permission: no withdrawal,
    no transfer or trading write access. Read-only keys may list transfer or trading categories
-   in their metadata. Verify the explicit read-only flag and exclude the Withdraw label. Bind your IP. Note your UID shown there.
+   in their metadata. Verify the explicit read-only flag and exclude the Withdraw label. Bind your IP.
 3. **Profile** (`chmod 600`). `funds` is needed because ccxt-mcp gates the address read
    behind it, and `"funds": "live"` requires some `maxTransferValue`. That cap applies only
    to MCP `transfer` and `withdraw` on this account, which `dryRun: true` blocks and the
@@ -461,7 +465,7 @@ claude mcp list
 ```
 
 Restart the host and paste the [read-only starting prompt](prompts.md#read-only-starting-prompt).
-The agent reports the versions, both key checks and UIDs, the networks, and the verified
+The agent reports the versions, both key checks (rights, no UIDs), the networks, and the verified
 deposit addresses. Write the registration lines of the [setup record](#setup-record) from that
 report (BingX: also the permission-code meanings shown on BingX's API page). Money-moving
 registrations come later and need their own lines.
@@ -473,15 +477,15 @@ server once ([install](ccxt-mcp.md#install)); then, per account:
 
 | Venue (`exchange`) | Credential fields (scheme C `config.json`) | Variables (schemes A and B) | What the [key check](recipients.md) must show for a deposit-only profile |
 |---|---|---|---|
-| Binance (`binance`) | `apiKey`, `secret` | `BINANCE_APIKEY`, `BINANCE_SECRET` | `enableReading: true`, `enableWithdrawals: false`, `ipRestrict: true`; `uid` |
-| Bybit (`bybit`) | `apiKey`, `secret` | `BYBIT_APIKEY`, `BYBIT_SECRET` | `readOnly: 1`, no `Withdraw`, `isMaster: true` (main-account key); `userID` |
-| OKX (`okx`) | `apiKey`, `secret`, `password` (API passphrase) | `OKX_APIKEY`, `OKX_SECRET`, `OKX_PASSWORD` | `perm: "read_only"`; `uid` |
-| Bitget (`bitget`) | `apiKey`, `secret`, `password` | `BITGET_APIKEY`, `BITGET_SECRET`, `BITGET_PASSWORD` | no withdrawal authority; `userId` |
-| BingX (`bingx`) | `apiKey`, `secret` | `BINGX_APIKEY`, `BINGX_SECRET` | permission codes confirmed once on BingX's API page; `uid` |
+| Binance (`binance`) | `apiKey`, `secret` | `BINANCE_APIKEY`, `BINANCE_SECRET` | `enableReading: true`, `enableWithdrawals: false`, `ipRestrict: true` |
+| Bybit (`bybit`) | `apiKey`, `secret` | `BYBIT_APIKEY`, `BYBIT_SECRET` | `readOnly: 1`, no `Withdraw`, `isMaster: true` (main-account key) |
+| OKX (`okx`) | `apiKey`, `secret`, `password` (API passphrase) | `OKX_APIKEY`, `OKX_SECRET`, `OKX_PASSWORD` | `perm: "read_only"` |
+| Bitget (`bitget`) | `apiKey`, `secret`, `password` | `BITGET_APIKEY`, `BITGET_SECRET`, `BITGET_PASSWORD` | no withdrawal authority |
+| BingX (`bingx`) | `apiKey`, `secret` | `BINGX_APIKEY`, `BINGX_SECRET` | permission codes confirmed once on BingX's API page |
 | WhiteBIT (`whitebit`) | `apiKey`, `secret` | `WHITEBIT_APIKEY`, `WHITEBIT_SECRET` | no key read exists: the operator confirms the scope once |
-| MEXC (`mexc`) | `apiKey`, `secret` | `MEXC_APIKEY`, `MEXC_SECRET` | no read shows the key's permissions (`canWithdraw` in `GET /api/v3/account` is an account flag): the setup record's key rights must be `SPOT_ACCOUNT_READ` and `SPOT_WITHDRAW_READ` (MEXC's deposit-address read needs it), without `SPOT_WITHDRAW_WRITE` or `SPOT_TRANSFER_WRITE`; `uid` |
-| KuCoin (`kucoin`) | `apiKey`, `secret`, `password` | `KUCOIN_APIKEY`, `KUCOIN_SECRET`, `KUCOIN_PASSWORD` | `permission: "General"` (no `Withdrawal`); `uid` |
-| Gate (`gate`) | `apiKey`, `secret` | `GATE_APIKEY`, `GATE_SECRET` | the read has no permission fields: the operator confirms the scope once; `user_id` |
+| MEXC (`mexc`) | `apiKey`, `secret` | `MEXC_APIKEY`, `MEXC_SECRET` | no read shows the key's permissions (`canWithdraw` in `GET /api/v3/account` is an account flag): the setup record's key rights must be `SPOT_ACCOUNT_READ` and `SPOT_WITHDRAW_READ` (MEXC's deposit-address read needs it), without `SPOT_WITHDRAW_WRITE` or `SPOT_TRANSFER_WRITE` |
+| KuCoin (`kucoin`) | `apiKey`, `secret`, `password` | `KUCOIN_APIKEY`, `KUCOIN_SECRET`, `KUCOIN_PASSWORD` | `permission: "General"` (no `Withdrawal`) |
+| Gate (`gate`) | `apiKey`, `secret` | `GATE_APIKEY`, `GATE_SECRET` | the read has no permission fields: the operator confirms the scope once |
 | Hyperliquid | none: `walletAddress` only | none | watch-only |
 
 Rights by role per venue. The deposit-only right is in the table above. The offline tests
@@ -508,7 +512,7 @@ instead, and fundkit enforces the roles locally:
   `maxTransferValue` because ccxt-mcp gates address reads behind `funds`; keep
   `"dryRun": true`. With a read-only key the exchange also refuses any write.
 - **Destination settlement**: a second registration for the same B account (its own key with
-  read + internal transfer, no withdrawal, same UID), with role `settlement` in the setup record, only if the credit must
+  read + internal transfer, no withdrawal), with role `settlement` in the setup record, only if the credit must
   move from the deposit wallet to another B wallet. The deposit-only recipient key stays
   read-only: a read-only key cannot transfer (Bybit `readOnly: 1` is refused), and the agent
   never uses it for one.
@@ -578,9 +582,9 @@ writes it and treats it as the operator's statement, not as a tool result.
 ```text
 SETUP RECORD, written <UTC> by <operator>
 Profile <registration name>: alias <alias>, exchange <id>, environment <live|sandbox>, role <deposit-only | settlement | source>
-  (a settlement registration names the deposit-only registration of the same account UID)
+  (a settlement registration names the deposit-only registration of the same account)
   configPath <path>, journal <path>
-  account UID <id> (confirmed on the exchange's API page <UTC>), key rights <as shown there, e.g. MEXC SPOT_ACCOUNT_READ, SPOT_WITHDRAW_READ>, IP allowlist <yes>
+  key rights <as shown on the exchange's API page, e.g. MEXC SPOT_ACCOUNT_READ, SPOT_WITHDRAW_READ>, IP allowlist <yes>
   provisioning: <allowed | not allowed>            (Gate, WhiteBIT: their address read may create an address)
   BingX permission codes: <code → right>
   Entity <Binance | Bybit | OKX | BingX | WhiteBIT>: <Binance.com | Bybit.com | OKX.com | BingX.com | WhiteBIT.com | other entity name>, jurisdiction <ISO 3166-1 alpha-2>,
@@ -594,20 +598,23 @@ For a [scheme D](#scheme-d-session-only-doppler-profiles-optional) session profi
 registration name is `fundkit/<alias>` (aliases `<exchange>-src`, `-dst`, `-settle`). The
 `configPath` is the stable `~/.local/state/fundkit/run/profiles/<alias>/config.json`, with
 `~` expanded as `get_safety_status` shows it. The `journal` is the one it reports. All roles of
-one exchange use the one key in `<EX>_APIKEY`/`<EX>_SECRET`, so they share one account UID and
+one exchange use the one key in `<EX>_APIKEY`/`<EX>_SECRET`, so they share one account and
 one key-rights line, written as that key's real exchange-side rights (for example `withdraw,
 read`), never as read-only unless the key is. The role line says which local roles are used
-on it. The UID and key-rights lines stay valid across sessions while the Doppler names hold the
-same key; a replaced key needs new lines:
+on it. The key-rights line stays valid across sessions while the Doppler names hold the same
+key; a replaced key needs a new line:
 
 ```text
 Profile fundkit/okx-src and fundkit/okx-dst: exchange okx, environment live, roles source and deposit-only (deposit-only enforced locally by fundkit)
   Doppler OKX_APIKEY/OKX_SECRET, passphrase typed in the private terminal; configPath ~/.local/state/fundkit/run/profiles/<alias>/config.json, journal <path>
-  account UID <id> (confirmed on OKX's API page <UTC>), key rights <perm as shown, e.g. read_only,withdraw>, IP allowlist <yes>
+  key rights <perm as shown on OKX's API page, e.g. read_only,withdraw>, IP allowlist <yes>
 ```
 
-A missing line means "not established": the gate that needs it holds. A changed key, alias,
-registration, entity, pinned contract or whitelist entry needs a new record line. Entity lines
+A missing line means "not established": the gate that needs it holds. The record has no
+account-UID line: the operator's mapping of each registration to its account stands, and an
+`account UID` line in an older record is ignored (never compared, never asked for again). A
+changed key, alias, registration, entity, pinned contract or whitelist entry needs a new record
+line. Entity lines
 follow one rule on every venue ([entity lines](exchanges.md#entity-lines)): the venue's global
 platform label exactly, a jurisdiction the venue's official page does not list, "not required"
 and its evidence. Any other or regional entity, a missing or invalid jurisdiction, or a listed

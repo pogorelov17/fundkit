@@ -72,7 +72,7 @@ operator sets up:
    [setup prompt](references/prompts.md#setup-and-diagnosis) as the first request.
 
 Either way, the first money move on a route still needs the one-time
-[setup record](references/security.md#setup-record) (UIDs, key rights, the native-form line,
+[setup record](references/security.md#setup-record) (key rights, the native-form line,
 the whitelist entry), and every money move needs `APPROVE`, `WITHDRAW` and the host's native
 form. Automatic skill discovery is host behavior. Without `fundkit install` this repository
 does not set it up ([loading the skill](references/security.md#loading-the-skill)).
@@ -114,8 +114,9 @@ Exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin, plu
   argv, a file or any other process. Each profile gets only its own exchange's two names,
   fetched for that session, plus that exchange's passphrase, all dropped when it ends. One key
   per exchange may be write-enabled, so fundkit enforces each profile's local role with
-  per-venue method allowlists and binds money moves to the account UID its key check showed
-  ([scheme D](references/security.md#scheme-d-session-only-doppler-profiles-optional)).
+  per-venue method allowlists and a key check before recipient reads and money moves. It
+  binds no account UID: the operator's mapping of each exchange to its two Doppler names is
+  trusted ([scheme D](references/security.md#scheme-d-session-only-doppler-profiles-optional)).
 - **Keys.** The agent knows only account aliases and never reads the environment. One server
   per account. Claude Code passes its whole environment to every server; Codex forwards only
   each server's `env_vars`, but the values stay in the host environment. So either put each
@@ -236,8 +237,9 @@ cases:
   `fundkit passphrase` beside a wrapped host; once per exchange and session; cancel and empty
   input; never in Doppler, the host, a file or another process;
 - one key in both roles when a route reverses, wrong-role denial on every write surface,
-  key check before recipient reads, exact UID for money moves, account conflicts, provisioning
-  and WhiteBIT restrictions, and the same decisions for a raw socket client;
+  a successful key check before recipient reads and money moves, no UID asked for, read,
+  kept or compared (an old caller's `uid` ignored, UID-only reads refused), WhiteBIT money moves
+  reaching the native form, provisioning, and the same decisions for a raw socket client;
 - redaction, and the native form forwarded with decline, accept and no answer;
 - an expired token, Ctrl-C at the prompt, a refused token type, no terminal, Doppler ignoring
   the name filter, outages, `--ttl`, `SIGHUP` and `fundkit stop`;
