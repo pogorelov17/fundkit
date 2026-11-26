@@ -381,6 +381,38 @@ class RealPlanFormTests(RealCcxtMcpTests):
         self.assertEqual(self.posts(), [])
         self.assert_no_files_with_secrets()
 
+    def test_real_usdc_ten_plus_fee_to_binance_reaches_the_card_reads_only_usdc_and_sends_nothing(self):
+        self.unlock_from_card()
+        host = T3Host(self.host_env, decisions=["cancel"])
+        self.hosts.append(host)
+        request = {**TEN_TO_BINANCE, "coin": "USDC"}
+        body, is_error, _ = host.tool_full("fundkit_transfer_prepare", request, timeout=180)
+        self.assertFalse(is_error, body)
+        self.assertEqual(body["status"], "ready", body)
+        plan = body["plan"]
+        self.assertEqual((plan["amount"], plan["fee"]), ("10 USDC", "0.15 USDC (on top)"))
+        self.assertEqual((plan["debit"], plan["credit"]), ("10.15", "10"))
+        self.assertEqual(plan["available"], "812.44 USDC in funding")
+        self.assertEqual(plan["recipient"], "0x3d4E5f60718293a4B5c6D7e8F9a0B1c2D3e4F5a6")
+        self.assertEqual(plan["destinationMinimum"], FALLBACK)
+        self.assertIn(
+            "USDC, Fundkit operator fallback (venue minimum: unknown)", plan["destinationMinimumBasis"]
+        )
+        # Every coin-scoped request either venue received named USDC, never USDT.
+        coins = {request["coin"] for request in self.wire() if request["coin"]}
+        self.assertEqual(coins, {"USDC"}, self.wire())
+
+        result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]}, timeout=180)
+        self.assertEqual((result["status"], result["sent"]), ("not-sent", False), result)
+        self.assertEqual(host.auto_cancelled, [])
+        self.assertEqual(len(host.cards), 1)
+        card = host.cards[0]["message"]
+        self.assertIn("Token contract (USDC): 0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", card)
+        self.assertIn(f"Destination minimum: {FALLBACK} USDC, Fundkit operator fallback", card)
+        self.assertNotIn("USDT", card)
+        self.assertEqual(self.posts(), [], "zero withdrawal writes")
+        self.assert_no_files_with_secrets()
+
     def test_real_minimum_known_after_the_approval_sends_nothing(self):
         self.unlock_from_card()
         row = {

@@ -4,7 +4,9 @@
 // also names a synthetic UID, which fundkit ignores), anything else throws, and nothing is sent.
 // The test writes the two module paths to $HOME/real-ccxt-paths.json, because a profile process
 // inherits no other variable. $HOME/recorder-overrides.json, when present, replaces answers by path
-// for the requests after it is written (a venue changing between two reads).
+// for the requests after it is written (a venue changing between two reads). An answer keyed
+// `<path>?coin=<COIN>` wins over `<path>` for a request with that `coin` query parameter, so the
+// USDT and USDC address reads get their own answers; each wire line also records that `coin`.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -19,6 +21,8 @@ const ccxt = await import(pathToFileURL(ccxtEntry).href);
 
 const KEY_HEADERS = ['OK-ACCESS-KEY', 'X-BAPI-API-KEY', 'X-MBX-APIKEY'];
 const BINANCE_BSC = '0x1b6C0d8D0aF0A3a0b6F6e4E5bC6a7F2d3C4e5F60';
+const BINANCE_BSC_USDC = '0x3d4E5f60718293a4B5c6D7e8F9a0B1c2D3e4F5a6';
+const USDC_BSC = '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d';
 const KEY_CHECK_ANSWERS = {
   '/api/v5/account/config': { code: '0', data: [{ uid: 'UID-REAL-OKX', perm: 'read_only,withdraw' }] },
   '/v5/user/query-api': {
@@ -55,6 +59,36 @@ const KEY_CHECK_ANSWERS = {
         },
       ],
     },
+    {
+      coin: 'USDC',
+      name: 'USD Coin',
+      networkList: [
+        {
+          network: 'BSC',
+          coin: 'USDC',
+          name: 'BNB Smart Chain (BEP20)',
+          contractAddress: USDC_BSC,
+          contractAddressUrl: 'https://bscscan.com/token/',
+          depositEnable: true,
+          withdrawEnable: true,
+          withdrawFee: '0.29',
+          withdrawMin: '10',
+          withdrawMax: '9999999',
+          withdrawIntegerMultiple: '0.00000001',
+          isDefault: false,
+        },
+      ],
+    },
+  ],
+  '/sapi/v1/capital/deposit/address?coin=USDC': {
+    address: BINANCE_BSC_USDC,
+    coin: 'USDC',
+    tag: '',
+    url: `https://bscscan.com/address/${BINANCE_BSC_USDC}`,
+  },
+  '/sapi/v1/capital/deposit/address/list?coin=USDC': [
+    { coin: 'USDC', address: BINANCE_BSC_USDC, tag: '', isDefault: 1 },
+    { coin: 'USDC', address: '0x9999999999999999999999999999999999999999', tag: '', isDefault: 0 },
   ],
   '/sapi/v1/capital/deposit/address': {
     address: BINANCE_BSC,
@@ -93,6 +127,26 @@ const KEY_CHECK_ANSWERS = {
             },
           ],
         },
+        {
+          name: 'USDC',
+          coin: 'USDC',
+          remainAmount: '1000000',
+          chains: [
+            {
+              chainType: 'BSC (BEP20)',
+              confirmation: '15',
+              withdrawFee: '0.15',
+              depositMin: '1',
+              withdrawMin: '10',
+              chain: 'BSC',
+              chainDeposit: '1',
+              chainWithdraw: '1',
+              minAccuracy: '4',
+              withdrawPercentageFee: '0',
+              contractAddress: USDC_BSC,
+            },
+          ],
+        },
       ],
     },
   },
@@ -103,7 +157,10 @@ KEY_CHECK_ANSWERS['/v5/asset/transfer/query-account-coins-balance'] = {
   result: {
     memberId: 'UID-REAL-BYBIT',
     accountType: 'FUND',
-    balance: [{ coin: 'USDT', transferBalance: '812.44', walletBalance: '812.44', bonus: '' }],
+    balance: [
+      { coin: 'USDT', transferBalance: '812.44', walletBalance: '812.44', bonus: '' },
+      { coin: 'USDC', transferBalance: '812.44', walletBalance: '812.44', bonus: '' },
+    ],
   },
 };
 const EMPTY_ANSWER = { retCode: 0, retMsg: 'OK', result: { list: [], rows: [] }, code: '0', data: [] };
@@ -115,11 +172,14 @@ ccxt.Exchange.prototype.fetch = async function recordInsteadOfSending(url, metho
     Object.entries(headers ?? {}).map(([name, value]) => [name.toUpperCase(), value]),
   );
   const key = KEY_HEADERS.map((name) => upper[name]).find(Boolean);
-  const requestPath = new URL(url).pathname;
+  const parsed = new URL(url);
+  const requestPath = parsed.pathname;
+  const coin = parsed.searchParams.get('coin');
   const line = {
     id: this.id,
     method,
     path: requestPath,
+    coin,
     signed: Boolean(key),
     keyHash: key ? sha256(key) : null,
   };
@@ -132,8 +192,12 @@ ccxt.Exchange.prototype.fetch = async function recordInsteadOfSending(url, metho
   } catch {
     // no overrides
   }
-  if (Object.hasOwn(overrides, requestPath)) return overrides[requestPath];
-  return KEY_CHECK_ANSWERS[requestPath] ?? (this.id === 'binance' ? [] : EMPTY_ANSWER);
+  const byCoin = coin ? `${requestPath}?coin=${coin}` : null;
+  for (const answers of [overrides, KEY_CHECK_ANSWERS]) {
+    if (byCoin && Object.hasOwn(answers, byCoin)) return answers[byCoin];
+    if (Object.hasOwn(answers, requestPath)) return answers[requestPath];
+  }
+  return this.id === 'binance' ? [] : EMPTY_ANSWER;
 };
 
 await import(pathToFileURL(serverEntry).href);

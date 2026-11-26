@@ -30,62 +30,70 @@ BINANCE_TRX = "TJRabPrwbZy45sbavfcjinPJC18kjpRTv8"
 BINANCE_TON = "EQD" + "_" * 42 + "0vo"
 BINANCE_TON_MEMO = "000123"
 BYBIT_BSC = "0x2c7536E3605D9C16a7a3D7b1898e529396a65c23"
+# USDC deposit addresses differ from the USDT ones on purpose: a USDC flow that read a USDT
+# address (or the reverse) shows up in every assertion on the recipient.
+BINANCE_BSC_USDC = "0x3d4E5f60718293a4B5c6D7e8F9a0B1c2D3e4F5a6"
+BINANCE_ETH_USDC = "0x4E5f60718293A4b5C6d7E8f9A0b1C2d3E4f5A6b7"
+BYBIT_BSC_USDC = "0x5F60718293a4b5C6D7E8f9a0B1C2D3e4F5a6B7c8"
 USDT_BSC = "0x55d398326f99059fF775485246999027B3197955"
 USDT_TRX = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
 USDT_ETH = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
 USDT_TON = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
+USDC_BSC = "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"
+USDC_ETH = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 BINANCE_IDS = {"BEP20": "BSC", "TRC20": "TRX", "ERC20": "ETH", "TON": "TON"}
 
 
-def params_key(tool: str, method: str, params: dict | None = None) -> str:
-    """The fake server's fixture key; params in the order fundkit sends them."""
-    base = f"{tool}:{method}"
-    return base if params is None else f"{base}:{json.dumps(params, separators=(',', ':'))}"
+def params_key(tool: str, method: str, params: dict | None = None, args: list | None = None) -> str:
+    """The fake server's fixture key; positional args and params in the order fundkit sends them."""
+    key = f"{tool}:{method}"
+    if args is not None:
+        key += f"@{json.dumps(args, separators=(',', ':'))}"
+    if params is not None:
+        key += f":{json.dumps(params, separators=(',', ':'))}"
+    return key
 
 
-def binance_fixtures(free_spot: float = 812.44) -> dict:
-    rows = [
-        {
-            "network": "BSC",
-            "contractAddress": USDT_BSC.lower(),
-            "depositEnable": True,
-            "withdrawEnable": True,
-            "withdrawFee": "0.29",
-            "withdrawMin": "10",
-            "withdrawMax": "9999999",
-            "withdrawIntegerMultiple": "0.00000001",
-        },
-        {
-            "network": "TRX",
-            "contractAddress": USDT_TRX,
-            "depositEnable": True,
-            "withdrawEnable": True,
-            "withdrawFee": "1",
-            "withdrawMin": "10",
-            "withdrawMax": "9999999",
-            "withdrawIntegerMultiple": "0.000001",
-        },
-        {
-            "network": "ETH",
-            "contractAddress": USDT_ETH,
-            "depositEnable": True,
-            "withdrawEnable": True,
-            "withdrawFee": "4",
-            "withdrawMin": "20",
-            "withdrawMax": "9999999",
-            "withdrawIntegerMultiple": "0.000001",
-        },
-        {
-            "network": "TON",
-            "contractAddress": USDT_TON,
-            "depositEnable": True,
-            "withdrawEnable": True,
-            "withdrawFee": "0.5",
-            "withdrawMin": "1",
-            "withdrawMax": "9999999",
-            "withdrawIntegerMultiple": "0.000001",
-        },
+def fee_key(coin: str = "USDT") -> str:
+    """The currency read both venues answer for one coin (fetchDepositWithdrawFee [coin])."""
+    return params_key("call_read_method", "fetchDepositWithdrawFee", args=[coin])
+
+
+def binance_row(network: str, contract: str, **fields) -> dict:
+    return {
+        "network": network,
+        "contractAddress": contract,
+        "depositEnable": True,
+        "withdrawEnable": True,
+        "withdrawMax": "9999999",
+        **fields,
+    }
+
+
+def binance_fixtures(free_spot: float = 812.44, free_usdc_spot: float = 812.44) -> dict:
+    usdt = [
+        binance_row(
+            "BSC",
+            USDT_BSC.lower(),
+            withdrawFee="0.29",
+            withdrawMin="10",
+            withdrawIntegerMultiple="0.00000001",
+        ),
+        binance_row("TRX", USDT_TRX, withdrawFee="1", withdrawMin="10", withdrawIntegerMultiple="0.000001"),
+        binance_row("ETH", USDT_ETH, withdrawFee="4", withdrawMin="20", withdrawIntegerMultiple="0.000001"),
+        binance_row("TON", USDT_TON, withdrawFee="0.5", withdrawMin="1", withdrawIntegerMultiple="0.000001"),
     ]
+    usdc = [
+        binance_row(
+            "BSC",
+            USDC_BSC.lower(),
+            withdrawFee="0.29",
+            withdrawMin="10",
+            withdrawIntegerMultiple="0.00000001",
+        ),
+        binance_row("ETH", USDC_ETH, withdrawFee="4", withdrawMin="20", withdrawIntegerMultiple="0.000001"),
+    ]
+    balances = {"spot": {"USDT": {"free": free_spot}, "USDC": {"free": free_usdc_spot}}, "funding": {}}
     fixtures = {
         params_key("call_implicit_get", "sapiGetAccountApiRestrictions"): {
             "enableReading": True,
@@ -93,11 +101,13 @@ def binance_fixtures(free_spot: float = 812.44) -> dict:
             "enableInternalTransfer": False,
             "ipRestrict": True,
         },
-        params_key("call_read_method", "fetchDepositWithdrawFee"): {
-            "info": {"coin": "USDT", "networkList": rows}
+        fee_key("USDT"): {"info": {"coin": "USDT", "networkList": usdt}},
+        fee_key("USDC"): {"info": {"coin": "USDC", "networkList": usdc}},
+        params_key("call_read_method", "fetchBalance", {"type": "spot"}): balances["spot"],
+        params_key("call_read_method", "fetchBalance", {"type": "funding"}): {
+            "USDT": {"free": 0},
+            "USDC": {"free": 0},
         },
-        params_key("call_read_method", "fetchBalance", {"type": "spot"}): {"USDT": {"free": free_spot}},
-        params_key("call_read_method", "fetchBalance", {"type": "funding"}): {"USDT": {"free": 0}},
     }
     for code, address, tag in [
         ("BEP20", BINANCE_BSC, ""),
@@ -105,59 +115,46 @@ def binance_fixtures(free_spot: float = 812.44) -> dict:
         ("TON", BINANCE_TON, BINANCE_TON_MEMO),
     ]:
         set_binance_address(fixtures, code, address, tag)
+    set_binance_address(fixtures, "BEP20", BINANCE_BSC_USDC, "", coin="USDC")
+    set_binance_address(fixtures, "ERC20", BINANCE_ETH_USDC, "", coin="USDC")
     return fixtures
 
 
-def set_binance_address(fixtures: dict, code: str, address: str, tag: str | None, **overrides) -> None:
+def set_binance_address(
+    fixtures: dict, code: str, address: str, tag: str | None, coin: str = "USDT", **overrides
+) -> None:
     venue_id = BINANCE_IDS[code]
-    info = {"coin": "USDT", "address": address, "tag": tag, "url": f"https://explorer/{address}"}
-    fixtures[params_key("call_read_method", "fetchDepositAddress", {"network": code})] = {
-        "currency": "USDT",
+    info = {"coin": coin, "address": address, "tag": tag, "url": f"https://explorer/{address}"}
+    fixtures[params_key("call_read_method", "fetchDepositAddress", {"network": code}, args=[coin])] = {
+        "currency": overrides.get("gated_currency", coin),
         "network": overrides.get("gated_network", code),
         "address": address,
         "tag": tag or None,
         "info": info,
     }
-    row = {"coin": "USDT", "address": address, "isDefault": 1}
+    row = {"coin": coin, "address": address, "isDefault": 1}
     if tag is not None:
         row["tag"] = tag
-    rows = [row, {"coin": "USDT", "address": BINANCE_BSC_OLD, "tag": "", "isDefault": 0}]
+    rows = [row, {"coin": coin, "address": BINANCE_BSC_OLD, "tag": "", "isDefault": 0}]
     rows.extend(overrides.get("extra_rows", []))
     fixtures[
         params_key(
-            "call_implicit_get", "sapiGetCapitalDepositAddressList", {"coin": "USDT", "network": venue_id}
+            "call_implicit_get", "sapiGetCapitalDepositAddressList", {"coin": coin, "network": venue_id}
         )
     ] = rows
 
 
 def bybit_fixtures(
+    *,
     free: float = 812.44,
     batch_release_limit: str = "-1",
     withdraw_fee: str = "0.3",
     withdraw_min: str = "10",
     extra_chains: list | None = None,
+    deposit_min: str | None = "1",
 ) -> dict:
-    chain = {
-        "chain": "BSC",
-        "chainType": "BSC (BEP20)",
-        "chainDeposit": "1",
-        "chainWithdraw": "1",
-        "depositMin": "1",
-        "withdrawMin": withdraw_min,
-        "contractAddress": USDT_BSC.lower(),
-        "minAccuracy": "4",
-        "withdrawFee": withdraw_fee,
-        "withdrawPercentageFee": "0",
-    }
-    entry = {
-        "chainType": "BSC (BEP20)",
-        "chain": "BSC",
-        "addressDeposit": BYBIT_BSC,
-        "tagDeposit": "",
-        "contractAddress": "197955",
-        "batchReleaseLimit": batch_release_limit,
-    }
-    return {
+    """Bybit for USDT and USDC on BSC, alike unless overridden (deposit_min None: no field)."""
+    fixtures = {
         params_key("call_implicit_get", "privateGetV5UserQueryApi"): {
             "retCode": 0,
             "result": {
@@ -168,20 +165,50 @@ def bybit_fixtures(
                 "userID": 1,
             },
         },
-        params_key("call_read_method", "fetchDepositWithdrawFee"): {
-            "info": {"coin": "USDT", "remainAmount": "1000000", "chains": [chain, *(extra_chains or [])]}
+        params_key("call_read_method", "fetchBalance", {"type": "funding"}): {
+            "USDT": {"free": free},
+            "USDC": {"free": free},
         },
-        params_key("call_read_method", "fetchDepositAddressesByNetwork", {"network": "BEP20"}): {
-            "BEP20": {"address": BYBIT_BSC, "tag": None, "network": "BEP20", "info": entry}
-        },
-        params_key(
-            "call_implicit_get", "privateGetV5AssetDepositQueryAddress", {"coin": "USDT", "chainType": "BSC"}
-        ): {
-            "retCode": 0,
-            "result": {"coin": "USDT", "chains": [entry]},
-        },
-        params_key("call_read_method", "fetchBalance", {"type": "funding"}): {"USDT": {"free": free}},
     }
+    for coin, contract, address in (("USDT", USDT_BSC, BYBIT_BSC), ("USDC", USDC_BSC, BYBIT_BSC_USDC)):
+        chain = {
+            "chain": "BSC",
+            "chainType": "BSC (BEP20)",
+            "chainDeposit": "1",
+            "chainWithdraw": "1",
+            "withdrawMin": withdraw_min,
+            "contractAddress": contract.lower(),
+            "minAccuracy": "4",
+            "withdrawFee": withdraw_fee,
+            "withdrawPercentageFee": "0",
+        }
+        if deposit_min is not None:
+            chain["depositMin"] = deposit_min
+        entry = {
+            "chainType": "BSC (BEP20)",
+            "chain": "BSC",
+            "addressDeposit": address,
+            "tagDeposit": "",
+            "contractAddress": contract.lower()[-6:],
+            "batchReleaseLimit": batch_release_limit,
+        }
+        extra = [item for item in extra_chains or [] if item.get("coin", "USDT") == coin]
+        fixtures[fee_key(coin)] = {
+            "info": {"coin": coin, "remainAmount": "1000000", "chains": [chain, *extra]}
+        }
+        fixtures[
+            params_key(
+                "call_read_method", "fetchDepositAddressesByNetwork", {"network": "BEP20"}, args=[coin]
+            )
+        ] = {"BEP20": {"address": address, "tag": None, "network": "BEP20", "info": entry}}
+        fixtures[
+            params_key(
+                "call_implicit_get",
+                "privateGetV5AssetDepositQueryAddress",
+                {"coin": coin, "chainType": "BSC"},
+            )
+        ] = {"retCode": 0, "result": {"coin": coin, "chains": [entry]}}
+    return fixtures
 
 
 # --------------------------------------------------------------------------- T3 secret card
