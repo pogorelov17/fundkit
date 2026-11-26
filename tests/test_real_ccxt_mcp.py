@@ -10,13 +10,19 @@ tests/real_ccxt_recorder.mjs replaces ccxt's transport with a recorder, so nothi
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import socket
+import subprocess
+import time
 import unittest
 from pathlib import Path
 
+from tests.native_support import T3Host, t3_secret_file
 from tests.support import (
     DOPPLER_CONFIG,
+    NODE,
     PASSPHRASES,
     ROOT,
     TOKEN,
@@ -153,6 +159,192 @@ class RealCcxtMcpTests(SessionTestCase):
         host.close()
         self.assertEqual(terminal.wait(), 0)
         wait_for(lambda: not recorder_pids(), what="real servers to stop")
+
+
+def canonical(value) -> str:
+    """lib/plans.mjs canonicalJson, for ASCII-only plans."""
+    if isinstance(value, list):
+        return "[" + ",".join(canonical(item) for item in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ",".join(f"{json.dumps(key)}:{canonical(value[key])}" for key in sorted(value)) + "}"
+    return json.dumps(value)
+
+
+def digest(value) -> str:
+    return hashlib.sha256(canonical(value).encode()).hexdigest()
+
+
+@unittest.skipUnless(REAL_SERVER, "set FUNDKIT_REAL_CCXT_MCP=<APP_DIR>/node_modules/ccxt-mcp/js/server.js")
+class RealPlanFormTests(RealCcxtMcpTests):
+    """The plan card against the real server's own form, on a T3-shaped host; nothing leaves."""
+
+    test_real_server_end_to_end = None
+
+    def register_plan(self, plan_id: str, recipient: str, amount: int = 25) -> dict:
+        alias = f"bybit-{plan_id.lower()}"
+        args = {
+            "account": alias,
+            "code": "USDT",
+            "amount": amount,
+            "address": recipient,
+            "network": "BEP20",
+            "params": {"accountType": "FUND"},
+        }
+        expires = int(time.time() * 1000) + 600_000
+        body = {
+            "planId": plan_id,
+            "version": 1,
+            "language": "en",
+            "createdAt": "2026-11-26T00:00:00.000Z",
+            "expiresAt": "2026-11-26T00:10:00.000Z",
+            "expiresAtMs": expires,
+            "from": "bybit",
+            "to": "binance",
+            "coin": "USDT",
+            "network": {
+                "code": "BEP20",
+                "label": "BNB Smart Chain (BEP20)",
+                "chainId": 56,
+                "contract": "0x55d398326f99059fF775485246999027B3197955",
+                "venueId": "BSC",
+                "sourceId": "BSC",
+                "destinationId": "BSC",
+            },
+            "amount": str(amount),
+            "fee": {"value": "0.3", "asset": "USDT", "model": "on top", "fields": "test"},
+            "debit": {"min": "25.3", "max": "25.3"},
+            "credit": {"min": str(amount), "max": str(amount)},
+            "sourceWallet": {"wallet": "funding", "available": "100"},
+            "recipient": {
+                "address": recipient,
+                "memo": None,
+                "readFrom": "binance-dst",
+                "reads": [],
+                "lands": "Spot",
+                "readAt": "2026-11-26T00:00:00Z",
+            },
+            "destination": {
+                "depositMin": "1",
+                "depositFee": {"value": "0", "source": "test"},
+                "inboundCap": None,
+            },
+            "sourceKey": {},
+            "args": args,
+            "argsHash": digest(args),
+            "cap": amount,
+            "readsFrom": {"source": "bybit-src", "destination": "binance-dst"},
+            "exchangeMayReject": "test",
+            "onward": "test",
+        }
+        plan = {**body, "hash": digest(body)}
+        plans = self.home / ".local" / "state" / "fundkit" / "plans"
+        plans.mkdir(parents=True, exist_ok=True)
+        (plans / f"{plan_id}.json").write_text(json.dumps(plan))
+        with socket.socket(socket.AF_UNIX) as control:
+            control.connect(str(self.run_dir / "session.sock"))
+            stream = control.makefile("rw")
+            stream.write(json.dumps({"t": "hello", "id": 1, "host": "test"}) + "\n")
+            stream.write(
+                json.dumps(
+                    {
+                        "t": "plan-register",
+                        "id": 2,
+                        "plan": {
+                            "planId": plan_id,
+                            "exchange": "bybit",
+                            "argsHash": plan["argsHash"],
+                            "cap": amount,
+                            "expiresAt": expires,
+                        },
+                    }
+                )
+                + "\n"
+            )
+            stream.flush()
+            replies = [json.loads(stream.readline()) for _ in range(2)]
+        self.assertEqual(replies[1]["t"], "plan-registered", replies)
+        return plan
+
+    def test_real_form_is_matched_and_shown_once_and_nothing_leaves(self):
+        path = t3_secret_file(self.tmp, TOKEN)
+        result = subprocess.run(
+            [NODE, str(ROOT / "bin" / "fundkit.mjs"), "unlock", "--token-file", str(path)],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        self.assertIn('"ok":true', result.stdout, result.stdout + result.stderr)
+        self.addCleanup(lambda: self.run_cli("stop"))
+
+        recipient = "0x1b6C0d8D0aF0A3a0b6F6e4E5bC6a7F2d3C4e5F60"
+        for decision, plan_id in (("decline", "FK-AAAAAAAA"), ("approve", "FK-BBBBBBBB")):
+            with self.subTest(decision=decision):
+                self.register_plan(plan_id, recipient)
+                host = T3Host(self.host_env, decisions=[decision])
+                self.hosts.append(host)
+                body, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": plan_id}, timeout=120)
+                # The real server's form matched the plan and became exactly one card.
+                self.assertEqual(host.auto_cancelled, [])
+                self.assertEqual(len(host.cards), 1, body)
+                self.assertIn(plan_id, host.cards[0]["message"])
+                self.assertIn(recipient, host.cards[0]["message"])
+                posts = [request for request in self.wire() if request["method"] != "GET"]
+                if decision == "decline":
+                    self.assertEqual((body["status"], body["reason"]), ("not-sent", "CONFIRM_DECLINED"))
+                    self.assertEqual(posts, [])
+                else:
+                    # Approved: the real server passed its gate and built the withdrawal; the recorder
+                    # refused it, so nothing left this machine.
+                    self.assertEqual(
+                        [(p["id"], p["method"], p["path"]) for p in posts],
+                        [("bybit", "POST", "/v5/asset/withdraw/create")],
+                    )
+                    # The recorder fails the request like a network error after dispatch: the real
+                    # server reports UNKNOWN_OUTCOME, and the plan can never be sent again.
+                    self.assertEqual((body["status"], body["reason"]), ("unknown", "UNKNOWN_OUTCOME"), body)
+                    again, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": plan_id})
+                    self.assertTrue(again["duplicate"])
+                    self.assertEqual(len([p for p in self.wire() if p["method"] != "GET"]), 1)
+                host.close()
+        self.assert_no_files_with_secrets()
+
+    def test_real_binance_address_reads_parse_and_send_only_gets(self):
+        path = t3_secret_file(self.tmp, TOKEN)
+        result = subprocess.run(
+            [NODE, str(ROOT / "bin" / "fundkit.mjs"), "unlock", "--token-file", str(path)],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        self.assertIn('"ok":true', result.stdout, result.stdout + result.stderr)
+        self.addCleanup(lambda: self.run_cli("stop"))
+        host = T3Host(self.host_env)
+        self.hosts.append(host)
+        body, is_error, _ = host.tool_full(
+            "fundkit_deposit_address", {"exchange": "binance", "network": "BSC"}, timeout=120
+        )
+        self.assertFalse(is_error, body)
+        self.assertEqual(body["address"], "0x1b6C0d8D0aF0A3a0b6F6e4E5bC6a7F2d3C4e5F60")
+        self.assertEqual((body["network"]["code"], body["network"]["venueId"]), ("BEP20", "BSC"))
+        self.assertEqual(body["memo"]["value"], None)
+        self.assertTrue(body["qr"]["verified"])
+        wire = self.wire()
+        self.assertEqual({request["method"] for request in wire}, {"GET"})
+        signed = {request["path"] for request in wire if request["signed"]}
+        for expected in (
+            "/sapi/v1/account/apiRestrictions",
+            "/sapi/v1/capital/config/getall",
+            "/sapi/v1/capital/deposit/address",
+            "/sapi/v1/capital/deposit/address/list",
+        ):
+            self.assertIn(expected, signed)
+        key = sha256(DOPPLER_CONFIG["BINANCE_APIKEY"])
+        self.assertTrue(all(request["keyHash"] == key for request in wire if request["signed"]))
+        self.assert_no_files_with_secrets()
 
 
 if __name__ == "__main__":
