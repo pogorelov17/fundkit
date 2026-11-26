@@ -11,7 +11,11 @@
 //     URL-encoded, the way a careless exchange error might;
 //   * call_read_method sleeps for params.fakeDelayMs when given;
 //   * withdraw and transfer ask for the native form like ccxt-mcp (elicitation/create with one
-//     boolean `confirm`), and record a dispatch only when not dryRun.
+//     required boolean `confirm` and ccxt-mcp's exact message format), check maxTransferValue,
+//     and record a dispatch only when not dryRun;
+//   * $HOME/fake-ccxt-fixtures.json ({"<exchange>": {"<tool>:<method>[:<params JSON>]": data}})
+//     answers call_implicit_get / call_read_method in ccxt-mcp's envelope {ok, data}; a value
+//     {"__error": {code, message}} answers an error envelope. Fixtures are read on every call.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -21,6 +25,7 @@ const HOME = process.env.HOME || '/nonexistent';
 const EVENTS_PATH = path.join(HOME, 'fake-ccxt-events.jsonl');
 const UID_OVERRIDES_PATH = path.join(HOME, 'fake-uids.json');
 const KEY_CHECK_ERRORS_PATH = path.join(HOME, 'fake-key-check-errors.json');
+const FIXTURES_PATH = path.join(HOME, 'fake-ccxt-fixtures.json');
 
 /** exchange -> [key-check method, the UID field its metadata also carries] */
 const KEY_CHECKS = {
@@ -107,6 +112,26 @@ function keyCheckFails() {
   }
 }
 
+/** The fixture for this exchange and call, or undefined. */
+function fixture(tool, args) {
+  let fixtures;
+  try {
+    fixtures = JSON.parse(fs.readFileSync(FIXTURES_PATH, 'utf8'))[exchange] ?? {};
+  } catch {
+    return undefined;
+  }
+  const base = `${tool}:${args.method}`;
+  const specific = `${base}:${JSON.stringify(args.params ?? {})}`;
+  return Object.hasOwn(fixtures, specific) ? fixtures[specific] : fixtures[base];
+}
+
+function envelope(data) {
+  if (data && typeof data === 'object' && data.__error) {
+    return textResult({ ok: false, error: { retryable: false, ...data.__error } }, true);
+  }
+  return textResult({ ok: true, data, meta: { exchange } });
+}
+
 function implicitGet(args) {
   const keyCheck = KEY_CHECKS[exchange];
   if (keyCheck && args.method === keyCheck[0]) {
@@ -128,23 +153,59 @@ function implicitGet(args) {
   });
 }
 
+const failure = (code) => textResult({ ok: false, code, error: { code, message: code } }, true);
+
+/** ccxt-mcp's form text: `Confirm: <action> on <exchange> (account "<alias>", LIVE)` + preview. */
+function formMessage(name, args) {
+  const preview =
+    name === 'withdraw'
+      ? {
+          currency: args.code,
+          amount: args.amount,
+          estimatedValueUsd: args.amount,
+          destinationAddress: args.address,
+          tag: args.tag,
+          network: args.network ?? '(exchange default)',
+          environment: 'live',
+          warning: 'withdrawals are IRREVERSIBLE — verify the address and network character by character',
+        }
+      : { currency: args.code, amount: args.amount, from: args.fromAccount, to: args.toAccount };
+  const action = name === 'withdraw' ? 'withdrawal' : 'transfer';
+  return `Confirm: ${action} on ${exchange} (account ${JSON.stringify(alias)}, LIVE)\n${JSON.stringify(preview, null, 2)}`;
+}
+
 async function moneyMove(name, args) {
+  // The real server checks the cap on every account before its form; the older session tests
+  // exercise form forwarding on dryRun profiles with the default cap, so only live ones check it here.
+  if (
+    !account.dryRun &&
+    typeof account.maxTransferValue === 'number' &&
+    args.amount > account.maxTransferValue
+  ) {
+    return failure('TRANSFER_VALUE_CAP');
+  }
   if (!hostCapabilities.elicitation) {
     return textResult({ preview: true, meta: { confirmToken: `tok-${nextRequestId}` } });
   }
   const answer = await askHost({
-    mode: 'form',
-    message: `${name} ${args.amount} ${args.code} on ${alias}`,
-    requestedSchema: { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] },
+    message: formMessage(name, args),
+    requestedSchema: {
+      type: 'object',
+      properties: { confirm: { type: 'boolean', description: 'approve this action' } },
+      required: ['confirm'],
+    },
   });
   record({ type: 'form', name, answer: answer.result ?? answer.error ?? null });
-  if (answer.error) return textResult({ code: 'CONFIRM_UNAVAILABLE' }, true);
+  if (answer.error) return failure('CONFIRM_UNAVAILABLE');
   if (answer.result?.action !== 'accept' || answer.result?.content?.confirm !== true) {
-    return textResult({ code: 'CONFIRM_DECLINED' }, true);
+    return failure(answer.result?.action === 'cancel' ? 'CONFIRM_CANCELED' : 'CONFIRM_DECLINED');
   }
-  if (account.dryRun) return textResult({ dryRun: true, wouldSend: { name, args } });
+  if (account.dryRun) {
+    return textResult({ ok: true, dryRun: true, data: { dryRun: true }, wouldSend: { name, args } });
+  }
   record({ type: 'dispatch', name, args });
-  return textResult({ id: name === 'withdraw' ? 'W-1' : 'T-1', status: 'pending' });
+  const id = name === 'withdraw' ? 'W-1' : 'T-1';
+  return textResult({ ok: true, id, status: 'pending', data: { id, status: 'pending' } });
 }
 
 async function callTool(name, args) {
@@ -178,9 +239,13 @@ async function callTool(name, args) {
     }
     case 'get_balance':
       return textResult({ USDT: { free: 1000, used: 0, total: 1000 } });
-    case 'call_implicit_get':
-      return implicitGet(args);
+    case 'call_implicit_get': {
+      const data = fixture(name, args);
+      return data === undefined ? implicitGet(args) : envelope(data);
+    }
     case 'call_read_method': {
+      const data = fixture(name, args);
+      if (data !== undefined) return envelope(data);
       const delayMs = Number(args.params?.fakeDelayMs ?? 0);
       if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
       return textResult({ method: args.method, rows: [] });

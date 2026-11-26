@@ -23,7 +23,17 @@ from tests.support import (
     withdraw_args,
 )
 
-TOOL_NAMES = ["fundkit_profiles", "fundkit_connect", "fundkit_read", "fundkit_write", "fundkit_disconnect"]
+TOOL_NAMES = [
+    "fundkit_deposit_address",
+    "fundkit_transfer_prepare",
+    "fundkit_transfer_confirm",
+    "fundkit_transfer_status",
+    "fundkit_profiles",
+    "fundkit_connect",
+    "fundkit_read",
+    "fundkit_write",
+    "fundkit_disconnect",
+]
 
 
 class NoSessionTests(SessionTestCase):
