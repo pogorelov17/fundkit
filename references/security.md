@@ -419,7 +419,7 @@ start with nothing installed:
 3. **Profile** (`chmod 600`). `funds` is needed because ccxt-mcp gates the address read
    behind it, and `"funds": "live"` requires some `maxTransferValue`. That cap applies only
    to MCP `transfer` and `withdraw` on this account, which `dryRun: true` blocks; it does not
-   limit what you send from OKX Wallet:
+   limit what you send from your own wallet:
 
    ```json
    {

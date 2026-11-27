@@ -20,8 +20,9 @@ user's language and keeps the approval keywords (`APPROVE`, `WITHDRAW`) in Engli
   names that fact. It does not promise a route without questions when such a fact is missing.
 - After the one-time setup, a route's per-plan human part is `APPROVE`, `WITHDRAW` and the
   native forms. Where B publishes no deposit minimum (Binance, MEXC, multi-chain Gate), the
-  agent uses Fundkit's [operator fallback](deposit-minimum-fallback.md) of 1 USDT and says it is
-  not the exchange's figure; you may instead add B's own minimum from its deposit page. Where
+  minimum is [unknown](deposit-minimum.md): the agent says "Destination deposit minimum
+  unknown. Fundkit recommends depositing at least 1 USDT." and asks nothing about it (it is not
+  a check); you may instead add B's own minimum from its deposit page. Where
   B's deposit fee has no documented source (KuCoin), you may add it. Either value is a
   [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts) with its read time, and the
   agent asks you to read it again just before the withdrawal.
@@ -121,7 +122,7 @@ Read SKILL.md. For my <exchange> profile, list the USDT networks with deposit en
 ## Planning
 
 ```text
-Read SKILL.md. Setup record: <setup record>. Operation record: <operation record>. I want to top up <exchange> with <amount> USDT from OKX Wallet. I hold USDT on <networks>. Pick the network, read the address and memo from my account, and prepare the send sheet, or name the exact gate that holds. I will paste it into OKX Wallet and sign.
+Read SKILL.md. Setup record: <setup record>. Operation record: <operation record>. I want to top up <exchange> with <amount> USDT from my own wallet (<mobile | desktop | hardware>). I hold USDT on <networks>. Pick the network, read the address and memo from my account, and prepare the send sheet, or name the exact gate that holds. I will enter it in my wallet, check the USDT contract and the memo there, and sign.
 ```
 
 ```text

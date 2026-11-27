@@ -344,6 +344,8 @@ Pass, in this order, with nothing typed by the user except the token in the card
 - `fundkit_deposit_address` called again by itself;
 - the reply shows the QR image inline, the address as plain text under it, network "BNB Smart
   Chain (BEP20)" with Binance id `BSC`, and "memo: none" (or the memo first, conspicuously);
+- the reply also says, without asking for an amount: "The exchange has not published a minimum
+  for this network. Fundkit recommends depositing at least 1 USDT." (or its translation);
 - scan the QR with a phone: it shows exactly the address in the reply; compare with Binance's
   deposit page for USDT/BSC once, by eye.
 
@@ -363,8 +365,10 @@ address on TRC20`. Pass: no card, a new QR for the TRC20 address, the BSC QR not
 
 **3. Transfer up to the card, then Decline.**
 `Move 10 USDT from Bybit to Binance on BSC` (with at least 10.15 USDT in Bybit Funding).
-Expected: one plan message and one card that show `Destination minimum: venue minimum unknown`
-(no Fundkit figure); press **Decline** (pass as below).
+Expected: one plan message that already says "Destination deposit minimum unknown. Fundkit
+recommends depositing at least 1 USDT." (or its translation), then one card with the same line;
+no other question. Press **Decline** (pass as below). `Move 0.5 USDT from Bybit to Binance on
+BSC` is held only by Bybit's own withdrawal minimum, never by a Fundkit minimum.
 `Move 10 USDC from Bybit to Binance on BSC` is refused at once (USDT only): no card, no secret
 card, nothing read. The reverse direction also
 reaches the card with an amount the Binance account holds:

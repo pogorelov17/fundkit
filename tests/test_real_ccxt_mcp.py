@@ -32,13 +32,42 @@ from tests.support import (
     wait_for,
     withdraw_args,
 )
-from tests.test_native import FALLBACK
+from tests.test_native import NOTICE
 
 REAL_SERVER = os.environ.get("FUNDKIT_REAL_CCXT_MCP")
 RECORDER = ROOT / "tests" / "real_ccxt_recorder.mjs"
 UIDS = {"okx": "UID-REAL-OKX", "bybit": "UID-REAL-BYBIT"}
 # The real T3 thread: 10 USDT from Bybit (fee 0.15 on top) to Binance on BSC.
 TEN_TO_BINANCE = {"from": "bybit", "to": "binance", "amount": "10", "network": "BSC"}
+# The recorder's Bybit coin list (tests/real_ccxt_recorder.mjs), for tests that override one field.
+BYBIT_COIN_INFO = {
+    "retCode": 0,
+    "retMsg": "OK",
+    "result": {
+        "rows": [
+            {
+                "name": "USDT",
+                "coin": "USDT",
+                "remainAmount": "1000000",
+                "chains": [
+                    {
+                        "chainType": "BSC (BEP20)",
+                        "confirmation": "15",
+                        "withdrawFee": "0.15",
+                        "depositMin": "1",
+                        "withdrawMin": "10",
+                        "chain": "BSC",
+                        "chainDeposit": "1",
+                        "chainWithdraw": "1",
+                        "minAccuracy": "4",
+                        "withdrawPercentageFee": "0",
+                        "contractAddress": "0x55d398326f99059ff775485246999027b3197955",
+                    }
+                ],
+            }
+        ]
+    },
+}
 
 
 def recorder_pids() -> list[int]:
@@ -344,7 +373,7 @@ class RealPlanFormTests(RealCcxtMcpTests):
         self.assertTrue(all(request["keyHash"] == key for request in wire if request["signed"]))
         self.assert_no_files_with_secrets()
 
-    # ------------------------------------------------------------ Binance BEP20 fallback minimum
+    # ------------------------------------------------------------ Binance's unknown deposit minimum
 
     def getall_reads(self) -> int:
         return len(
@@ -363,8 +392,10 @@ class RealPlanFormTests(RealCcxtMcpTests):
         self.assertEqual((plan["amount"], plan["debit"], plan["credit"]), ("10 USDT", "10.15", "10"))
         self.assertEqual(plan["available"], "812.44 USDT in funding")
         self.assertEqual(plan["recipient"], "0x1b6C0d8D0aF0A3a0b6F6e4E5bC6a7F2d3C4e5F60")
-        self.assertEqual(plan["destinationMinimum"], FALLBACK)
-        self.assertIn("Fundkit operator fallback (venue minimum: unknown)", plan["destinationMinimumBasis"])
+        self.assertEqual(plan["destinationMinimum"], "unknown")
+        self.assertEqual((body["minimumNotice"], plan["destinationMinimumBasis"]), (NOTICE, NOTICE))
+        self.assertIn(NOTICE, body["next"]["how"])
+        self.assertEqual((host.cards, self.posts()), ([], []), "the notice comes before any card or write")
         reads = self.getall_reads()
 
         result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]}, timeout=180)
@@ -373,12 +404,42 @@ class RealPlanFormTests(RealCcxtMcpTests):
         self.assertEqual(len(host.cards), 1)
         card = host.cards[0]["message"]
         self.assertIn(body["planId"], card)
-        self.assertIn(f"Destination minimum: {FALLBACK} USDT, Fundkit operator fallback", card)
+        self.assertIn(f"\n{NOTICE}\n", card)
         self.assertGreater(self.getall_reads(), reads, "Binance is read again before the card")
         self.assertEqual(self.posts(), [], "zero withdrawal writes")
         again, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]})
         self.assertTrue(again["duplicate"])
         self.assertEqual(self.posts(), [])
+        self.assert_no_files_with_secrets()
+
+    def test_real_sub_one_plan_reaches_one_card_with_the_notice_and_cancel_sends_nothing(self):
+        self.unlock_from_card()
+        # Bybit's real-thread row with a withdrawal minimum below 1, so 0.5 USDT clears the source.
+        bybit = json.loads(json.dumps(BYBIT_COIN_INFO))
+        bybit["result"]["rows"][0]["chains"][0]["withdrawMin"] = "0.0001"
+        (self.home / "recorder-overrides.json").write_text(json.dumps({"/v5/asset/coin/query-info": bybit}))
+        seen = []
+
+        def at_card(params):
+            seen.append((params["message"], len(self.posts())))
+            return "cancel"
+
+        host = T3Host(self.host_env, decisions=[at_card])
+        self.hosts.append(host)
+        body, is_error, _ = host.tool_full(
+            "fundkit_transfer_prepare", {**TEN_TO_BINANCE, "amount": "0.5"}, timeout=180
+        )
+        self.assertFalse(is_error, body)
+        self.assertEqual(body["status"], "ready", body)
+        self.assertEqual((body["plan"]["credit"], body["minimumNotice"]), ("0.5", NOTICE))
+        result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]}, timeout=180)
+        self.assertEqual((result["status"], result["sent"]), ("not-sent", False), result)
+        self.assertEqual(len(seen), 1)
+        message, posts_at_card = seen[0]
+        self.assertIn(NOTICE, message)
+        self.assertIn("Amount (withdrawal amount): 0.5 USDT", message)
+        self.assertEqual(posts_at_card, 0)
+        self.assertEqual(self.posts(), [], "zero withdrawal writes")
         self.assert_no_files_with_secrets()
 
     def test_real_usdc_request_is_refused_with_zero_reads_and_writes(self):

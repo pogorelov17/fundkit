@@ -591,9 +591,12 @@ def minimum_js(expression: str):
     return json.loads(result.stdout)
 
 
-# The one constant the rule is about; every boundary below is derived from it.
-FALLBACK = minimum_js("return m.FALLBACK_POLICY.value;")["ok"]
-FALLBACK_UNITS = Decimal(FALLBACK)
+# The owner's exact copy. The 1 USDT in it is advice only: nothing below compares an amount with it.
+NOTICE = "Destination deposit minimum unknown. Fundkit recommends depositing at least 1 USDT."
+ADVICE = (
+    "The exchange has not published a minimum for this network. "
+    "Fundkit recommends depositing at least 1 USDT."
+)
 STEP = Decimal("0.0001")  # Bybit minAccuracy 4
 TO_BINANCE = {"from": "Bybit", "to": "Binance", "network": "BSC"}
 BYBIT_TRX = {
@@ -615,19 +618,13 @@ def binance_bsc_row(fixtures: dict) -> dict:
     return next(row for row in rows if row["network"] == "BSC")
 
 
-class BinanceFallbackMinimumTests(NativeTestCase):
-    """Bybit -> Binance on BSC with Binance's unknown deposit minimum (the real T3 thread)."""
+def bybit_bsc_row(fixtures: dict) -> dict:
+    return next(row for row in fixtures[fee_key()]["info"]["chains"] if row["chain"] == "BSC")
 
-    def setUp(self) -> None:
-        super().setUp()
-        # The real thread: Bybit withdrawMin 10, fee 0.15 on top.
-        self.fixtures["bybit"] = bybit_fixtures(withdraw_fee="0.15")
-        self.write_fixtures()
 
-    def prepare(self, host: T3Host, amount: str, **extra) -> dict:
-        body, is_error, _ = host.tool_full(
-            "fundkit_transfer_prepare", {**TO_BINANCE, "amount": amount, **extra}
-        )
+class MinimumTestCase(NativeTestCase):
+    def prepare(self, host: T3Host, request: dict) -> dict:
+        body, is_error, _ = host.tool_full("fundkit_transfer_prepare", request)
         self.assertFalse(is_error, body)
         return body
 
@@ -646,30 +643,54 @@ class BinanceFallbackMinimumTests(NativeTestCase):
         plans = self.home / ".local/state/fundkit/plans"
         return list(plans.iterdir()) if plans.exists() else []
 
+    def assert_unknown_plan(self, body: dict) -> dict:
+        """A ready plan whose venue minimum is unknown: the notice is in the summary, bound in the plan."""
+        self.assertEqual(body["status"], "ready", body)
+        self.assertEqual(body["minimumNotice"], NOTICE)
+        plan = body["plan"]
+        self.assertEqual(plan["destinationMinimum"], "unknown")
+        self.assertEqual(plan["destinationMinimumBasis"], NOTICE)
+        self.assertEqual(plan["minimumNotice"], NOTICE)
+        self.assertIn(NOTICE, body["next"]["how"])
+        self.assertIn("before the card opens", body["next"]["how"])
+        self.assertIn("ask nothing", body["next"]["how"])
+        stored = self.stored_plan(body["planId"])
+        minimum = stored["destination"]["minimum"]
+        self.assertIsNone(stored["destination"]["depositMin"], "unknown is never 0")
+        self.assertEqual(
+            (minimum["value"], minimum["basis"], minimum["venueMinimum"], minimum["notice"]),
+            (None, "venue-unpublished", "unknown", NOTICE),
+        )
+        self.assertIn("Fundkit sets no minimum of its own", minimum["statement"])
+        self.assertIn("the credit is not guaranteed", minimum["statement"])
+        self.assertIn("recheck", stored["destination"])
+        return stored
+
+
+class BinanceUnknownMinimumTests(MinimumTestCase):
+    """Bybit -> Binance on BSC with Binance's unknown deposit minimum (the real T3 thread)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # The real thread: Bybit withdrawMin 10, fee 0.15 on top.
+        self.fixtures["bybit"] = bybit_fixtures(withdraw_fee="0.15")
+        self.write_fixtures()
+
+    def to_binance(self, host: T3Host, amount: str, **extra) -> dict:
+        return self.prepare(host, {**TO_BINANCE, "amount": amount, **extra})
+
     def test_real_thread_ten_plus_fee_reaches_one_card_and_cancel_writes_nothing(self):
         self.start_session()
         host = self.t3(decisions=["cancel"])
-        body = self.prepare(host, "10")
-        self.assertEqual(body["status"], "ready", body)
+        body = self.to_binance(host, "10")
+        stored = self.assert_unknown_plan(body)
         plan = body["plan"]
         self.assertEqual(plan["amount"], "10 USDT")
         self.assertEqual(plan["fee"], "0.15 USDT (on top)")
         self.assertEqual((plan["debit"], plan["credit"]), ("10.15", "10"))
         self.assertEqual(plan["recipient"], BINANCE_BSC)
-        self.assertEqual(plan["destinationMinimum"], FALLBACK)
-        basis = plan["destinationMinimumBasis"]
-        for needle in ("Fundkit operator fallback", "venue minimum: unknown", "not a Binance figure"):
-            self.assertIn(needle, basis)
-        self.assertIn("does not guarantee the credit", basis)
-        stored = self.stored_plan(body["planId"])
-        minimum = stored["destination"]["minimum"]
-        self.assertEqual(
-            (minimum["value"], minimum["basis"], minimum["venueMinimum"]),
-            (FALLBACK, "fundkit-operator-fallback", "unknown"),
-        )
-        self.assertIn("recheck", stored["destination"])
         self.assertEqual(stored["args"]["amount"], 10)
-        self.assertEqual(self.dispatches(), [])
+        self.assertEqual((host.cards, self.dispatches()), ([], []), "nothing before confirm")
 
         reads_before = len(self.calls("call_read_method"))
         result, is_error, _ = host.tool_full(
@@ -678,13 +699,11 @@ class BinanceFallbackMinimumTests(NativeTestCase):
         self.assertFalse(is_error, result)
         self.assertEqual((result["status"], result["sent"]), ("not-sent", False), result)
         self.assertEqual(result["reason"], "CONFIRM_DECLINED")
-        # Exactly one card, with the minimum, its basis and the unknown venue minimum on it.
+        # Exactly one card, with the same disclosure line in its body.
         self.assertEqual(len(host.cards), 1)
         card = host.cards[0]["message"]
-        self.assertIn(
-            f"Destination minimum: {FALLBACK} USDT, Fundkit operator fallback (venue minimum: unknown).", card
-        )
-        self.assertIn("does not guarantee the credit", card)
+        self.assertIn(f"\n{NOTICE}\n", card)
+        self.assertNotIn("Destination minimum:", card)
         self.assertIn("Amount (withdrawal amount): 10 USDT", card)
         self.assertIn("Leaves the source: 10.15 USDT; Arrives: 10 USDT", card)
         self.assertGreater(len(self.calls("call_read_method")), reads_before, "the destination is read again")
@@ -696,10 +715,43 @@ class BinanceFallbackMinimumTests(NativeTestCase):
         self.assertEqual(self.dispatches(), [])
         self.assert_secret_free()
 
+    def test_disclosure_comes_before_consent_on_one_normal_card(self):
+        """The notice is in the prepare summary, then in the card body; nothing is sent before the click."""
+        self.start_session()
+        self.fixtures["bybit"] = bybit_fixtures(withdraw_fee="0.15", withdraw_min="0.0001")
+        self.write_fixtures()
+        for amount, decision in (("0.5", "cancel"), ("0.5", "approve"), ("10", "approve")):
+            with self.subTest(amount=amount, decision=decision):
+                seen: list = []
+
+                def at_card(params, decision=decision, seen=seen):
+                    # While the card is open: the disclosure is on it and nothing was dispatched yet.
+                    seen.append((params["message"], len(self.dispatches())))
+                    return decision
+
+                host = self.t3(decisions=[at_card])
+                body = self.to_binance(host, amount)
+                self.assert_unknown_plan(body)
+                self.assertEqual(body["plan"]["credit"], amount)
+                self.assertEqual(host.cards, [], "the summary with the notice comes before any card")
+                dispatched_before = len(self.dispatches())
+                result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]})
+                self.assertEqual(len(seen), 1, "one card, no extra acknowledgement")
+                message, dispatched_at_card = seen[0]
+                self.assertEqual(dispatched_at_card, dispatched_before, "no dispatch before consent")
+                self.assertIn(NOTICE, message)
+                self.assertIn(body["planId"], message)
+                self.assertIn(f"plan hash {body['hash']}", message)
+                self.assertLess(message.index(NOTICE), message.index("Exact call"))
+                expected = "sent" if decision == "approve" else "not-sent"
+                self.assertEqual(result["status"], expected, result)
+                self.assertEqual(len(self.dispatches()), dispatched_before + (decision == "approve"))
+                host.close()
+
     def test_one_approval_sends_exactly_once(self):
         self.start_session()
         host = self.t3(decisions=["approve", "approve"])
-        body = self.prepare(host, "10")
+        body = self.to_binance(host, "10")
         result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]})
         self.assertEqual(result["status"], "sent", result)
         dispatches = self.dispatches()
@@ -709,63 +761,78 @@ class BinanceFallbackMinimumTests(NativeTestCase):
         self.assertTrue(again["duplicate"])
         self.assertEqual((len(host.cards), len(self.dispatches())), (1, 1))
 
-    def test_decline_and_no_answer_on_a_fallback_plan_send_nothing(self):
+    def test_decline_and_no_answer_on_an_unknown_minimum_plan_send_nothing(self):
         self.start_session()
         for decision in ("decline", None):
             with self.subTest(decision=decision):
                 host = self.t3(decisions=[decision], FUNDKIT_FORM_TIMEOUT_MS="1500")
-                plan_id = self.prepare(host, "10")["planId"]
+                plan_id = self.to_binance(host, "10")["planId"]
                 result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": plan_id}, timeout=30)
                 self.assertEqual(result["status"], "not-sent", result)
                 self.assertEqual(len(host.cards), 1)
                 host.close()
         self.assertEqual(self.dispatches(), [])
 
-    def test_source_side_twins_still_hold(self):
+    def test_source_side_gates_still_hold(self):
         self.start_session()
         host = self.t3()
-        body = self.prepare(host, "2")
+        body = self.to_binance(host, "2")
         self.assertEqual(self.hold_codes(body), ["BELOW_WITHDRAW_MIN"])
         self.assertIn("10", body["reasons"][0]["detail"])
 
         self.fixtures["bybit"] = bybit_fixtures(free=10.14, withdraw_fee="0.15")
         self.write_fixtures()
-        body = self.prepare(host, "10")
+        body = self.to_binance(host, "10")
         self.assertEqual(self.hold_codes(body), ["INSUFFICIENT_BALANCE"])
         self.assertIn("needs 10.15 USDT", body["reasons"][0]["detail"])
         self.assertIn("funding 10.14", body["reasons"][0]["detail"])
 
         self.fixtures["bybit"] = bybit_fixtures(free=10.15, withdraw_fee="0.15")
         self.write_fixtures()
-        self.assertEqual(self.prepare(host, "10")["status"], "ready")
+        self.assertEqual(self.to_binance(host, "10")["status"], "ready")
         self.assertEqual((host.cards, self.dispatches()), ([], []))
 
-    def test_threshold_on_the_expected_credit_is_inclusive(self):
+    def test_sub_one_and_the_smallest_representable_credit_pass(self):
         self.start_session()
         host = self.t3()
         self.fixtures["bybit"] = bybit_fixtures(withdraw_fee="0.15", withdraw_min="0.0001")
         self.write_fixtures()
-        below = self.prepare(host, str(FALLBACK_UNITS - STEP))
-        self.assertEqual(self.hold_codes(below), ["BELOW_DEPOSIT_MIN"])
-        detail = below["reasons"][0]["detail"]
-        self.assertIn("Fundkit's operator fallback minimum", detail)
-        self.assertIn(f"{FALLBACK} USDT", detail)
-        equal = self.prepare(host, FALLBACK)
-        self.assertEqual(equal["status"], "ready", equal)
-        self.assertEqual(equal["plan"]["credit"], FALLBACK)
-        self.assertEqual(self.dispatches(), [])
+        # Below the old 1 USDT floor, and the old boundary itself: no Fundkit minimum.
+        for amount in ("0.9999", "0.5", "0.0001", "1"):
+            with self.subTest(amount=amount):
+                body = self.to_binance(host, amount)
+                self.assert_unknown_plan(body)
+                self.assertEqual(body["plan"]["credit"], amount)
+        # The finest amount fundkit can send unchanged as a JSON number (1e-6), on a 6-place step.
+        self.fixtures["bybit"] = bybit_fixtures(withdraw_fee="0.15", withdraw_min="0.000001")
+        bybit_bsc_row(self.fixtures["bybit"])["minAccuracy"] = "6"
+        self.write_fixtures()
+        body = self.to_binance(host, "0.000001")
+        self.assert_unknown_plan(body)
+        self.assertEqual(self.stored_plan(body["planId"])["args"]["amount"], 0.000001)
+        # One place finer is not representable, and is refused before any minimum question.
+        self.fixtures["bybit"] = bybit_fixtures(withdraw_fee="0.15", withdraw_min="0.0000001")
+        bybit_bsc_row(self.fixtures["bybit"])["minAccuracy"] = "7"
+        self.write_fixtures()
+        self.assertEqual(self.hold_codes(self.to_binance(host, "0.0000001")), ["AMOUNT_NOT_REPRESENTABLE"])
+        # The source's own minimum still applies below 1.
+        self.fixtures["bybit"] = bybit_fixtures(withdraw_fee="0.15", withdraw_min="0.5")
+        self.write_fixtures()
+        self.assertEqual(self.hold_codes(self.to_binance(host, "0.4999")), ["BELOW_WITHDRAW_MIN"])
+        self.assertEqual((host.cards, self.dispatches()), ([], []))
 
-    def test_fee_adjusted_threshold_on_the_shared_check(self):
+    def test_unknown_minimum_adds_no_threshold_on_the_shared_check(self):
         tiny = Decimal("0.000000000001")  # the finest exact unit (12 places)
         cases = {
-            # fee taken from the amount (unconfirmed model): credit = amount - fee
-            ("unconfirmed", FALLBACK_UNITS + Decimal("0.15")): None,
-            ("unconfirmed", FALLBACK_UNITS + Decimal("0.1499")): "BELOW_DEPOSIT_MIN",
-            ("unconfirmed", FALLBACK_UNITS + Decimal("0.15") - tiny): "BELOW_DEPOSIT_MIN",
+            # fee possibly taken from the amount (unconfirmed model): credit = amount - fee
+            ("unconfirmed", Decimal("0.15") + tiny): None,
+            ("unconfirmed", Decimal("0.15")): "CREDIT_NOT_POSITIVE",
+            ("unconfirmed", Decimal("0.1")): "CREDIT_NOT_POSITIVE",
+            ("unconfirmed", Decimal("1.1499")): None,
             # fee on top: credit = amount
-            ("on top", FALLBACK_UNITS): None,
-            ("on top", FALLBACK_UNITS - Decimal("0.000001")): "BELOW_DEPOSIT_MIN",
-            ("on top", FALLBACK_UNITS - tiny): "BELOW_DEPOSIT_MIN",
+            ("on top", tiny): None,
+            ("on top", Decimal("0.999999")): None,
+            ("on top", Decimal("0")): "CREDIT_NOT_POSITIVE",
         }
         for (model, amount), expected in cases.items():
             with self.subTest(model=model, amount=str(amount)):
@@ -773,50 +840,71 @@ class BinanceFallbackMinimumTests(NativeTestCase):
                     "const p = d.parseDecimal;"
                     f"const {{ credit }} = m.transferAmounts({{ amount: p('{amount}'), fee: p('0.15'),"
                     f" feeModel: '{model}', depositFee: 0n }});"
-                    "const f = m.operatorFallback('binance', 'USDT');"
-                    "m.checkDestinationMinimum(credit.min, { depositMin: p(f.value),"
-                    " minimum: m.fallbackMinimum(f, 'BNB Smart Chain (BEP20)') }, 'Binance', 'USDT');"
+                    "const r = m.resolveMinimum({ exchange: 'binance', coin: 'USDT',"
+                    " networkLabel: 'BNB Smart Chain (BEP20)', published: { present: false }, field: 'f' });"
+                    "m.checkDestinationMinimum(credit.min, r, 'Binance', 'USDT');"
                     "return d.formatDecimal(credit.min);"
                 )
                 self.assertEqual(outcome.get("code"), expected, outcome)
                 if expected:
-                    self.assertIn(f"{FALLBACK} USDT", outcome["message"])
+                    self.assertIn("nothing would arrive", outcome["message"])
 
-    def test_a_venue_minimum_on_the_row_wins_whatever_its_value(self):
+    def test_zero_or_negative_credit_after_fees_holds(self):
+        self.start_session()
+        host = self.t3()
+        # Binance -> Bybit with Bybit's field absent; Binance's fee (0.29) may be taken from the amount.
+        self.fixtures["bybit"] = bybit_fixtures(deposit_min=None)
+        binance_bsc_row(self.fixtures["binance"]).update(withdrawMin="0.00000001")
+        self.write_fixtures()
+        request = {"from": "Binance", "to": "Bybit", "network": "BSC"}
+        for amount, credit in (("0.29", "0"), ("0.1", "-0.19")):
+            with self.subTest(amount=amount):
+                body = self.prepare(host, {**request, "amount": amount})
+                self.assertEqual(self.hold_codes(body), ["CREDIT_NOT_POSITIVE"])
+                self.assertIn(f"after fees is {credit} USDT", body["reasons"][0]["detail"])
+        body = self.prepare(host, {**request, "amount": "0.5"})
+        self.assert_unknown_plan(body)
+        self.assertEqual(body["plan"]["credit"], "0.21\u20130.5")
+        self.assertEqual((host.cards, self.dispatches(), len(self.plan_files())), ([], [], 1))
+
+    def test_a_venue_minimum_on_the_row_is_enforced_whatever_its_value(self):
         self.start_session()
         host = self.t3()
         self.mutate_binance(lambda f: binance_bsc_row(f).update(depositMin="20"))
-        body = self.prepare(host, "10")
+        body = self.to_binance(host, "10")
         self.assertEqual(self.hold_codes(body), ["BELOW_DEPOSIT_MIN"])
         self.assertIn("Binance credits deposits from 20 USDT", body["reasons"][0]["detail"])
 
         self.fixtures["bybit"] = bybit_fixtures(withdraw_fee="0.15", withdraw_min="0.0001")
-        lower = FALLBACK_UNITS / 2
-        self.fixtures["binance"] = binance_fixtures()
-        binance_bsc_row(self.fixtures["binance"]).update(depositMin=str(lower))
-        self.write_fixtures()
-        between = str(lower + STEP)
-        body = self.prepare(host, between)
-        self.assertEqual(body["status"], "ready", body)
-        self.assertEqual(body["plan"]["destinationMinimum"], str(lower))
-        self.assertIn(
-            "venue minimum (Binance networkList depositMin)", body["plan"]["destinationMinimumBasis"]
-        )
-        stored = self.stored_plan(body["planId"])
-        self.assertEqual(stored["destination"]["minimum"]["basis"], "venue")
-        self.assertNotIn("recheck", stored["destination"])
+        for venue_min, below, at in (("0.5", "0.4999", "0.5"), ("0", None, "0.0001"), ("1", "0.9999", "1")):
+            with self.subTest(depositMin=venue_min):
+                self.fixtures["binance"] = binance_fixtures()
+                binance_bsc_row(self.fixtures["binance"]).update(depositMin=venue_min)
+                self.write_fixtures()
+                if below:
+                    self.assertEqual(self.hold_codes(self.to_binance(host, below)), ["BELOW_DEPOSIT_MIN"])
+                body = self.to_binance(host, at)
+                self.assertEqual(body["status"], "ready", body)
+                self.assertNotIn("minimumNotice", body)
+                self.assertEqual(body["plan"]["destinationMinimum"], venue_min)
+                self.assertEqual(
+                    body["plan"]["destinationMinimumBasis"],
+                    f"{venue_min} USDT, venue minimum (Binance networkList depositMin)",
+                )
+                stored = self.stored_plan(body["planId"])
+                self.assertEqual(stored["destination"]["minimum"]["basis"], "venue")
+                self.assertNotIn("recheck", stored["destination"])
 
         self.mutate_binance(lambda f: binance_bsc_row(f).update(depositMin="n/a"))
-        self.assertEqual(self.hold_codes(self.prepare(host, "10")), ["DESTINATION_MINIMUM_UNREADABLE"])
+        self.assertEqual(self.hold_codes(self.to_binance(host, "10")), ["DESTINATION_MINIMUM_UNREADABLE"])
         self.assertEqual((host.cards, self.dispatches()), ([], []))
 
-    def test_contrary_unhealthy_or_failed_reads_never_use_the_fallback(self):
+    def test_unhealthy_contrary_or_failed_reads_are_not_an_unknown_minimum(self):
         self.start_session()
         host = self.t3()
-        above = str(FALLBACK_UNITS + Decimal("0.01"))
         key = fee_key()
         cases = {
-            "DESTINATION_MINIMUM_CONTRARY": lambda f: binance_bsc_row(f).update(depositDust=above),
+            "DESTINATION_FIELD_UNREADABLE": lambda f: binance_bsc_row(f).update(depositDust="n/a"),
             "DESTINATION_MINIMUM_UNREADABLE": lambda f: binance_bsc_row(f).update(depositMin=None),
             "DESTINATION_BUSY": lambda f: binance_bsc_row(f).update(busy=True),
             "DEPOSIT_DISABLED": lambda f: binance_bsc_row(f).update(depositEnable=False),
@@ -845,26 +933,45 @@ class BinanceFallbackMinimumTests(NativeTestCase):
                 body, _, _ = host.tool_full("fundkit_transfer_prepare", {**TO_BINANCE, "amount": "10"})
                 text = json.dumps(body)
                 self.assertIn(code, text, body)
+                self.assertNotIn(NOTICE, text)
                 self.assertNotEqual(body.get("status"), "ready")
                 self.assertNotIn("planId", body)
-        # depositDust at or below the fallback is no contrary evidence (and is never the minimum).
-        self.fixtures["binance"] = binance_fixtures()
-        binance_bsc_row(self.fixtures["binance"]).update(depositDust=FALLBACK)
-        self.write_fixtures()
-        body = self.prepare(host, "10")
-        self.assertEqual(body["status"], "ready", body)
-        self.assertEqual(body["plan"]["destinationMinimum"], FALLBACK)
+        self.assertEqual(self.plan_files(), [])
+        # depositDust has no documented meaning: never the minimum, never compared with a constant.
+        # A credit at or below it is contrary evidence; above it, the minimum stays unknown.
+        self.fixtures["bybit"] = bybit_fixtures(withdraw_fee="0.15", withdraw_min="0.0001")
+        for dust, amount, expected in (
+            ("0.0005", "0.0005", "DESTINATION_MINIMUM_CONTRARY"),
+            ("0.0005", "0.0006", "ready"),
+            ("1.5", "1.5", "DESTINATION_MINIMUM_CONTRARY"),
+            ("1.5", "1.5001", "ready"),
+        ):
+            with self.subTest(depositDust=dust, amount=amount):
+                self.fixtures["binance"] = binance_fixtures()
+                binance_bsc_row(self.fixtures["binance"]).update(depositDust=dust)
+                self.write_fixtures()
+                body = self.to_binance(host, amount)
+                if expected == "ready":
+                    stored = self.assert_unknown_plan(body)
+                    self.assertEqual(
+                        stored["destination"]["minimum"]["uninterpreted"],
+                        {"Binance networkList depositDust": dust},
+                    )
+                else:
+                    self.assertEqual(self.hold_codes(body), [expected])
+                    self.assertIn("is not the minimum", body["reasons"][0]["detail"])
         self.assertEqual((host.cards, self.dispatches()), ([], []))
-        self.assertEqual(len(self.plan_files()), 1)
 
     def test_recheck_before_the_card_never_shows_a_stale_plan(self):
         self.start_session()
         cases = {
-            "venue minimum now known (same value)": lambda f: binance_bsc_row(f).update(depositMin=FALLBACK),
+            "venue minimum now known (1)": lambda f: binance_bsc_row(f).update(depositMin="1"),
+            "venue minimum now known (0)": lambda f: binance_bsc_row(f).update(depositMin="0"),
             "venue minimum now known (higher)": lambda f: binance_bsc_row(f).update(depositMin="20"),
             "address changed": lambda f: set_binance_address(f, "BEP20", BINANCE_BSC_OLD, ""),
             "deposits disabled": lambda f: binance_bsc_row(f).update(depositEnable=False),
-            "contrary evidence": lambda f: binance_bsc_row(f).update(depositDust="n/a"),
+            "row unhealthy": lambda f: binance_bsc_row(f).update(depositDust="n/a"),
+            "uninterpreted field appeared": lambda f: binance_bsc_row(f).update(depositDust="0.0001"),
             "key check fails": lambda f: f[
                 params_key("call_implicit_get", "sapiGetAccountApiRestrictions")
             ].update(enableReading=False),
@@ -874,13 +981,15 @@ class BinanceFallbackMinimumTests(NativeTestCase):
                 self.fixtures["binance"] = binance_fixtures()
                 self.write_fixtures()
                 host = self.t3(decisions=["approve"])
-                plan_id = self.prepare(host, "10")["planId"]
+                plan_id = self.to_binance(host, "10")["planId"]
                 self.mutate_binance(mutate)
                 result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": plan_id})
                 self.assertEqual(
                     (result["status"], result["reason"]), ("not-sent", "DESTINATION_RECHECK_FAILED")
                 )
                 self.assertIn("before the card", result["detail"])
+                if name.startswith("venue minimum"):
+                    self.assertIn("not unknown (venue-unpublished)", result["detail"])
                 self.assertEqual(host.cards, [])
                 again, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": plan_id})
                 self.assertTrue(again["duplicate"])
@@ -906,7 +1015,7 @@ class BinanceFallbackMinimumTests(NativeTestCase):
                     return "approve"
 
                 host = self.t3(decisions=[change_then_approve])
-                plan_id = self.prepare(host, "10")["planId"]
+                plan_id = self.to_binance(host, "10")["planId"]
                 result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": plan_id})
                 self.assertEqual(
                     (result["status"], result["reason"]), ("not-sent", "DESTINATION_RECHECK_FAILED")
@@ -916,17 +1025,18 @@ class BinanceFallbackMinimumTests(NativeTestCase):
                 host.close()
         self.assertEqual(self.dispatches(), [])
 
-    def test_every_binance_chain_uses_the_fallback_and_the_address_flow_is_unchanged(self):
+    def test_every_binance_chain_is_unknown_and_the_address_flow_gives_advice_only(self):
         self.start_session()
         host = self.t3()
         self.fixtures["bybit"] = bybit_fixtures(withdraw_fee="0.15", extra_chains=[BYBIT_TRX])
         self.write_fixtures()
-        # Binance publishes no minimum on any chain, so TRC20 now uses the same fallback as BSC.
-        body = self.prepare(host, "10", network="TRC20")
-        self.assertEqual(body["status"], "ready", body)
-        self.assertEqual(body["plan"]["destinationMinimum"], FALLBACK)
-        self.assertIn("for USDT on Tron (TRC20)", body["plan"]["destinationMinimumBasis"])
-        self.assertIn("recheck", self.stored_plan(body["planId"])["destination"])
+        # Binance publishes no minimum on any chain, so TRC20 is unknown like BSC.
+        body = self.to_binance(host, "10", network="TRC20")
+        self.assert_unknown_plan(body)
+        self.assertIn(
+            "for USDT on Tron (TRC20)",
+            self.stored_plan(body["planId"])["destination"]["minimum"]["statement"],
+        )
 
         # With no network named, both qualify and the cheaper one (BSC, fee 0.15) is chosen.
         any_network = {"from": "Bybit", "to": "Binance", "amount": "10"}
@@ -943,16 +1053,94 @@ class BinanceFallbackMinimumTests(NativeTestCase):
         self.assertEqual(
             body["plan"]["destinationMinimumBasis"], "1 USDT, venue minimum (Bybit chains[].depositMin)"
         )
+        self.assertNotIn("minimumNotice", body)
         self.assertEqual(self.stored_plan(body["planId"])["destination"]["minimum"]["basis"], "venue")
         self.assertNotIn("recheck", self.stored_plan(body["planId"])["destination"])
 
-        # The address-only flow reads no amount, fee or minimum and shows the same address and QR.
+        # The address-only flow takes no amount and asks nothing; it gives the advice, same address and QR.
         address, is_error, _ = host.tool_full("fundkit_deposit_address", ADDRESS_REQUEST)
         self.assertFalse(is_error, address)
         self.assertEqual(address["address"], BINANCE_BSC)
         self.assertEqual(decode_qr(Path(address["qr"]["path"])), BINANCE_BSC.encode())
-        self.assertNotIn("inimum", json.dumps(address))
+        self.assertEqual(
+            address["depositMinimum"],
+            {
+                "status": "unpublished",
+                "venueMinimum": "unknown",
+                "field": "Binance networkList depositMin",
+                "advice": ADVICE,
+            },
+        )
+        self.assertTrue(any(ADVICE in line for line in address["show"]))
+        self.assertNotIn("amount", json.dumps(address).lower())
         self.assertEqual((host.cards, self.dispatches()), ([], []))
+
+
+class AddressMinimumTests(MinimumTestCase):
+    """The address and QR, with the destination's minimum as it stands, and never a hold for it."""
+
+    def address(self, host: T3Host, exchange: str, network: str = "BSC") -> dict:
+        body, is_error, result = host.tool_full(
+            "fundkit_deposit_address", {"exchange": exchange, "network": network}
+        )
+        self.assertFalse(is_error, body)
+        self.assertEqual(body["status"], "verified", body)
+        self.assertEqual([item["type"] for item in result["content"]], ["text", "image"])
+        self.assertEqual(decode_qr(Path(body["qr"]["path"])), body["address"].encode())
+        return body
+
+    def test_published_unpublished_and_unreadable_are_told_apart(self):
+        self.start_session()
+        host = self.t3()
+        cases = {
+            # Bybit's field: published (any value, 0 included), absent, or present but unreadable.
+            "1": {"status": "published", "value": "1", "venueMinimum": "1"},
+            "0": {"status": "published", "value": "0", "venueMinimum": "0"},
+            "350": {"status": "published", "value": "350", "venueMinimum": "350"},
+            None: {"status": "unpublished", "venueMinimum": "unknown", "advice": ADVICE},
+            "": {"status": "unreadable", "venueMinimum": "unknown"},
+        }
+        for deposit_min, expected in cases.items():
+            with self.subTest(depositMin=deposit_min):
+                self.fixtures["bybit"] = bybit_fixtures(deposit_min=deposit_min)
+                self.write_fixtures()
+                body = self.address(host, "bybit")
+                self.assertEqual(body["address"], BYBIT_BSC)
+                minimum = body["depositMinimum"]
+                for field, value in expected.items():
+                    self.assertEqual(minimum[field], value, minimum)
+                self.assertEqual(minimum["field"], "Bybit chains[].depositMin")
+                if expected["status"] == "published":
+                    self.assertNotIn("advice", minimum)
+                    self.assertIn(f"deposit minimum of {expected['value']} USDT", minimum["text"])
+                    self.assertTrue(any(minimum["text"] in line for line in body["show"]))
+                elif expected["status"] == "unreadable":
+                    # Never claimed as "not published" when the field could not be read.
+                    self.assertNotIn("not published", minimum["advice"])
+                    self.assertIn("could not be read", minimum["advice"])
+                    self.assertIn("at least 1 USDT", minimum["advice"])
+        # Binance with a published depositMin on the row.
+        self.mutate_binance(lambda f: binance_bsc_row(f).update(depositMin="0.5"))
+        body = self.address(host, "binance")
+        self.assertEqual(body["depositMinimum"]["status"], "published")
+        self.assertEqual(body["depositMinimum"]["value"], "0.5")
+        self.assertEqual((host.cards, self.dispatches(), self.plan_files()), ([], [], []))
+
+    def test_a_failed_lookup_shows_no_minimum_claim_and_no_address(self):
+        self.start_session()
+        host = self.t3()
+        self.mutate_binance(
+            lambda f: f.update(
+                {fee_key(): {"__error": {"code": "EXCHANGE_NOT_AVAILABLE", "message": "maintenance"}}}
+            )
+        )
+        body, is_error, result = host.tool_full("fundkit_deposit_address", ADDRESS_REQUEST)
+        self.assertTrue(is_error, body)
+        text = json.dumps(body)
+        self.assertNotIn(ADVICE, text)
+        self.assertNotIn("not published", text)
+        self.assertEqual((body["address"], body["qr"]), (None, None))
+        self.assertEqual([item["type"] for item in result["content"]], ["text"])
 
 
 # =========================================================================== the policy, USDT only
@@ -961,57 +1149,66 @@ VENUES = ["binance", "bybit", "okx", "bitget", "gate", "kucoin", "mexc", "bingx"
 REFUSED_COINS = ["USDC", "usdc", " USDC ", "DAI", "", "USDT-BSC", 5]
 
 
-class DepositMinimumPolicyTests(NativeTestCase):
-    """The one-unit operator fallback: USDT deposits into every supported CEX destination."""
+class DepositMinimumPolicyTests(MinimumTestCase):
+    """No Fundkit minimum: USDT deposits into every supported CEX destination."""
 
     def test_policy_matrix_nine_venues_usdt_only(self):
         outcome = minimum_js(
             f"const venues = {json.dumps(VENUES)};"
             "const label = 'Ethereum (ERC20)';"
             "const out = {};"
+            "const tiny = d.parseDecimal('0.000000000001');"
             "for (const v of venues) {"
             "  const at = (value, present = true, coin = 'USDT') => {"
             "    try { const r = m.resolveMinimum({ exchange: v, coin, networkLabel: label,"
             "      published: { present, value }, field: 'f' });"
+            "      const pass = (c) => { try { m.checkDestinationMinimum(c, r, v, coin); return 'pass'; }"
+            "        catch (e) { return e.code; } };"
             "      return [r.minimum.basis, r.minimum.value, r.minimum.venueMinimum, r.minimum.coin,"
-            "        r.minimum.statement ?? null]; }"
+            "        r.depositMin === null ? null : d.formatDecimal(r.depositMin),"
+            "        r.minimum.notice ?? null, r.minimum.statement ?? null, pass(tiny), pass(0n)]; }"
             "    catch (e) { return [e.code]; } };"
-            "  out[v] = { policy: m.operatorFallback(v, 'USDT'), absent: at(undefined, false),"
+            "  out[v] = { absent: at(undefined, false),"
             "    zero: at('0'), lower: at('0.5'), higher: at('25'), nul: at(null), empty: at(''),"
             "    text: at('n/a'), negative: at('-1'), number: at(2),"
-            "    usdcPolicy: m.operatorFallback(v, 'USDC'), usdcAbsent: at(undefined, false, 'USDC') };"
+            "    usdcAbsent: at(undefined, false, 'USDC'), usdcPresent: at('1', true, 'USDC') };"
             "}"
-            "out.coins = m.FALLBACK_POLICY.coins;"
-            "out.other = [m.operatorFallback('hyperliquid', 'USDT'), m.operatorFallback('binance', 'DAI'),"
-            "  m.operatorFallback('binance', 'usdt')];"
+            "out.coins = m.COINS;"
+            "out.destinations = Object.keys(m.DESTINATIONS);"
+            "out.other = (() => { try { m.resolveMinimum({ exchange: 'hyperliquid', coin: 'USDT',"
+            "  networkLabel: label, published: { present: false }, field: 'f' }); return 'resolved'; }"
+            "  catch (e) { return e.code; } })();"
+            "out.recommendation = m.RECOMMENDATION;"
             "return out;"
         )["ok"]
         self.assertEqual(outcome["coins"], ["USDT"])
-        self.assertEqual(sorted(key for key in outcome if key in VENUES), sorted(VENUES))
+        self.assertEqual(sorted(outcome["destinations"]), sorted(VENUES))
+        self.assertEqual(outcome["recommendation"], {"value": "1", "coin": "USDT"})
         for venue in VENUES:
             with self.subTest(venue=venue):
                 row = outcome[venue]
+                basis, value, venue_minimum, minimum_coin, deposit_min, notice, statement, tiny, zero = row[
+                    "absent"
+                ]
                 self.assertEqual(
-                    (row["policy"]["value"], row["policy"]["coin"], row["policy"]["exchange"]),
-                    (FALLBACK, "USDT", venue),
-                )
-                basis, value, venue_minimum, minimum_coin, statement = row["absent"]
-                self.assertEqual(
-                    (basis, value, venue_minimum, minimum_coin),
-                    ("fundkit-operator-fallback", FALLBACK, "unknown", "USDT"),
+                    (basis, value, venue_minimum, minimum_coin, deposit_min, notice),
+                    ("venue-unpublished", None, "unknown", "USDT", None, NOTICE),
                 )
                 self.assertIn("publishes no deposit minimum for USDT on Ethereum (ERC20)", statement)
-                self.assertIn(f"{FALLBACK} USDT is Fundkit's operator fallback, not a", statement)
-                self.assertIn("does not guarantee the credit", statement)
-                # An authoritative venue value wins whatever it is, 0 included; never "unknown".
+                self.assertIn("Fundkit sets no minimum of its own", statement)
+                # Unknown: the finest positive credit passes, zero never does.
+                self.assertEqual((tiny, zero), ("pass", "CREDIT_NOT_POSITIVE"))
+                # An authoritative venue value is enforced whatever it is, 0 included; never "unknown".
                 for case, expected in (("zero", "0"), ("lower", "0.5"), ("higher", "25"), ("number", "2")):
-                    self.assertEqual(row[case][:4], ["venue", expected, expected, "USDT"], case)
+                    self.assertEqual(row[case][:5], ["venue", expected, expected, "USDT", expected], case)
+                self.assertEqual(row["zero"][7:], ["pass", "CREDIT_NOT_POSITIVE"])
+                self.assertEqual(row["lower"][7], "BELOW_DEPOSIT_MIN")
                 for case in ("nul", "empty", "text", "negative"):
                     self.assertEqual(row[case], ["DESTINATION_MINIMUM_UNREADABLE"], case)
-                # No coin but USDT has a fallback: a USDC minimum is never assumed.
-                self.assertIsNone(row["usdcPolicy"])
-                self.assertEqual(row["usdcAbsent"], ["DESTINATION_MINIMUM_UNDOCUMENTED"])
-        self.assertEqual(outcome["other"], [None, None, None])
+                # No coin but USDT: never resolved, never "unknown".
+                self.assertEqual(row["usdcAbsent"], ["UNSUPPORTED_COIN"])
+                self.assertEqual(row["usdcPresent"], ["UNSUPPORTED_COIN"])
+        self.assertEqual(outcome["other"], "VENUE_NOT_SUPPORTED")
 
     def test_positive_credit_is_required_even_with_a_zero_venue_minimum(self):
         for credit, expected in (("0", "CREDIT_NOT_POSITIVE"), ("0.000000000001", None)):
@@ -1023,6 +1220,10 @@ class DepositMinimumPolicyTests(NativeTestCase):
                 )
                 self.assertEqual(outcome.get("code"), expected, outcome)
 
+    def test_a_missing_minimum_without_the_unknown_record_still_holds(self):
+        outcome = minimum_js("m.checkDestinationMinimum(5n, { depositMin: null }, 'X', 'USDT');")
+        self.assertEqual(outcome["code"], "DESTINATION_MINIMUM_UNDOCUMENTED")
+
     # ------------------------------------------------------------------ native, end to end
 
     def setUp(self) -> None:
@@ -1030,54 +1231,32 @@ class DepositMinimumPolicyTests(NativeTestCase):
         self.fixtures["bybit"] = bybit_fixtures(withdraw_fee="0.15")
         self.write_fixtures()
 
-    def prepare(self, host: T3Host, request: dict) -> dict:
-        body, is_error, _ = host.tool_full("fundkit_transfer_prepare", request)
-        self.assertFalse(is_error, body)
-        return body
-
-    def stored_plan(self, plan_id: str) -> dict:
-        return json.loads((self.home / f".local/state/fundkit/plans/{plan_id}.json").read_text())
-
-    def test_inclusive_boundary_end_to_end(self):
-        self.start_session()
-        host = self.t3()
-        self.fixtures["bybit"] = bybit_fixtures(withdraw_fee="0.15", withdraw_min="0.0001")
-        self.write_fixtures()
-        base = {"from": "Bybit", "to": "Binance", "network": "BSC"}
-        below = self.prepare(host, {**base, "amount": str(FALLBACK_UNITS - STEP)})
-        self.assertEqual(below["status"], "hold", below)
-        self.assertEqual([r["code"] for r in below["reasons"]], ["BELOW_DEPOSIT_MIN"])
-        self.assertIn("0.9999 USDT, below Fundkit's operator fallback minimum", below["reasons"][0]["detail"])
-        equal = self.prepare(host, {**base, "amount": FALLBACK})
-        self.assertEqual(equal["status"], "ready", equal)
-        self.assertEqual((equal["plan"]["credit"], equal["plan"]["amount"]), (FALLBACK, f"{FALLBACK} USDT"))
-        self.assertEqual((host.cards, self.dispatches()), ([], []))
-
     def test_bybit_destination_venue_minimum_and_missing_field(self):
         self.start_session()
         host = self.t3(decisions=["approve", "approve"])
+        binance_bsc_row(self.fixtures["binance"]).update(withdrawMin="0.00000001")
         cases = {
-            # Bybit's own depositMin, whatever its value: no recheck.
-            "1": ("venue", "1", False),
-            "0": ("venue", "0", False),
-            "350": ("hold", "BELOW_DEPOSIT_MIN", None),
-            # The field absent from an otherwise healthy row: the operator fallback, rechecked.
-            None: ("fundkit-operator-fallback", FALLBACK, True),
-            # Present but not exact: hold, never the fallback.
-            "": ("hold", "DESTINATION_MINIMUM_UNREADABLE", None),
+            # Bybit's own depositMin, whatever its value: enforced, no recheck.
+            ("1", "300"): ("venue", "1", False),
+            ("0", "300"): ("venue", "0", False),
+            ("350", "300"): ("hold", "BELOW_DEPOSIT_MIN", None),
+            ("1", "1"): ("hold", "BELOW_DEPOSIT_MIN", None),  # credit 0.71 below Bybit's own 1
+            # The field absent from an otherwise healthy row: unknown, any positive credit, rechecked.
+            (None, "300"): ("venue-unpublished", None, True),
+            (None, "1"): ("venue-unpublished", None, True),  # credit 0.71: below 1, still planned
+            # Present but not exact: hold, never "unknown".
+            ("", "300"): ("hold", "DESTINATION_MINIMUM_UNREADABLE", None),
         }
-        for deposit_min, (basis, value, recheck) in cases.items():
-            with self.subTest(depositMin=deposit_min):
+        for (deposit_min, amount), (basis, value, recheck) in cases.items():
+            with self.subTest(depositMin=deposit_min, amount=amount):
                 self.fixtures["bybit"] = bybit_fixtures(deposit_min=deposit_min)
                 self.write_fixtures()
-                body = self.prepare(host, {**REVERSE, "network": "BSC"})
+                body = self.prepare(host, {**REVERSE, "amount": amount, "network": "BSC"})
                 if basis == "hold":
-                    self.assertEqual(body["status"], "hold", body)
-                    self.assertEqual([r["code"] for r in body["reasons"]], [value])
+                    self.assertEqual([r["code"] for r in body["reasons"]], [value], body)
                     continue
                 self.assertEqual(body["status"], "ready", body)
                 self.assertEqual(body["plan"]["recipient"], BYBIT_BSC)
-                self.assertEqual(body["plan"]["credit"], "299.71\u2013300")
                 stored = self.stored_plan(body["planId"])
                 minimum = stored["destination"]["minimum"]
                 self.assertEqual(
@@ -1086,19 +1265,30 @@ class DepositMinimumPolicyTests(NativeTestCase):
                 self.assertEqual("recheck" in stored["destination"], recheck)
                 if basis == "venue":
                     self.assertEqual(minimum["venueMinimum"], value)
+                    self.assertNotIn("minimumNotice", body)
                 else:
-                    self.assertEqual(minimum["venueMinimum"], "unknown")
+                    self.assert_unknown_plan(body)
                     self.assertIn("Bybit publishes no deposit minimum for USDT", minimum["statement"])
-        # A fallback plan on Bybit is read again: a minimum that appears before the card stops it.
+        # An unknown-minimum plan on Bybit is read again: a minimum that appears before the card stops it.
         self.fixtures["bybit"] = bybit_fixtures(deposit_min=None)
         self.write_fixtures()
-        body = self.prepare(host, {**REVERSE, "network": "BSC"})
-        self.fixtures["bybit"] = bybit_fixtures(deposit_min="1")
+        body = self.prepare(host, {**REVERSE, "amount": "0.5", "network": "BSC"})
+        self.assert_unknown_plan(body)
+        self.fixtures["bybit"] = bybit_fixtures(deposit_min="0.1")
         self.write_fixtures()
         result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]})
         self.assertEqual((result["status"], result["reason"]), ("not-sent", "DESTINATION_RECHECK_FAILED"))
-        self.assertIn("now 1 USDT (venue)", result["detail"])
+        self.assertIn("now 0.1 USDT (venue), not unknown (venue-unpublished)", result["detail"])
         self.assertEqual((host.cards, self.dispatches()), ([], []))
+        # A sub-1 plan into Bybit's unknown minimum reaches one card and is sent once on approval.
+        self.fixtures["bybit"] = bybit_fixtures(deposit_min=None)
+        self.write_fixtures()
+        body = self.prepare(host, {**REVERSE, "amount": "0.5", "network": "BSC"})
+        result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]})
+        self.assertEqual(result["status"], "sent", result)
+        self.assertEqual(len(host.cards), 1)
+        self.assertIn(NOTICE, host.cards[0]["message"])
+        self.assertEqual(len(self.dispatches()), 1)
 
     # ------------------------------------------------------------------ USDT only
 
