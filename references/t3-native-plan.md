@@ -145,16 +145,55 @@ Recipient (read from your Binance account): 0x1b6c…  memo: none
 Available on Bybit FUND: 812.44 USDT; withdrawal minimum 10; maximum 1 000 000; step 0.0001
 ```
 
+## Revision 2026-11-27: no Fundkit minimum, any wallet
+
+The owner asked that even 1 USDT not be a minimum, and that wallet top-ups not name a wallet
+brand. They then asked that an unknown minimum be stated as such with a non-binding
+recommendation of at least 1 USDT, for exchange transfers and wallet top-ups alike. Work items
+for this revision:
+
+1. `lib/venues/minimum.mjs`: drop the 1 USDT operator fallback. A healthy read with no
+   published minimum gives `{value: null, basis: "venue-unpublished", venueMinimum: "unknown"}`
+   and `depositMin: null`. The amount check then requires only a positive conservative credit;
+   a published minimum (0 included) is enforced inclusively. The same rule for all nine
+   destinations, USDT only.
+2. Binance `depositDust`: no constant to compare with any more. It is never the minimum and
+   never shown as one. An unreadable value holds as an unhealthy response; a readable value
+   above the conservative credit holds as contrary evidence (fundkit does not know what it
+   means, so it does not send below it); it is bound into the plan, so a change fails the
+   recheck. `busy` still holds.
+3. Plan, chat summary and card: `venue minimum unknown` plus the advisory line "The exchange
+   has not published a minimum for this network. Fundkit recommends depositing at least
+   1 USDT." The 1 USDT is a recommendation only: it is never compared with the amount, never a
+   threshold, never a guarantee and never an extra confirmation. The agent may translate it in
+   the chat; the card keeps the English. The recheck before the card and after the approval is
+   unchanged: unknown → known fails with `DESTINATION_RECHECK_FAILED`.
+4. Address and QR: still no amount, no prompt and no hold for a missing minimum. The result
+   now carries `depositMinimum` from the network row it already reads: the venue's value and
+   field when published, the same advisory when unpublished, and "could not be read" (with
+   the advisory, never "not published") when the field is present but malformed. The QR and
+   the copyable address and memo are unchanged.
+5. Docs, skill triggers, prompts, README: wallet top-ups from any compatible wallet (mobile,
+   hardware, desktop), bound to the selected network, the USDT contract and the memo; the user
+   signs in their own wallet. OKX the exchange is kept where it matters.
+6. Tests: the advisory on the address and on the plan and card when unknown, a sub-1 credit
+   passing on both native destinations, a published minimum still enforced, no extra card;
+   sub-1 and smallest-unit credits, zero and negative after fees, a known minimum,
+   source minimum and Cancel, address-only QR, unknown → known recheck; the real pinned server
+   for a sub-1 plan.
+
 ## Hard limits found while planning
 
 - **Destination deposit minimum.** Binance documents no API deposit minimum on any chain
-  (`depositDust` has no documented meaning; [recipients.md](recipients.md#binance)). Flow 2
-  therefore uses Fundkit's operator fallback minimum of 1 USDT on the expected credit,
-  inclusive, wherever the destination publishes none
-  ([rule](deposit-minimum-fallback.md)). It states in the plan and the card that the value is
-  not the exchange's figure and does not guarantee the credit. It reads the destination again
-  before the card and after the approval. Bybit as B uses its own `depositMin`, and the fallback
-  only when that field is absent. A malformed minimum or contrary evidence still holds.
+  (`depositDust` has no documented meaning; [recipients.md](recipients.md#binance)). Fundkit
+  sets no minimum of its own for any of the nine destinations
+  ([rule](deposit-minimum.md)). Where the destination's healthy lookup publishes none, the plan
+  records the venue minimum as **unknown** (never 0 and never a credit guarantee), the plan and
+  the card say `venue minimum unknown`, and any positive expected credit after fees qualifies,
+  subject to every other gate. The destination is read again before the card and after the
+  approval; a minimum that appears, whatever its value, stops the plan. A minimum the venue
+  does publish (0, lower or higher) is enforced on the expected credit. A malformed minimum, an
+  unhealthy read and contrary evidence still hold.
 - **T3 elicitation forms.** T3 Code shows an MCP elicitation as an approval card (Approve,
   Decline, Cancel, "Always allow this session") and fills the accepted content itself. A
   required boolean field without an enum (ccxt-mcp's `confirm`) cannot be filled, so T3
@@ -225,8 +264,8 @@ Automated (Boat or any dev machine, no network beyond loopback, no real keys):
   one returns no QR path.
 - **USDT only.** Any coin but USDT (USDC included) is refused with `UNSUPPORTED_COIN` by both
   native tools, before any session, read or write; their schemas offer `coin: USDT` only.
-- **Transfer.** Bybit → Binance reaches the card on the operator fallback minimum
-  ([acceptance](deposit-minimum-fallback.md#acceptance)). Binance →
+- **Transfer.** Bybit → Binance reaches the card with the venue minimum unknown and no
+  Fundkit minimum ([acceptance](deposit-minimum.md#acceptance)). Binance →
   Bybit prepares a plan; T3-shaped host: Decline, Cancel and no answer give zero dispatch;
   Approve gives exactly one dispatch with the frozen arguments; a second confirm, a new broker
   process and a confirm after expiry give no second dispatch; a changed amount needs a new
@@ -246,7 +285,7 @@ Manual (parent agent, real T3 on Hetzner): see
 | QR encodes the exact address; the delivered file decodes to it | Python PNG reader + jsQR in tests; runtime self-check with jsQR | proven offline |
 | Binance BSC address parse and GET-only reads | real pinned ccxt-mcp, recorder transport, `unshare -rn` | proven offline |
 | Plan card matches ccxt-mcp's real form; approval passes the real gate; one POST at most | real pinned ccxt-mcp, recorder refuses the POST | proven offline |
-| 1 USDT operator fallback on Binance as B (card, recheck, inclusive boundary), Bybit's own `depositMin` first | fake ccxt-mcp end to end; real pinned ccxt-mcp for the card, the recheck and Cancel | proven offline (Binance and Bybit only) |
+| No Fundkit minimum on Binance as B (venue minimum unknown on the card, recheck, sub-1 and smallest-unit credits, zero or negative credit holds), Bybit's own `depositMin` first | fake ccxt-mcp end to end; real pinned ccxt-mcp for the card, a sub-1 plan, the recheck and Cancel | proven offline (Binance and Bybit only) |
 | Same rule on the other seven venues as B | documented agent flow; policy table checked at function level | not run end to end |
 | Any coin but USDT refused with zero reads and writes | fake: no Doppler secret request, no profile, no call; real server: zero wire requests | proven offline |
 | T3 cannot answer ccxt-mcp's raw form; can answer the plan card | read from T3's `toMcpElicitationResponse` and emulated | read, not run |
@@ -270,8 +309,9 @@ Manual (parent agent, real T3 on Hetzner): see
 5. **Custom Claude home.** T3 loads user-scope MCP servers and skills only when it runs Claude
    with the default home (`settingSources` user, project, local). With a custom home it loads
    project and local settings only; register `fundkit` there instead.
-6. **Binance as destination** relies on Fundkit's operator fallback minimum (1 USDT) on every
-   chain, because Binance publishes none (see above).
+6. **Binance as destination** has no published deposit minimum on any chain (see above), so its
+   plans show `venue minimum unknown` and are read again before the card and after the
+   approval.
 
 ## Hetzner acceptance (real T3)
 
@@ -323,8 +363,8 @@ address on TRC20`. Pass: no card, a new QR for the TRC20 address, the BSC QR not
 
 **3. Transfer up to the card, then Decline.**
 `Move 10 USDT from Bybit to Binance on BSC` (with at least 10.15 USDT in Bybit Funding).
-Expected: one plan message and one card that show the destination minimum as Fundkit's operator
-fallback (1 USDT) with Binance's minimum unknown; press **Decline** (pass as below).
+Expected: one plan message and one card that show `Destination minimum: venue minimum unknown`
+(no Fundkit figure); press **Decline** (pass as below).
 `Move 10 USDC from Bybit to Binance on BSC` is refused at once (USDT only): no card, no secret
 card, nothing read. The reverse direction also
 reaches the card with an amount the Binance account holds:
