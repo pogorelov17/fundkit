@@ -29,8 +29,12 @@ user's language and keeps the approval keywords (`APPROVE`, `WITHDRAW`) in Engli
 
 ## Native requests (fundkit server connected; T3 Code first)
 
-Ask in your own words; the agent needs nothing else from you except, once per session, the
-token in T3's private card.
+Ask in your own words; the agent needs nothing else from you. When an exchange is not
+connected yet, T3 asks one question in your language first: **Doppler Service Token** (the
+default; one private card for the token) or **Enter exchange API credentials manually** (one
+private card per value: API key, API secret, and the API passphrase for OKX, Bitget and KuCoin
+only). Pick one and fill the cards; the same request then continues by itself, with no command
+and no "done" reply. When the exchanges are already connected, nothing is asked.
 
 ```text
 Show my Binance USDT deposit address on BSC.
@@ -43,7 +47,9 @@ What happened to transfer FK-XXXXXXXX?
 ## Natural request (fundkit installed)
 
 After `fundkit install` ([scheme D](security.md#scheme-d-session-only-doppler-profiles-optional))
-a fresh Claude Code or Codex session needs no `Read SKILL.md` line and no aliases. Just ask:
+a fresh Claude Code or Codex session needs no `Read SKILL.md` line and no aliases. These hosts
+have no private secret card, so the terminal step below stands in for T3's choice and cards.
+Just ask:
 
 ```text
 move 300 USDT from OKX to Bybit

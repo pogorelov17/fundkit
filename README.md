@@ -10,8 +10,10 @@
 %%{init: {"flowchart": {"curve": "stepAfter", "rankSpacing": 26, "nodeSpacing": 22}}}%%
 flowchart TB
     ASK(["You · Ask in any language"]):::endpoint
-    S{"Session active?"}:::decision
+    S{"Credentials connected?"}:::decision
+    CHOICE{"One choice<br/>Doppler token (default)<br/>or manual API credentials"}:::human
     TOKEN["Private card · Doppler token<br/>the agent never sees it"]:::human
+    MANUAL["Private cards, one value each<br/>API key, API secret<br/>passphrase on OKX, Bitget, KuCoin"]:::human
     K{"Which request?"}:::decision
 
     subgraph ADDR[" "]
@@ -37,7 +39,9 @@ flowchart TB
     end
 
     ASK --> S
-    S -->|No| TOKEN --> K
+    S -->|No| CHOICE
+    CHOICE -->|Doppler| TOKEN --> K
+    CHOICE -->|Manual| MANUAL --> K
     S -->|Yes| K
     K -->|Deposit address| A1
     K -->|Transfer A → B| T1
@@ -56,8 +60,9 @@ MCP server [`ccxt-mcp@0.1.3`](https://github.com/ccxt/ccxt/tree/master/mcp), pin
 `ccxt@4.5.85`, the last ccxt release with which the server's `withdraw` still passes network,
 fee and memo to the exchange. It works in T3 Code, Claude Code and Codex. The helper (Node 20+,
 standard library plus the pinned QR decoder `jsqr@1.4.0`) connects exchange accounts for one
-session from a single Doppler config and adds two native tools: a verified deposit address with
-an inline QR, and an exchange-to-exchange transfer confirmed on one bound card.
+session, from a single Doppler config or from API credentials entered manually in private cards,
+and adds two native tools: a verified deposit address with an inline QR, and an
+exchange-to-exchange transfer confirmed on one bound card.
 
 ## What you ask and what you get
 
@@ -101,8 +106,8 @@ English, so the agent shows the plan in your language in the chat just before th
 ## Quick start
 
 Fundkit has two kinds of user. The **operator** installs it once on the machine that runs the
-agent and owns the Doppler config and exchange keys. The **person asking** only chats and
-approves.
+agent and owns the exchange keys (in a Doppler config, or entered by hand when asked). The
+**person asking** only chats and approves.
 
 ### 1. Operator: install on the T3 Code server
 
@@ -119,9 +124,12 @@ This pins `ccxt-mcp`, `ccxt` and `jsqr` under `~/.local/share/fundkit/app`, link
 (`--no-claude`, `--no-codex` and `--no-skills` skip a step). Threads that are already running do
 not load new servers, so start a new one.
 
-### 2. Operator: one Doppler config
+### 2. Operator: one Doppler config (optional)
 
-The config holds one account per exchange under exactly two names, and nothing else:
+A Doppler config is the recommended source of exchange keys, and the first option offered. It is
+optional: whoever chats can instead enter the missing exchange's API credentials manually in
+private cards when asked (step 3). The config holds one account per exchange under exactly two
+names, and nothing else:
 
 ```text
 BINANCE_APIKEY   BINANCE_SECRET
@@ -144,11 +152,22 @@ connected are never asked for Doppler. Data flow, roles and limits:
 
 ### 3. Person asking: open a new T3 chat
 
-Ask in your own words, for example `Show my Binance USDT deposit address on BSC`. If no session
-is active, T3 shows **one private card** for a read-only Doppler service token. The value goes
-straight to fundkit on that machine; the agent never sees it, and the same request continues by
-itself. The session lasts 8 hours or until `fundkit stop`. Depending on its permission mode, T3
-may also ask once to allow the agent's `fundkit unlock` shell command.
+Ask in your own words, for example `Show my Binance USDT deposit address on BSC`. If an exchange
+the request needs has no credentials yet, T3 first asks **one question** in your language, with
+two options:
+
+1. **Doppler Service Token** (first, the default): **one private card** for a read-only Doppler
+   service token. fundkit then reads only the needed exchanges' two names from that config.
+2. **Enter exchange API credentials manually**: one private card per value, only for the
+   exchanges that are missing, in this order: API key, API secret, and the API passphrase for
+   OKX, Bitget and KuCoin only. Doppler is not used at all.
+
+Each value goes straight to fundkit on that machine; the agent never sees it, you run no command
+and say nothing in the chat, and the same request continues by itself. Cancelling a card or not
+answering the question connects nothing. Manually entered credentials belong to that chat only,
+stay in memory and last at most 8 hours; a Doppler session lasts 8 hours or until `fundkit
+stop`. When the exchanges are already connected, nothing is asked. Depending on its permission
+mode, T3 may ask once to allow the fundkit tools.
 
 <details>
 <summary><strong>Claude Code or Codex in a terminal</strong></summary>
@@ -229,9 +248,9 @@ exchange are in [`exchanges.md`](references/exchanges.md) and
 
 **Hosts:**
 
-| Host | Token and passphrases | Money confirmation |
+| Host | Credentials (Doppler token, manual API credentials, passphrases) | Money confirmation |
 | --- | --- | --- |
-| T3 Code | one private secret card each (`request_secret`, file delivery) | one fundkit card per plan |
+| T3 Code | one choice (Doppler first, or manual entry), then one private secret card per value (`request_secret`, file delivery) | one fundkit card per plan |
 | Claude Code, Codex | hidden prompt in a private terminal (`fundkit session`) | the host's native MCP form, once the operator has [checked](references/security.md#interactive-native-form) that no hook answers it |
 
 Known host limits: T3 cannot answer ccxt-mcp's own form, so the older `fundkit_write` path fails
@@ -247,10 +266,13 @@ or local settings. Full list:
   with an exclusive create before the call, so a repeat, a restart or a timeout never sends
   again, and an unknown outcome is never retried. Documented flows need `APPROVE`, `WITHDRAW`
   and the host's native form for every money move.
-- **Secrets stay private.** The Doppler token and the OKX, Bitget and KuCoin passphrases are
-  entered only in the host's private card or a private terminal, never in the chat, argv, the
-  environment, a file or a log. The session keeps them in memory and drops them when it ends.
-  Each profile gets only its own exchange's two names.
+- **Secrets stay private.** The Doppler token, manually entered API keys, secrets and
+  passphrases, and the OKX, Bitget and KuCoin passphrases are entered only in the host's private
+  card or a private terminal, never in the chat, argv, the environment, a file or a log. The
+  host's card file is read once by the session and deleted. The session keeps the values in
+  memory and drops them when it ends; a manual entry is visible only to the chat that made it.
+  Each profile gets only its own exchange's credentials. A wallet seed phrase or private key is
+  never asked for and is refused.
 - **Recipients come from your account.** Addresses and memos are read from the destination
   account itself and checked for chain and contract, never taken from text pasted into the
   chat. `get_deposit_address` is never called; the Gate and WhiteBIT reads that may create an
@@ -258,7 +280,7 @@ or local settings. Full list:
 - **Roles are enforced by fundkit, not by the key.** Deposit-only, source and settlement
   profiles get per-venue method allowlists and a key check before recipient reads and money
   moves. No account UID is bound: the operator's mapping of each exchange to its two Doppler
-  names is trusted.
+  names, or to the key entered manually, is trusted.
 - **Exchange side.** Use minimal key permissions, an IP allowlist and a withdrawal address
   whitelist ([key permissions](references/security.md#exchange-key-permissions)).
 - **Trust model.** The skill assumes a cooperative, trusted host, operator and agent; the hard
@@ -287,12 +309,12 @@ More, including setup and diagnosis prompts: [`prompts.md`](references/prompts.m
 | --- | --- |
 | [`SKILL.md`](SKILL.md) | agent rules and scenarios |
 | [`references/deposit-minimum.md`](references/deposit-minimum.md) | the USDT destination deposit minimum on every venue: the venue's own value enforced, or unknown with a non-binding 1 USDT recommendation; holds, scope (USDT only), native tools, recheck |
-| [`references/security.md`](references/security.md) | environment contract, host registration, Doppler session, the T3 Code secret card and host limits, loading the skill, smoke check, key permissions |
+| [`references/security.md`](references/security.md) | environment contract, host registration, Doppler session, the T3 Code credentials choice, manual entry, secret cards and host limits, loading the skill, smoke check, key permissions |
 | [`references/recipients.md`](references/recipients.md) | native recipient reads (address, memo, landing wallet), deposit fee and minimum sources and hard limits per venue |
 | [`references/exchanges.md`](references/exchanges.md) | wallets, network data, outbound withdraw table, amount steps, account modes |
 | [`references/ccxt-mcp.md`](references/ccxt-mcp.md) | pins, tool schemas, approval gates, journal, limitations, verification |
 | [`references/prompts.md`](references/prompts.md) | copyable prompts for setup, diagnosis, read-only checks and planning |
-| [`bin/fundkit.mjs`](bin/fundkit.mjs), [`lib/`](lib/) | optional helper: `install`, `session`, `unlock`, `passphrase`, `status`, `stop` and the `fundkit` MCP server; role allowlists in [`lib/policy.mjs`](lib/policy.mjs), native flows in [`lib/broker/native.mjs`](lib/broker/native.mjs), venue reads in [`lib/venues/`](lib/venues/), QR in [`lib/qr/`](lib/qr/) |
+| [`bin/fundkit.mjs`](bin/fundkit.mjs), [`lib/`](lib/) | optional helper: `install`, `session`, `unlock`, `passphrase`, `status`, `stop` and the `fundkit` MCP server (credentials choice and secret cards in [`lib/secret-step.mjs`](lib/secret-step.mjs), manual sets in [`lib/session/vault.mjs`](lib/session/vault.mjs)); role allowlists in [`lib/policy.mjs`](lib/policy.mjs), native flows in [`lib/broker/native.mjs`](lib/broker/native.mjs), venue reads in [`lib/venues/`](lib/venues/), QR in [`lib/qr/`](lib/qr/) |
 | [`tests/`](tests/) | offline tests: mock Doppler, pseudo-terminals, a simulated T3 host, synthetic and pinned ccxt-mcp |
 
 ## Verification and limits
@@ -303,9 +325,11 @@ also runs with no network (`unshare -rn`) behind a recorder that refuses every w
 operator's real T3 Code host, T3 retrieved a verified USDT BEP20 deposit address and returned
 its QR for Binance and for Bybit. Live transfer attempts there stopped at preflight holds: no
 confirmation card has been shown on real T3, no live send or credit has been confirmed, and no
-phone scan of the QR has been done. Offline, [`tests/test_native.py`](tests/test_native.py)
-covers the secret-file handoff, the verified QR, the destination minimum and the plan card with a
-fake ccxt-mcp and a T3-shaped host; the runs against the pinned ccxt-mcp and the documented flows
+phone scan of the QR has been done. The credentials choice and the manual entry cards have run
+only against the simulated T3 host, not yet on real T3 Code. Offline,
+[`tests/test_native.py`](tests/test_native.py) and [`tests/test_manual.py`](tests/test_manual.py)
+cover the credentials choice, manual entry, the secret-file handoff, the verified QR, the
+destination minimum and the plan card with a fake ccxt-mcp and a T3-shaped host; the runs against the pinned ccxt-mcp and the documented flows
 are in [`ccxt-mcp.md`](references/ccxt-mcp.md#verification).
 
 Not verified beyond those address reads: real accounts, modes, available amounts, fee models,

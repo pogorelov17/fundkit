@@ -32,6 +32,9 @@ TOOL_NAMES = [
     "fundkit_connect",
     "fundkit_read",
     "fundkit_write",
+    "fundkit_credentials",
+    "fundkit_secret_submit",
+    "fundkit_secret_cancel",
     "fundkit_disconnect",
 ]
 
@@ -61,9 +64,15 @@ class NoSessionTests(SessionTestCase):
             ],
         )
 
+        # The route's missing exchanges come with exactly one provider choice, Doppler first.
+        self.assertEqual(body["missingCredentials"], ["okx", "bybit"])
+        self.assertEqual([option["id"] for option in body["choiceStep"]["options"]], ["doppler", "manual"])
+        self.assertNotIn("secretStep", body)
+
         body, is_error = host.tool("fundkit_connect", {"exchange": "okx", "role": "source"})
         self.assertTrue(is_error)
-        self.assertEqual(body["error"], "NO_SESSION")
+        self.assertEqual(body["error"], "CREDENTIALS_NEEDED")
+        self.assertNotIn("secretStep", body)
         self.assertEqual(self.doppler.requests, [])
         self.assertEqual(self.events(), [])
         self.assertFalse(self.run_dir.exists() and any(self.run_dir.iterdir()))

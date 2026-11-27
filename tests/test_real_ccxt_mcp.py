@@ -19,7 +19,7 @@ import time
 import unittest
 from pathlib import Path
 
-from tests.native_support import T3Host, t3_secret_file
+from tests.native_support import T3Host, choose, resume, submit_card, t3_secret_file
 from tests.support import (
     DOPPLER_CONFIG,
     EXCHANGES,
@@ -34,6 +34,7 @@ from tests.support import (
     wait_for,
     withdraw_args,
 )
+from tests.test_manual import MANUAL
 from tests.test_native import NOTICE
 
 REAL_SERVER = os.environ.get("FUNDKIT_REAL_CCXT_MCP")
@@ -414,6 +415,49 @@ class RealPlanFormTests(RealCcxtMcpTests):
             self.assertIn(expected, signed)
         key = sha256(DOPPLER_CONFIG["BINANCE_APIKEY"])
         self.assertTrue(all(request["keyHash"] == key for request in wire if request["signed"]))
+        self.assert_no_files_with_secrets()
+
+    def test_real_manual_cards_sign_each_venue_with_its_own_key_and_send_nothing(self):
+        # No Doppler at all: the operator chose manual entry. The pinned server signs every Bybit
+        # request with the Bybit key and every Binance request with the Binance key from the cards.
+        host = T3Host(self.env, decisions=["cancel"])
+        self.hosts.append(host)
+        self.addCleanup(lambda: self.run_cli("stop"))
+        body, is_error, _ = host.tool_full("fundkit_transfer_prepare", TEN_TO_BINANCE, timeout=120)
+        self.assertTrue(is_error)
+        self.assertEqual(body["missing"], ["bybit", "binance"])
+        chosen, is_error = choose(host, body, "manual")
+        self.assertFalse(is_error, chosen)
+        labels = []
+        while chosen.get("status") == "secret-needed":
+            step = chosen["secretStep"]
+            labels.append(step["request"]["label"])
+            venue, field = step["request"]["label"].split(" ", 1)
+            value = MANUAL[venue.lower()][{"API key": "apiKey", "API secret": "secret"}[field]]
+            chosen, is_error, path = submit_card(host, self.tmp, step, value)
+            self.assertFalse(is_error, chosen)
+            self.assertFalse(path.exists())
+        self.assertEqual(
+            labels, ["Bybit API key", "Bybit API secret", "Binance API key", "Binance API secret"]
+        )
+        plan, is_error, _ = resume(host, chosen)
+        self.assertFalse(is_error, plan)
+        self.assertEqual(plan["status"], "ready", plan)
+        self.assertEqual(plan["plan"]["recipient"], "0x1b6C0d8D0aF0A3a0b6F6e4E5bC6a7F2d3C4e5F60")
+
+        result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": plan["planId"]}, timeout=180)
+        self.assertEqual((result["status"], result["sent"]), ("not-sent", False), result)
+        self.assertEqual(len(host.cards), 1)
+        self.assertEqual(self.posts(), [], "zero withdrawal writes")
+        self.assertEqual(self.doppler.requests, [])
+
+        wire = [request for request in self.wire() if request["signed"]]
+        self.assertEqual({request["id"] for request in wire}, {"bybit", "binance"})
+        expected = {venue: sha256(MANUAL[venue]["apiKey"]) for venue in ("bybit", "binance")}
+        for request in wire:
+            self.assertEqual(request["keyHash"], expected[request["id"]], request)
+        doppler_hashes = {sha256(value) for value in DOPPLER_CONFIG.values()}
+        self.assertFalse({request["keyHash"] for request in wire} & doppler_hashes)
         self.assert_no_files_with_secrets()
 
     # ------------------------------------------------------------ Binance's unknown deposit minimum

@@ -302,9 +302,7 @@ class PassphraseTests(SessionTestCase):
         for exchange in PASSPHRASE_EXCHANGES:
             with self.subTest(exchange=exchange):
                 body = self.connect_with_terminal_passphrase(host, terminal, exchange)
-                self.assertIn(
-                    "API passphrase (private terminal, memory only)", body["account"]["credentials"]
-                )
+                self.assertIn("API passphrase (private step, memory only)", body["account"]["credentials"])
                 start = self.starts()[f"{exchange}-src"]
                 password = f"{exchange.upper()}_PASSWORD"
                 self.assertEqual(start["envHashes"][password], sha256(PASSPHRASES[exchange]))

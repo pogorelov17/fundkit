@@ -125,7 +125,10 @@ rule ([trust model](#trust-model)). The exchange-side restrictions below are man
 ### Scheme D: session-only Doppler profiles (optional)
 
 For operators who keep every exchange key in one Doppler config and want no key on disk. It is
-opt-in. Schemes A to C and already registered profiles keep working without it, and the agent
+opt-in. On a host with a private secret card (T3 Code), the same session can instead take a
+missing exchange's API credentials entered manually, one private card per value, with no
+Doppler at all ([manual entry](#scheme-d-on-t3-code-one-choice-then-private-cards)); the
+operator then needs no Doppler config. Schemes A to C and already registered profiles keep working without it, and the agent
 uses those first ([SKILL.md, session profiles](../SKILL.md#session-profiles-optional-doppler)).
 `bin/fundkit.mjs` is a thin entry point for Node 20+; the code is in `lib/` and uses only
 the standard library. It has five parts: `install`, the private terminal step `session`, the
@@ -164,11 +167,11 @@ two names per venue and nothing else:
 | Binance | `BINANCE_APIKEY`, `BINANCE_SECRET` |
 | Bybit | `BYBIT_APIKEY`, `BYBIT_SECRET` |
 | Gate | `GATE_APIKEY`, `GATE_SECRET` |
-| OKX | `OKX_APIKEY`, `OKX_SECRET` (+ API passphrase typed in the private terminal) |
-| Bitget | `BITGET_APIKEY`, `BITGET_SECRET` (+ API passphrase typed in the private terminal) |
+| OKX | `OKX_APIKEY`, `OKX_SECRET` (+ API passphrase, asked privately) |
+| Bitget | `BITGET_APIKEY`, `BITGET_SECRET` (+ API passphrase, asked privately) |
 | WhiteBIT | `WHITEBIT_APIKEY`, `WHITEBIT_SECRET` |
 | MEXC | `MEXC_APIKEY`, `MEXC_SECRET` |
-| KuCoin | `KUCOIN_APIKEY`, `KUCOIN_SECRET` (+ API passphrase typed in the private terminal) |
+| KuCoin | `KUCOIN_APIKEY`, `KUCOIN_SECRET` (+ API passphrase, asked privately) |
 
 Only the exchanges a route uses need to exist. fundkit fetches exactly those two names for the
 exchange it connects. There are no role suffixes (`_SOURCE_`, `_DEPOSIT_`, `_SETTLEMENT_`), no
@@ -222,11 +225,12 @@ Doppler: one key per exchange may serve every role, and no instruction asks for 
 read-only key or for removing rights ([venue profiles](#venue-profiles)).
 
 **API passphrase (OKX, Bitget, KuCoin).** These venues sign with a third credential. It is a real
-credential, not a placeholder, and it is **not** in Doppler. The operator types it in a private
-terminal, once per exchange and session; it stays in the session's memory and goes only to that
+credential, not a placeholder, and it is **not** in Doppler. The operator enters it privately,
+once per exchange and session: in the T3 Code private card (below) or in a private terminal; it
+stays in the session's memory and goes only to that
 exchange's profile processes as `<EX>_PASSWORD`. It never goes to the chat, a native form, argv,
 a file, a log, the host, `fundkit mcp` or Doppler, and it is redacted from everything a profile
-prints. Three ways, all with hidden input:
+prints. In a terminal session there are three ways, all with hidden input:
 
 | Launch | How the passphrase is entered |
 |---|---|
@@ -265,23 +269,27 @@ Every profile gets `confirm: "always"`, `funds: "live"`, `strictPermissions` and
 
 | Value | Path | Never |
 |---|---|---|
-| service token | the session opens `/dev/tty` and turns echo off before it prints the prompt. The token stays in that process's memory and goes only as `Authorization: Bearer` to `https://api.doppler.com` (HTTPS, redirects refused) | argv, any process environment, files, logs, MCP messages, the host, the agent, ccxt-mcp, exchanges. It is not read from stdin, argv or the environment; a `DOPPLER_TOKEN` in the shell is ignored and removed from the environment of a host started with `--` |
+| service token | in a terminal session, the session opens `/dev/tty` and turns echo off before it prints the prompt; on T3 Code, the session daemon reads the private card's file once and deletes it ([T3 Code](#scheme-d-on-t3-code-one-choice-then-private-cards)). The token stays in that process's memory and goes only as `Authorization: Bearer` to `https://api.doppler.com` (HTTPS, redirects refused) | argv, any process environment, files, logs, MCP messages, the host, the agent, ccxt-mcp, exchanges. It is not read from stdin, argv or the environment; a `DOPPLER_TOKEN` in the shell is ignored and removed from the environment of a host started with `--` |
 | exchange keys | one `GET /v3/configs/config/secrets/download?format=json&secrets=<EX>_APIKEY,<EX>_SECRET` per profile ([Doppler API](https://docs.doppler.com/reference/secrets-download)), never a bulk download. A response that holds any unrequested name not starting with `DOPPLER_` is refused whole. The values go as `<EX>_APIKEY` and `<EX>_SECRET` into the environment of that profile's ccxt-mcp process only. That process gets a minimal environment: `PATH`, `HOME`, `LANG`, `TZ`, `XDG_CACHE_HOME`, proxy and CA variables, `CCXT_MCP_CONFIG` | other profiles' processes, argv, files, tool results. Everything the process prints is redacted (raw, JSON-escaped and URL-encoded forms) before it leaves the session, on top of ccxt-mcp's own redaction |
-| API passphrase (OKX, Bitget, KuCoin) | typed hidden in the session terminal, before the session with `--passphrase`, or with `fundkit passphrase <ex>` over the session socket; kept in the session's memory, passed as `<EX>_PASSWORD` to that exchange's profile processes only, dropped when the session ends | Doppler, the chat, native forms, argv, files, logs, MCP messages, the host, other exchanges' processes |
+| API passphrase (OKX, Bitget, KuCoin) | a T3 Code private card, typed hidden in the session terminal, before the session with `--passphrase`, or with `fundkit passphrase <ex>` over the session socket; kept in the session's memory, passed as `<EX>_PASSWORD` to that exchange's profile processes only, dropped when the session ends | Doppler, the chat, native forms, argv, files, logs, MCP messages, the host, other exchanges' processes |
+| manual API key, secret, passphrase (T3 Code) | one private card per value; the session daemon reads each card's file once and deletes it, keeps the value in its memory in the chat's credential set (at most 8 h, never beyond the session), and passes it as `<EX>_APIKEY`, `<EX>_SECRET`, `<EX>_PASSWORD` to that exchange's profile processes of that chat only; redacted like the fetched values | Doppler, the chat, other chats, native forms, argv, files written by fundkit, logs, MCP messages, the host, other exchanges' processes |
 | profile `config.json` | `~/.local/state/fundkit/run/profiles/<alias>/config.json`, `chmod 600`, in a `0700` directory, removed when the profile stops | no credentials in it |
 | session control | a Unix socket `~/.local/state/fundkit/run/session.sock` (`0600`, directory `0700`). The host-side `fundkit mcp` holds neither the token nor any value. No message on the socket returns a secret, so the agent gets no generic secret reader: it can only name an exchange and a role | |
 
 Before the token, the session checks it with one request for Doppler's own metadata names
 (`DOPPLER_PROJECT`, `DOPPLER_CONFIG`, `DOPPLER_ENVIRONMENT`) and shows the project and config.
 
-**End of a session.** Each of these drops the token, every fetched value and every typed passphrase. It also stops
-every profile process and removes the profile files and the socket:
+**End of a session.** Each of these drops the token, every fetched value, every typed passphrase
+and every manual credential set. It also stops every profile process and removes the profile
+files and the socket:
 
 - Ctrl-C, closing the terminal (`SIGHUP`), `SIGTERM` or `fundkit stop`;
 - the `--ttl` limit;
-- Doppler answering `401` or `403` (expired or revoked token);
+- in a terminal session, Doppler answering `401` or `403` (expired or revoked token); a
+  background session on T3 Code drops only Doppler and its profiles then, and keeps manual sets;
 - the host session that used it closing (unless `--keep` was given);
-- with `--`, the host exiting.
+- with `--`, the host exiting;
+- a background session holding no credential and no profile for 10 minutes.
 
 A transient Doppler error (`5xx`, `429`, a timeout) keeps the session, and the profile reports
 it. A new session needs the token again. A host that is still running reconnects to the new
@@ -298,7 +306,9 @@ tokens", and a form answer passes through the host
 URL mode is meant for secrets, but it opens a browser. No other secret-input dialog that Claude
 Code or Codex offers an MCP server was found or used here. So the boundary is this: the
 **native dialog** is the human's yes or no for a money move, and the **private terminal step**
-(hidden input outside the agent's transcript) is the only place the token is typed.
+(hidden input outside the agent's transcript) or, on T3 Code, the host's **private secret card**
+is the only place the token or any exchange credential is entered. The credentials question
+before it is not a form for a secret: it only selects Doppler or manual entry.
 
 **Limits.** These are the same as in [scheme C](#scheme-c-per-profile-credential-files-two-profile-session),
 under the [trust model](#trust-model):
@@ -319,35 +329,87 @@ under the [trust model](#trust-model):
 - Ending a session while a `withdraw` or `transfer` is open kills its process. Treat the
   outcome as unknown and reconcile ([SKILL.md, 2.7](../SKILL.md#27-reconciliation)).
 
-**Verified offline** (2026-11-26, `tests/`, Node 24, Python 3.12). All values
-were synthetic. The Doppler API was a disposable loopback mock, the private terminal a real
+**Verified offline** (2026-11-26, the credentials choice and manual entry 2026-11-27, `tests/`,
+Node 24, Python 3.12). All values were synthetic. The Doppler API was a disposable loopback mock, the private terminal a real
 pseudo-terminal, and the host a simulated MCP client; the details are in
 [ccxt-mcp.md](ccxt-mcp.md#verification). Not verified: the real Doppler service, real
 exchange keys, a model choosing the skill or offering the step in a real Claude Code or Codex
-chat, and isolation of any kind.
+chat, the credentials selector and manual entry cards in a real T3 Code chat (only a simulated
+T3 host), and isolation of any kind.
 
-### Scheme D on T3 Code: one private card
+### Scheme D on T3 Code: one choice, then private cards
 
 On a host whose agent has a private secret card with file delivery (T3 Code's `request_secret`
-with `delivery: "file"`), no terminal step is needed:
+with `delivery: "file"`), no terminal step and no user command is needed.
 
-- The fundkit result names the card (`secretStep.request`) and one command
-  (`secretStep.then`). The MCP server cannot open the card itself: a server does not see its
-  host's tools, so the agent opens it.
-- T3 writes the value to a `0600` regular file in a `0700` directory and returns the path. The
-  agent runs `fundkit unlock --token-file <path>`. fundkit refuses anything but a private regular
-  file of the current user in a directory only that user can change, opens it without following
-  links, reads it once and deletes it before using the value; if it cannot delete it, it does not
-  use it. T3 itself removes unclaimed secret files after 24 hours.
-- The token goes to a detached session daemon on its stdin pipe (never argv, the environment, a
-  file or a log). The daemon checks it with Doppler, keeps it in memory for `--ttl` (8 h), keeps
-  running across T3's MCP restarts between turns, and ends on `fundkit stop`, the time limit or a
-  rejected token. Its log (`~/.local/state/fundkit/run/daemon.log`) holds no value.
-- OKX, Bitget and KuCoin passphrases arrive the same way, one card per exchange and session, with
-  `fundkit unlock --passphrase <exchange> --secret-file <path>`.
-- Trust boundary: the file and the control socket belong to the operator's user, like the agent's
-  own shell. A cooperative agent never reads the file; nothing in the OS stops that user from
-  reading it before fundkit deletes it ([trust model](#trust-model)).
+**One choice first.** When a request needs an exchange that has no credentials in the session
+(no Doppler token, and no manual entry of this chat for it), the fundkit result is
+`CREDENTIALS_NEEDED` with one `choiceStep` and no card. The agent asks one non-secret question
+with the host's own single-choice selector, in the user's language: **Doppler Service Token**
+(first, the default) or **Enter exchange API credentials manually**. A transfer asks once for
+both ends. Nothing has been read, no session is started and no Doppler request is made until the
+operator selects an option; no answer, a timeout or a dismissal selects nothing. When every
+needed exchange already has credentials, there is no question at all. The MCP server cannot open
+the selector or a card itself (a server does not see its host's tools), so the agent opens them.
+
+**Doppler Service Token.** One card for a read-only `dp.st.…` token. The session then fetches only
+the missing exchanges' `<EX>_APIKEY` and `<EX>_SECRET`, as above; OKX, Bitget and KuCoin
+passphrases come later, one card per exchange and session, when a profile first needs one
+(`PASSPHRASE_NEEDED` with a `secretStep`). A token, once connected, serves every chat of that
+session. A rejected token (`TOKEN_REJECTED`) drops Doppler and its profiles only, and the choice
+is offered again; a value that is not a service token is refused before anything is sent.
+
+**Manual entry.** One card per value, only for the exchanges that still lack credentials, in a
+fixed order per exchange: the API key, then the API secret, then, for OKX, Bitget and KuCoin
+only, the API passphrase. These are the same fields as the Doppler names and go into the
+profile's environment as `<EX>_APIKEY`, `<EX>_SECRET` and `<EX>_PASSWORD`. Doppler is not
+contacted at all on this path, not even for a token check. Each value is checked before it is
+kept: an API key or secret is one word of 8 to 512 visible ASCII characters, a passphrase one
+line of at most 256 characters, and a value that repeats another field of the same exchange is
+refused. Anything that looks like a wallet seed phrase or private key is refused for every field;
+fundkit never asks for one. A refused value keeps nothing and the same card is offered again.
+
+- **Per chat.** A manual entry is a credential set with a random id (`credentials: "cs-…"`, not a
+  secret) that only the chat which entered it receives; the agent passes it on every later
+  fundkit call of that chat. Another chat, a guessed id, an expired set or a restarted session
+  gets the choice again, never those keys. One set holds one account per exchange, and every
+  local role of that exchange in that chat uses it. Its profiles get their own aliases
+  (`binance-dst-m1a2b3c`), so two chats never share a process. A route may mix sources: an
+  exchange of this chat's set uses the set, any other exchange Doppler.
+- **Lifetime.** A set lives in the session's memory for at most 8 hours and never beyond the
+  session; it is never written to Doppler, a file or a log. A card may take up to 10 minutes. A
+  manual entry that is cancelled, expires or fails part-way keeps none of its fields (two of three
+  entered, then a cancel: both dropped). If the exchange rejects a manually entered key at its key
+  check (`CREDENTIALS_REJECTED`), the session drops that exchange's values and stops its
+  profiles, nothing is sent, and the choice is offered again. A background session that holds no
+  credential at all ends by itself after 10 minutes.
+- **Plans.** A native transfer plan is bound to the credentials it was prepared with; if they
+  are gone when the card is answered, the confirm result is `not-sent` with reason
+  `CREDENTIALS_CHANGED`, and nothing is sent. The destination recheck reads B with the same credentials.
+
+**The card's file.** T3 writes the value to a `0600` regular file in a `0700` directory and
+returns its path. The agent passes only that path to the `fundkit_secret_submit` tool with the
+step id; the host-side `fundkit mcp` relays the path, and the session daemon itself reads the
+file once and deletes it. Before opening it, the daemon refuses anything but a private regular
+file of the current user, with one link, in a directory only that user can change, with a
+host-delivery file name (no `/proc`, `/sys` or `/dev` path, no `..`), and written no earlier than
+the step was issued; it opens it without following links and does not use a value it could not
+delete. A refused file is left untouched and the card stays open. A file for a step that was
+already used, cancelled or has expired is deleted unused; a file for a step this session never
+issued is not read or removed. T3 itself removes unclaimed secret files after 24 hours. A
+cancelled card goes to `fundkit_secret_cancel`. Each step is single use.
+
+**The session.** With no session running, the first selection starts a detached background
+session daemon with no credential (`{idle: true}` on its stdin pipe, never argv, the environment
+or a file). It keeps running across T3's MCP restarts between turns, for `--ttl` (8 h) or until
+`fundkit stop`. Its log (`~/.local/state/fundkit/run/daemon.log`) holds no value. On a machine
+where the operator prefers a shell, `fundkit unlock --token-file <path>` still starts a session
+from a private `0600` token file, or adds a token to a running session that has none; the agent
+never runs it.
+
+Trust boundary: the file and the control socket belong to the operator's user, like the agent's
+own shell. A cooperative agent never reads the file; nothing in the OS stops that user from
+reading it before fundkit deletes it ([trust model](#trust-model)).
 
 Transfers on such a host use `fundkit_transfer_prepare` and `fundkit_transfer_confirm`: the
 session starts a single-use source profile for one plan (`dryRun: false`, `maxTransferValue` equal
@@ -358,17 +420,17 @@ JSON of the plan id, expiry, route, coin, network, amount, fee, debit, credit, r
 frozen `withdraw` arguments; a changed amount, network, recipient, fee or argument needs a new
 plan and a new card.
 
-Operator check after `fundkit install` and a first unlock (no values are printed):
+Operator check after `fundkit install` and a first card (no values are printed):
 
 ```bash
 claude mcp get fundkit                                   # command node, args …/bin/fundkit.mjs mcp
 ls -l ~/.claude/skills/usdt-funding                      # the skill link
-node ~/fundkit/bin/fundkit.mjs status                    # session state, Doppler project and config
+node ~/fundkit/bin/fundkit.mjs status                    # session state, Doppler project and config, manual sets (counts only)
 grep -c "dp.st." ~/.local/state/fundkit/run/daemon.log   # 0: no token in the log
 ps -eo args | grep "[f]undkit.mjs daemon"                # no token in argv
 ```
 
-The file path the card returned no longer exists after `fundkit unlock`.
+The file path the card returned no longer exists after `fundkit_secret_submit`.
 
 ### T3 Code host limits
 
@@ -383,8 +445,11 @@ The file path the card returned no longer exists after `fundkit unlock`.
 - **One broker owns a profile.** If two T3 threads use fundkit at once, the second gets
   `ALIAS_IN_USE` for a profile the first holds, until the first thread's MCP server stops.
 - **Tool permissions.** Depending on T3's permission mode, the user may have to allow the
-  agent's `fundkit unlock` shell command or the fundkit tools once. That is a host permission
-  prompt, not an operator step.
+  fundkit tools once. That is a host permission prompt, not an operator step; no shell command is
+  involved in entering credentials.
+- **Selector.** The credentials question uses the host's own single-choice selector. If the
+  agent has none, it asks the same two options as a plain choice in the chat; the answer is not
+  a secret, and the values still go only into private cards.
 - **Custom Claude home.** T3 loads user-scope MCP servers and skills only when it runs Claude
   with the default home. With a custom home it loads project and local settings only; register
   `fundkit` there.

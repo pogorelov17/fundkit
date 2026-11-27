@@ -9,8 +9,9 @@ description: >-
   (for example "move 300 USDT from OKX to Bybit"), pick a network, get a verified deposit
   address, move funds between funding and trading wallets, or check Hyperliquid margin. Finds
   the connected exchange profiles itself and, with the optional fundkit server, connects
-  missing ones for one session from a Doppler config after one private secret card (T3 Code) or
-  a private terminal step. Native tools return a verified deposit address with an inline QR and
+  missing ones for one session after one choice: a Doppler config (one private secret card for
+  the service token) or exchange API credentials entered manually in private secret cards (T3
+  Code), or a private terminal step on other hosts. Native tools return a verified deposit address with an inline QR and
   prepare exchange-to-exchange transfers confirmed by one bound human confirmation. USDT only:
   any other coin (USDC included) is refused. Enforces
   live network checks, an exact expiring plan, the host's native confirmation for every money
@@ -24,10 +25,11 @@ plan and execute writes only through `ccxt-mcp` servers: registered directly in 
 connected for one session through the optional `fundkit` MCP server
 ([session profiles](#session-profiles-optional-doppler)). Read the state first, then
 build an exact plan. Execute writes only after explicit human approval. Do not write or run
-programs or scripts of your own, and never run the `fundkit` command yourself. Two exceptions:
-the exact `secretStep.then` command a fundkit result gives you, with the path from the host's
-secret card ([native flows](#native-flows-start-here)), and the fixed TON address check in
+programs or scripts of your own, and never run the `fundkit` command yourself. The one
+exception is the fixed TON address check in
 [`recipients.md`](references/recipients.md#address-checks), which reads only its argument.
+Credentials never need a shell command: a private card's file path goes to the
+`fundkit_secret_submit` tool ([credentials](#credentials-one-choice-then-private-cards)).
 
 Detailed tables live in [`references/`](references/): pins, schemas and gates in
 [`ccxt-mcp.md`](references/ccxt-mcp.md), per-exchange data in
@@ -100,23 +102,60 @@ say fundkit does not support it and do not prepare a USDT transfer in its place;
   confirmation did not authorize: say so if relevant and do not do it silently.
 - Changed amount, network or recipient: prepare again; the old plan is not reused.
 
-**No session yet.** A result with `error: "NO_SESSION"` (or `PASSPHRASE_NEEDED`) carries
-`secretStep` and `resume`:
+### Credentials: one choice, then private cards
 
-1. If you have a private secret card tool with file delivery (T3 Code: `request_secret`),
-   call it once with exactly `secretStep.request` (label, reason, `delivery: "file"`).
-2. Run `secretStep.then` in the shell with `<FILE>` replaced by the returned `file` path,
-   unchanged. It reads the file once, deletes it and starts the session; it prints no value.
-   Never read, print or copy the file yourself.
-3. Call `resume.tool` with `resume.arguments` at once, in the same turn. Do not ask the user
-   to say they are done, to run anything, or to open a terminal, Docker, SSH or a browser.
+When an exchange a request needs has no credentials yet, the native tools (and
+`fundkit_connect`, `fundkit_profiles` with a route) return `error: "CREDENTIALS_NEEDED"` (also
+`TOKEN_REJECTED`, `SESSION_ENDED`, `NO_SESSION`, `CREDENTIALS_REJECTED`, `STEP_EXPIRED`) with
+one `choiceStep`, `missing` (the exchanges without credentials) and `resume` (the original
+call). A transfer asks once for both ends. Nothing has been read or started yet. When every
+exchange already has credentials (an active Doppler session, or this chat's manual entry),
+there is no `choiceStep` and the request simply runs: never ask the question then.
 
-If the card is declined or times out, say so and stop. If you have no such tool, say plainly
-that this host cannot take the token privately in chat (`secretStep.hostWithoutCard`); where
-the operator has a terminal on that machine, `fundkit session` there is the alternative. If
-the user already has configured `ccxt-mcp` profiles (Step 0 finds them), use those and never
-push Doppler on them. Venues other than Binance and Bybit return `VENUE_NOT_NATIVE`: use the
-manual flows below only if the user asks for them.
+1. **One question, asked with the host's own selector** (T3 Code and Codex:
+   `request_user_input`; Claude Code: `AskUserQuestion`), only on a host that has a private
+   secret card with file delivery (T3 Code: `request_secret` with `delivery: "file"`). Exactly
+   the two options of `choiceStep.options`, in that order: **Doppler Service Token** first, as
+   the default, and **Enter exchange API credentials manually** second. Translate the question,
+   the manual option's label and both descriptions into the user's language; keep the label
+   "Doppler Service Token". The question holds no secret. Never pick an option yourself: no
+   answer, a timeout, a cancel or a dismissal selects nothing, so say that nothing was connected
+   and stop.
+2. **Call only the selected option's `then`** (`fundkit_credentials` with those arguments,
+   unchanged). It returns one `secretStep`:
+   - Doppler: one card for a read-only Doppler Service Token (`dp.st.…`). fundkit then reads
+     only the `<EXCHANGE>_APIKEY` and `<EXCHANGE>_SECRET` names of the missing exchanges.
+   - Manual: one card per value, in this order, only for the exchanges that still lack
+     credentials: the API key, then the API secret, then, only for OKX, Bitget and KuCoin, the
+     API passphrase. Doppler is not contacted at all on this path.
+3. **For each `secretStep`**, open exactly one private card with `secretStep.request` (you may
+   translate `reason`, never `label`), then call `secretStep.submit` (`fundkit_secret_submit`)
+   with `<FILE>` replaced by the `file` path the card returned, unchanged, in the same turn. The
+   session reads the file once and deletes it; the value never reaches you. Never read, print or
+   copy the file. The answer is the next `secretStep` (follow it the same way, asking nothing in
+   between) or `status: "ready"`. A refused value (`VALUE_REFUSED`, `FILE_*`) comes with
+   `retry`: say why in one sentence and open `retry.request` once more. If a card is cancelled,
+   dismissed or times out, call `secretStep.ifCancelled` (`fundkit_secret_cancel`): nothing
+   from an unfinished manual entry is kept, and the result offers `choiceStep` once more.
+4. **On `status: "ready"`, call `resume.tool` with `resume.arguments` at once**, in the same
+   turn. Do not ask the user to say they are done, to run a command, or to open a terminal,
+   Docker, SSH or a browser.
+5. **Keep the chat's `credentials` id.** A manual entry returns `credentials` (`cs-…`, not a
+   secret): pass it as `credentials` on every later fundkit call in this chat. It names this
+   chat's credential set only; another chat never sees those keys, and a set that expired or a
+   session that restarted answers with `choiceStep` again.
+
+Manual credentials are kept in the session's memory only, for at most 8 hours and never beyond
+the session, and are never written to Doppler or a file. They are exchange API credentials
+only: a wallet seed phrase or private key is refused, and you never ask for one. A Doppler
+token, once connected, serves every chat of that session, as before.
+
+Without a private secret card tool, do not ask the question: say plainly that this host
+cannot take credentials privately in chat (`choiceStep.hostWithoutCard`); where the operator
+has a terminal on that machine, `fundkit session` there is the alternative. If the user already
+has configured `ccxt-mcp` profiles (Step 0 finds them), use those and never push Doppler or
+manual entry on them. Venues other than Binance and Bybit return `VENUE_NOT_NATIVE` for the
+native tools: use the manual flows below only if the user asks for them.
 
 ## Hard rules
 
@@ -128,10 +167,11 @@ manual flows below only if the user asks for them.
    journal. Diagnose setup only from tool results ([setup check](#setup-check)),
    and never ask whether a key is set or what it is. The same holds for a Doppler service
    token: the user enters it only in the host's private secret card or their own private
-   terminal ([native flows](#native-flows-start-here)), never into the chat. If one is
-   pasted here, do not use it, do not repeat it, and ask the user to revoke it in Doppler and
-   create a new one. The same again for an exchange API passphrase (OKX, Bitget, KuCoin): it is
-   typed only in the private terminal; one pasted here means the user replaces that API key.
+   terminal ([credentials](#credentials-one-choice-then-private-cards)), never into the chat. If
+   one is pasted here, do not use it, do not repeat it, and ask the user to revoke it in Doppler
+   and create a new one. The same again for an exchange API key, API secret or API passphrase
+   (OKX, Bitget, KuCoin) entered manually: only in the private cards of a `secretStep` or the
+   private terminal; one pasted here means the user replaces that API key.
 2. **A plan is bound to exact arguments and an expiry.** Writes are `transfer`, `withdraw`,
    `create_order`, `cancel_*`, `set_*`, `call_write_method` and `call_implicit_write`. Before any
    write, show a plan with the **full JSON arguments** of every call and `expires <UTC>`, and get
@@ -286,32 +326,45 @@ order, without asking the user for aliases:
    route, use them and do not mention Doppler.
 2. **Missing profiles, `fundkit` tools present.** Call `fundkit_profiles {"from":"<A>","to":"<B>"}`
    (ccxt ids or the user's own names: "OKX", "Gate.io"). It reads nothing secret.
-   - `session: "active"`: call `fundkit_connect {"exchange":"<id>","role":"source"}` for A and
-     `{"exchange":"<id>","role":"deposit-only"}` for B. Connect `settlement` only when 2.8
-     needs a transfer on B. Each profile's alias is `<exchange>-src`, `-dst` or `-settle`.
-   - `session: "none"`: tell the user, in their language, the `userStep` from the result: in
-     a separate terminal on this machine they run `fundkit session` and paste a read-only
-     Doppler service token there (the input is hidden), then say they are done. Do not ask
-     for the token, do not wait in a loop, and do not run the command yourself. Then call
-     `fundkit_profiles` again.
-   - `PASSPHRASE_NEEDED` (OKX, Bitget, KuCoin): pass on the result's `userStep` in the user's
+   - Every needed exchange has credentials (no `choiceStep` in the result): call
+     `fundkit_connect {"exchange":"<id>","role":"source"}` for A and
+     `{"exchange":"<id>","role":"deposit-only"}` for B, adding `"credentials":"cs-…"` when this
+     chat entered credentials manually. Connect `settlement` only when 2.8 needs a transfer on
+     B. Each profile's alias is `<exchange>-src`, `-dst` or `-settle`; a profile on manually
+     entered credentials adds the set's tag (`okx-src-m1a2b3c`). Use the alias the result gives.
+   - The result has `choiceStep` (some exchanges lack credentials): follow
+     [credentials](#credentials-one-choice-then-private-cards). One choice covers every
+     missing exchange of the route. On a host without a private secret card, tell the user, in
+     their language, the `userStep` from the result instead: in a separate terminal on this
+     machine they run `fundkit session` and paste a read-only Doppler service token there (the
+     input is hidden), then say they are done. Do not ask for the token, do not wait in a loop,
+     and do not run the command yourself. Then call `fundkit_profiles` again.
+   - `PASSPHRASE_NEEDED` (OKX, Bitget, KuCoin on the Doppler path): with a `secretStep`, open
+     that one private card for the API passphrase and submit it exactly as in
+     [credentials](#credentials-one-choice-then-private-cards), then repeat the same
+     `fundkit_connect`. With a `userStep` instead (a terminal session), pass it on in the user's
      language and stop until they say they are done; then call the same `fundkit_connect` again.
-     The passphrase is typed only in their private terminal, never in the chat. For example
-     (translate it into the user's language): "OKX needs its API passphrase. Switch to the
-     terminal running `fundkit session`: it now shows the prompt `OKX API passphrase`. Type it
-     there (the input is hidden), not in this chat, and then reply done." When the session runs
-     the host (`-- claude`), the step is `fundkit passphrase okx` in another terminal: "…open a
-     second terminal on this machine and run `fundkit passphrase okx`…". `PASSPHRASE_CANCELLED` or `PASSPHRASE_TIMEOUT`: the
-     operator did not enter it; say so, and connect again only if the user asks for it.
+     The passphrase is never typed in the chat. For example (translate it into the user's
+     language): "OKX needs its API passphrase. Switch to the terminal running `fundkit session`:
+     it now shows the prompt `OKX API passphrase`. Type it there (the input is hidden), not in
+     this chat, and then reply done." When the session runs the host (`-- claude`), the step is
+     `fundkit passphrase okx` in another terminal: "…open a second terminal on this machine and
+     run `fundkit passphrase okx`…". `PASSPHRASE_CANCELLED` or `PASSPHRASE_TIMEOUT`: the
+     operator did not enter it; say so, and connect again only if the user asks for it. A
+     manual entry asks for the passphrase as its third card and never returns
+     `PASSPHRASE_NEEDED`.
 3. **Neither.** Follow the last paragraph of [Step 0](#step-0-preflight-read-only).
 
-How a session profile works. The operator's Doppler config holds one account per exchange,
-under exactly `<EXCHANGE>_APIKEY` and `<EXCHANGE>_SECRET`
-([scheme D](references/security.md#scheme-d-session-only-doppler-profiles-optional)). OKX,
-Bitget and KuCoin also need their API passphrase, which is not in Doppler: the operator types it
-in the private terminal once per exchange and session. `fundkit_connect` starts one pinned
-`ccxt-mcp` process for that account and role, with only those values. No value ever reaches
-you. Call every tool of a session profile through `fundkit_read
+How a session profile works. Its credentials come from one of two places
+([scheme D](references/security.md#scheme-d-session-only-doppler-profiles-optional)): the
+operator's Doppler config, which holds one account per exchange under exactly
+`<EXCHANGE>_APIKEY` and `<EXCHANGE>_SECRET`, or this chat's manual entry, which holds the same
+fields for one account per exchange. OKX, Bitget and KuCoin also need their API passphrase,
+which is never in Doppler: on the Doppler path it is asked once per exchange and session in a
+private card or the private terminal; a manual entry asks for it as its third card. This chat's
+manual entry is used first for its exchanges, Doppler otherwise. `fundkit_connect` starts one
+pinned `ccxt-mcp` process for that account and role, with only those values. No value ever
+reaches you. Call every tool of a session profile through `fundkit_read
 {"alias":"<alias>","tool":"<tool>","arguments":{…}}`, with exactly the JSON you would pass to
 that tool directly ([call syntax](#call-syntax)). Money moves go only through `fundkit_write
 {"alias":"<alias>","tool":"withdraw|transfer","arguments":{…}}`,
@@ -331,7 +384,7 @@ every session profile, and so do the key checks, the setup record and the rules.
 - **Key check, no UID binding.** Recipient reads and money moves need a successful key check
   on this profile first, where the venue has one (`KEY_CHECK_REQUIRED` names the call). fundkit
   does not bind a profile to an account UID: the operator's mapping of the selected exchange and
-  profile to its two Doppler names is trusted. Never fetch, ask for, record or compare a UID for
+  profile to its two Doppler names, or to the key entered manually, is trusted. Never fetch, ask for, record or compare a UID for
   that, also where a key check happens to show one, and never ask for another identity proof in
   its place. `fundkit_write` takes no `uid` (an older caller's is ignored). Read `venueScope` and
   surface its restrictions to the user (WhiteBIT: no key read, so its key rights come from the
@@ -346,8 +399,13 @@ every session profile, and so do the key checks, the setup record and the rules.
   settlement profiles are `dryRun: true` unless the operator started the session with
   `--writes --max-transfer <USD>`. Only the operator can change that, by starting a new
   session.
-- Errors: `NO_SESSION`, `TOKEN_REJECTED` (the token is expired or revoked; the session has
-  ended) and `SESSION_ENDED` mean the user repeats the private terminal step. `MISSING_SECRETS`
+- Errors: `CREDENTIALS_NEEDED`, `NO_SESSION`, `SESSION_ENDED` and `TOKEN_REJECTED` (the token
+  is expired or revoked; a background session drops only Doppler, and a manual entry stays)
+  come with `choiceStep`: follow [credentials](#credentials-one-choice-then-private-cards), or, on a host without a
+  private card, the user repeats the private terminal step. `CREDENTIALS_REJECTED`: the
+  exchange refused the manually entered key, fundkit dropped it and nothing was sent; say so and
+  show `choiceStep` once more. Reason `CREDENTIALS_CHANGED` on a `not-sent` confirm: the
+  credentials the plan was prepared with are gone; nothing was sent, prepare again. `MISSING_SECRETS`
   lists the missing names (always the plain `<EXCHANGE>_APIKEY` / `<EXCHANGE>_SECRET`): the
   operator adds them to the Doppler config, and the session stays active.
   `DOPPLER_UNAVAILABLE`, `DOPPLER_RATE_LIMITED` and `DOPPLER_TIMEOUT`: try once later, then hold.
@@ -414,8 +472,8 @@ For each server involved:
    checks it. A money-moving server under the agent's own OS user is the normal case and no
    reason to stop ([trust model](references/security.md#trust-model)).
 4. **Account mapping and key scope.** Which exchange account a key belongs to is the operator's
-   mapping: the registration (or, on a session profile, the exchange's two Doppler names) they
-   chose for that exchange. Trust it. Do not fetch, ask for, record or compare an account UID to
+   mapping: the registration (or, on a session profile, the exchange's two Doppler names or the
+   key entered manually in this chat) they chose for that exchange. Trust it. Do not fetch, ask for, record or compare an account UID to
    bind the alias to an account, also where a key check happens to show one, and do not ask for
    another identity proof instead. Before the first write or recipient read in a launch, run the
    venue's key check from [`recipients.md`](references/recipients.md) and report the key's scope
@@ -572,9 +630,10 @@ Match what you see:
 
 | You see | Tell the operator |
 |---|---|
-| `fundkit_profiles` says `session: "none"`, or `NO_SESSION`, `TOKEN_REJECTED`, `SESSION_ENDED` | Run `fundkit session` in a separate private terminal on this machine and paste the read-only Doppler service token there (input hidden); keep that terminal open ([session profiles](#session-profiles-optional-doppler)) |
+| a result with `choiceStep` (`CREDENTIALS_NEEDED`, `NO_SESSION`, `TOKEN_REJECTED`, `SESSION_ENDED`) on a host with a private secret card | Nothing for the operator: ask the one choice and follow it ([credentials](#credentials-one-choice-then-private-cards)) |
+| `fundkit_profiles` says `session: "none"`, or `NO_SESSION`, `TOKEN_REJECTED`, `SESSION_ENDED`, on a host without a private secret card | Run `fundkit session` in a separate private terminal on this machine and paste the read-only Doppler service token there (input hidden); keep that terminal open ([session profiles](#session-profiles-optional-doppler)) |
 | `MISSING_SECRETS` with names | Add exactly those names (`<EXCHANGE>_APIKEY`, `<EXCHANGE>_SECRET`) to the Doppler config the token reads; nothing else is fetched. The session stays active |
-| `PASSPHRASE_NEEDED`, `PASSPHRASE_CANCELLED`, `PASSPHRASE_TIMEOUT` | Type the exchange's API passphrase where the `userStep` says: the `fundkit session` terminal, or `fundkit passphrase <exchange>` in another terminal; never in the chat ([session profiles](#session-profiles-optional-doppler)) |
+| `PASSPHRASE_NEEDED`, `PASSPHRASE_CANCELLED`, `PASSPHRASE_TIMEOUT` | With a `secretStep`: nothing for the operator, the agent opens the private card. With a `userStep`: type the exchange's API passphrase where it says, the `fundkit session` terminal or `fundkit passphrase <exchange>` in another terminal; never in the chat ([session profiles](#session-profiles-optional-doppler)) |
 | `ROLE_DENIED`, `KEY_CHECK_REQUIRED`, `PROVISIONING_NOT_AUTHORIZED`, `NOT_FORWARDED` | Quote the message. A local role, key-check or venue gate held; nothing reached the exchange ([session profiles](#session-profiles-optional-doppler)) |
 | `SERVER_NOT_INSTALLED` | Run `fundkit install` once on this machine ([security.md](references/security.md#scheme-d-session-only-doppler-profiles-optional)) |
 | no `ccxt-mcp` and no `fundkit` tools | No server is connected to this chat; you cannot see why. Set up the [venue profile](references/security.md#venue-profiles) for each named exchange, restart the host, start a new chat with the [setup prompt](references/prompts.md#setup-and-diagnosis) |
@@ -600,9 +659,10 @@ matters for `10005`). The Bybit-specific rows, with the
 
 | You see | Tell the operator |
 |---|---|
-| `fundkit_profiles` says `session: "none"`, or `NO_SESSION`, `TOKEN_REJECTED`, `SESSION_ENDED` | Run `fundkit session` in a separate private terminal on this machine and paste the read-only Doppler service token there (input hidden); keep that terminal open ([session profiles](#session-profiles-optional-doppler)) |
+| a result with `choiceStep` (`CREDENTIALS_NEEDED`, `NO_SESSION`, `TOKEN_REJECTED`, `SESSION_ENDED`) on a host with a private secret card | Nothing for the operator: ask the one choice and follow it ([credentials](#credentials-one-choice-then-private-cards)) |
+| `fundkit_profiles` says `session: "none"`, or `NO_SESSION`, `TOKEN_REJECTED`, `SESSION_ENDED`, on a host without a private secret card | Run `fundkit session` in a separate private terminal on this machine and paste the read-only Doppler service token there (input hidden); keep that terminal open ([session profiles](#session-profiles-optional-doppler)) |
 | `MISSING_SECRETS` with names | Add exactly those names (`<EXCHANGE>_APIKEY`, `<EXCHANGE>_SECRET`) to the Doppler config the token reads; nothing else is fetched. The session stays active |
-| `PASSPHRASE_NEEDED`, `PASSPHRASE_CANCELLED`, `PASSPHRASE_TIMEOUT` | Type the exchange's API passphrase where the `userStep` says: the `fundkit session` terminal, or `fundkit passphrase <exchange>` in another terminal; never in the chat ([session profiles](#session-profiles-optional-doppler)) |
+| `PASSPHRASE_NEEDED`, `PASSPHRASE_CANCELLED`, `PASSPHRASE_TIMEOUT` | With a `secretStep`: nothing for the operator, the agent opens the private card. With a `userStep`: type the exchange's API passphrase where it says, the `fundkit session` terminal or `fundkit passphrase <exchange>` in another terminal; never in the chat ([session profiles](#session-profiles-optional-doppler)) |
 | `ROLE_DENIED`, `KEY_CHECK_REQUIRED`, `PROVISIONING_NOT_AUTHORIZED`, `NOT_FORWARDED` | Quote the message. A local role, key-check or venue gate held; nothing reached the exchange ([session profiles](#session-profiles-optional-doppler)) |
 | `SERVER_NOT_INSTALLED` | Run `fundkit install` once on this machine ([security.md](references/security.md#scheme-d-session-only-doppler-profiles-optional)) |
 | no `ccxt-mcp` and no `fundkit` tools | No server is connected to this chat; you cannot see why. Set up the [Bybit deposit profile](references/security.md#bybit-deposit-profile), restart the host and start a new chat |
@@ -681,8 +741,8 @@ destination profile for B (reads only, on B's one key; `funds` for the recipient
 move the credit, a separate settlement registration for the same B account (read + internal
 transfer; it may use the same key), each in its own server
 ([scheme C](references/security.md#scheme-c-per-profile-credential-files-two-profile-session)).
-With session profiles (scheme D) every role of one exchange uses that exchange's one Doppler key
-instead, and fundkit enforces the roles ([session profiles](#session-profiles-optional-doppler)).
+With session profiles (scheme D) every role of one exchange uses that exchange's one key
+instead (from Doppler, or from this chat's manual entry), and fundkit enforces the roles ([session profiles](#session-profiles-optional-doppler)).
 Every profile that moves money is a
 [money-moving registration](references/security.md#money-moving-registrations), and every
 registration matches the [setup record](references/security.md#setup-record) (Step 0).
