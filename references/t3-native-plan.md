@@ -1,8 +1,11 @@
 # Implementation plan: native address and transfer flows on T3 Code (Hetzner)
 
-Status: implemented on branch `feat/t3-native-address-transfer` (draft PR #5); automated
-acceptance passes offline; the real-T3 acceptance on Hetzner below is still to be run. This file
-is the contract for the change. **Limitations** are stated up front and kept current.
+Status: implemented and merged to `main`; automated acceptance passes offline. On real T3 on
+Hetzner, the address flow retrieved a verified USDT BEP20 address and returned its QR for
+Binance and for Bybit; live transfer attempts stopped at preflight holds, with no confirmed live
+send or credit. The whole [Hetzner acceptance](#hetzner-acceptance-real-t3) below, including the
+phone scan, has not been run. This file is the contract for the change. **Limitations** are
+stated up front and kept current.
 
 ## Goal
 
@@ -273,7 +276,7 @@ Automated (Boat or any dev machine, no network beyond loopback, no real keys):
   human.
 
 Manual (parent agent, real T3 on Hetzner): see
-[Hetzner acceptance](#hetzner-acceptance-real-t3) below; filled in when the code lands.
+[Hetzner acceptance](#hetzner-acceptance-real-t3) below; status as in the header.
 
 ## What is proven and what is simulated
 
@@ -289,8 +292,10 @@ Manual (parent agent, real T3 on Hetzner): see
 | Same rule on the other six venues as B | documented agent flow; policy table checked at function level | not run end to end |
 | Any coin but USDT refused with zero reads and writes | fake: no Doppler secret request, no profile, no call; real server: zero wire requests | proven offline |
 | T3 cannot answer ccxt-mcp's raw form; can answer the plan card | read from T3's `toMcpElicitationResponse` and emulated | read, not run |
-| Inline QR renders in T3; the card renders the message in full | UAT 1 and 3 | not yet shown |
-| Real Doppler, real exchange keys and responses, a real withdrawal | none | not done (by design) |
+| Inline QR returned in T3 | real T3 on Hetzner: USDT BEP20 address for Binance and for Bybit; phone scan not done | shown for BEP20 (Binance, Bybit) |
+| The card renders the message in full | UAT 3 | not yet shown (live attempts stopped at preflight holds) |
+| Real exchange keys and responses | real T3 on Hetzner: address reads for Binance and Bybit | shown for address reads only |
+| A real withdrawal sent and credited | none | not shown |
 
 ## Host limitations found
 
@@ -322,7 +327,7 @@ only for reads; Scenario 2 is tested up to the card and **declined**, so no mone
 
 ```bash
 cd ~ && (test -d fundkit || git clone https://github.com/pogorelov17/fundkit.git) && cd fundkit \
-  && git fetch origin && git checkout feat/t3-native-address-transfer && git pull --ff-only \
+  && git fetch origin && git checkout main && git pull --ff-only \
   && node bin/fundkit.mjs install --no-codex
 claude mcp get fundkit        # expect: command node, args […/bin/fundkit.mjs, mcp]
 ls -l ~/.claude/skills/usdt-funding
