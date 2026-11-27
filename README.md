@@ -104,11 +104,6 @@ Fundkit has two kinds of user. The **operator** installs it once on the machine 
 agent and owns the Doppler config and exchange keys. The **person asking** only chats and
 approves.
 
-> [!IMPORTANT]
-> The native address and transfer tools are on the branch `feat/t3-native-address-transfer`
-> until [PR #5](https://github.com/pogorelov17/fundkit/pull/5) is merged. The real-T3
-> acceptance run is still pending ([plan](references/t3-native-plan.md#hetzner-acceptance-real-t3)).
-
 ### 1. Operator: install on the T3 Code server
 
 On the server that runs T3 Code, as the user T3 runs as. It needs Node 20+ with npm, and the
@@ -116,7 +111,6 @@ On the server that runs T3 Code, as the user T3 runs as. It needs Node 20+ with 
 
 ```bash
 git clone https://github.com/pogorelov17/fundkit.git ~/fundkit && cd ~/fundkit
-git checkout feat/t3-native-address-transfer   # until PR #5 is merged
 node bin/fundkit.mjs install
 ```
 
@@ -250,7 +244,7 @@ Known host limits: T3 cannot answer ccxt-mcp's own form, so the older `fundkit_w
 closed there and native transfers use the fundkit card instead; two T3 threads cannot hold the
 same profile at once (`ALIAS_IN_USE`); with a custom Claude home, register `fundkit` in project
 or local settings. Full list:
-[host limitations](references/t3-native-plan.md#host-limitations-found).
+[T3 Code host limits](references/security.md#t3-code-host-limits).
 
 ## Safety model
 
@@ -298,9 +292,8 @@ More, including setup and diagnosis prompts: [`prompts.md`](references/prompts.m
 | File | Contents |
 | --- | --- |
 | [`SKILL.md`](SKILL.md) | agent rules and scenarios |
-| [`references/t3-native-plan.md`](references/t3-native-plan.md) | the native address and transfer flows on T3 Code: contract, acceptance tests, limits, Hetzner acceptance steps |
-| [`references/deposit-minimum.md`](references/deposit-minimum.md) | the USDT destination deposit minimum on every venue: the venue's own value enforced, or unknown with a non-binding 1 USDT recommendation; holds, scope (USDT only), recheck, acceptance |
-| [`references/security.md`](references/security.md) | environment contract, host registration, Doppler session, loading the skill, smoke check, key permissions |
+| [`references/deposit-minimum.md`](references/deposit-minimum.md) | the USDT destination deposit minimum on every venue: the venue's own value enforced, or unknown with a non-binding 1 USDT recommendation; holds, scope (USDT only), native tools, recheck |
+| [`references/security.md`](references/security.md) | environment contract, host registration, Doppler session, the T3 Code secret card and host limits, loading the skill, smoke check, key permissions |
 | [`references/recipients.md`](references/recipients.md) | native recipient reads (address, memo, landing wallet), deposit fee and minimum sources and hard limits per venue |
 | [`references/exchanges.md`](references/exchanges.md) | wallets, network data, outbound withdraw table, amount steps, account modes |
 | [`references/ccxt-mcp.md`](references/ccxt-mcp.md) | pins, tool schemas, approval gates, journal, limitations, verification |
@@ -310,18 +303,21 @@ More, including setup and diagnosis prompts: [`prompts.md`](references/prompts.m
 
 ## Verification and limits
 
-Everything here was verified offline, with synthetic exchange responses, a mock Doppler and a
-host that answers cards the way T3 Code 0.1.11 does, as read from its runtime. The pinned
-ccxt-mcp also runs with no network (`unshare -rn`) behind a recorder that refuses every write.
-No real Doppler service, exchange key, model run or withdrawal was used, and the real-T3
-acceptance is still to be run. What is proven and what is simulated:
-[native flows](references/t3-native-plan.md#what-is-proven-and-what-is-simulated),
-[documented flows](references/ccxt-mcp.md#verification).
+The automated tests run offline, with synthetic exchange responses, a mock Doppler and a host
+that answers cards the way T3 Code 0.1.11 does, as read from its runtime. The pinned ccxt-mcp
+also runs with no network (`unshare -rn`) behind a recorder that refuses every write. On the
+operator's real T3 Code host, T3 retrieved a verified USDT BEP20 deposit address and returned
+its QR for Binance and for Bybit. Live transfer attempts there stopped at preflight holds: no
+confirmation card has been shown on real T3, no live send or credit has been confirmed, and no
+phone scan of the QR has been done. Offline, [`tests/test_native.py`](tests/test_native.py)
+covers the secret-file handoff, the verified QR, the destination minimum and the plan card with a
+fake ccxt-mcp and a T3-shaped host; the runs against the pinned ccxt-mcp and the documented flows
+are in [`ccxt-mcp.md`](references/ccxt-mcp.md#verification).
 
-Not verified: real accounts, modes, available amounts, fee models, exchange responses with a
-real key and actual transfers. A route that settles in the fixtures does not show that a real
-route is ready, and network flags and fees are visible only with a key on most exchanges, so
-plans are built from live data at request time. Hard limits per venue are in
+Not verified beyond those address reads: real accounts, modes, available amounts, fee models,
+exchange responses with a real key and actual transfers. A route that settles in the fixtures
+does not show that a real route is ready, and network flags and fees are visible only with a key
+on most exchanges, so plans are built from live data at request time. Hard limits per venue are in
 [`recipients.md`](references/recipients.md#status-by-destination-venue). The skill gives no
 execution guarantees. Use it at your own risk and start with `dryRun`.
 
