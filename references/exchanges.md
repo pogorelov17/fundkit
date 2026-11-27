@@ -60,7 +60,7 @@ is the chosen chain and it is eligible (`obtain_failed: 0`)
 ([recipients.md, Gate](recipients.md#gate)). The deposit fee is `withdraw_status.deposit`. With
 a single-chain response an API withdrawal to Gate uses that minimum (verified offline). With a
 multi-chain response, the usual case, Gate publishes no minimum for the chain, so `min` is
-Fundkit's [operator fallback](deposit-minimum-fallback.md) (1 unit of the coin, stated as
+Fundkit's [operator fallback](deposit-minimum-fallback.md) (1 USDT, stated as
 Fundkit's assumption; a currency-level value above 1 is contrary evidence and holds). The agent
 reads the full address and memo natively (a provisioning read,
 [setup consent](recipients.md#provisioning-reads)). The user may still supply Gate's own minimum

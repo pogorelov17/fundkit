@@ -85,12 +85,12 @@ English, so the agent shows the plan in your language in the chat just before th
   request.
 
 > [!NOTE]
-> **Destination minimum: the exchange's own, or a 1-unit operator fallback.** Some exchanges
-> publish no deposit minimum for a coin and chain (Binance on every chain, MEXC, Gate on a
-> multi-chain address). Then the plan uses **1 USDT (or 1 USDC) as Fundkit's own operator
-> fallback minimum**, on the expected credit after fees, inclusive. It does so only when every
-> other read of that exchange is verified and healthy. The rule is the same for all nine
-> exchanges, for USDT and USDC. The fallback is not the exchange's figure and does not guarantee
+> **Destination minimum: the exchange's own, or a 1 USDT operator fallback.** Some exchanges
+> publish no USDT deposit minimum for a chain (Binance on every chain, MEXC, Gate on a
+> multi-chain address). Then the plan uses **1 USDT as Fundkit's own operator fallback
+> minimum**, on the expected credit after fees, inclusive. It does so only when every other read
+> of that exchange is verified and healthy. The rule is the same for all nine exchanges. fundkit
+> is USDT only: any other coin is refused. The fallback is not the exchange's figure and does not guarantee
 > the credit; the plan and the card say so, and a native plan on the fallback is read again
 > before the card and after the approval. A minimum the exchange publishes, 0 included, always
 > wins. A malformed or contradicted one holds ([rule](references/deposit-minimum-fallback.md)).
@@ -206,13 +206,13 @@ set it up ([loading the skill](references/security.md#loading-the-skill)).
 
 ## Venues and hosts
 
-**Native tools** (fundkit server; USDT on TRC20, BEP20/BSC, ERC20 and TON; USDC on BEP20/BSC
-and ERC20 only, `ASSET_NETWORK_UNSUPPORTED` elsewhere):
+**Native tools** (fundkit server; USDT only, on TRC20, BEP20/BSC, ERC20 and TON; any other coin,
+USDC included, is refused with `UNSUPPORTED_COIN` before anything is read):
 
 | | Binance | Bybit | Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin |
 | --- | --- | --- | --- |
-| Deposit address with QR | ✓ USDT, USDC | ✓ USDT, USDC | `VENUE_NOT_NATIVE` |
-| Transfer, as source | ✓ USDT, USDC | ✓ USDT, USDC | `VENUE_NOT_NATIVE` |
+| Deposit address with QR | ✓ | ✓ | `VENUE_NOT_NATIVE` |
+| Transfer, as source | ✓ | ✓ | `VENUE_NOT_NATIVE` |
 | Transfer, as destination | ✓ on the operator fallback minimum, not a Binance figure ([rule](references/deposit-minimum-fallback.md)) | ✓ Bybit's `depositMin`; fallback only when the field is absent | `VENUE_NOT_NATIVE` |
 
 **Documented flows** ([`SKILL.md`](SKILL.md), all nine exchanges), used when you ask for them:
@@ -224,11 +224,11 @@ and ERC20 only, `ASSET_NETWORK_UNSUPPORTED` elsewhere):
   plan with `APPROVE <PLAN-ID>` and `WITHDRAW <PLAN-ID>` and confirm each money move in the
   host's native form, after the operator's one-time
   [setup record](references/security.md#setup-record). Where B publishes no deposit minimum
-  (Binance, MEXC, multi-chain Gate), the plan uses the 1-unit
+  (Binance, MEXC, multi-chain Gate), the plan uses the 1 USDT
   [operator fallback](references/deposit-minimum-fallback.md). Where B documents no deposit fee
   (KuCoin), the route holds unless you supply that value from B's deposit page for that plan
-  ([per-plan human-read fact](SKILL.md#per-plan-human-read-facts)). These flows are USDT only;
-  USDC holds there with `ASSET_NOT_VERIFIED`. Route by route:
+  ([per-plan human-read fact](SKILL.md#per-plan-human-read-facts)). These flows are USDT only,
+  and the fallback in them is an agent procedure that has not been re-run as a test. Route by route:
   [status by destination venue](references/recipients.md#status-by-destination-venue).
 - **Funding ↔ trading/margin** on one exchange.
 - **Hyperliquid**: watch-only margin and position checks by public address.
@@ -293,7 +293,7 @@ More, including setup and diagnosis prompts: [`prompts.md`](references/prompts.m
 | --- | --- |
 | [`SKILL.md`](SKILL.md) | agent rules and scenarios |
 | [`references/t3-native-plan.md`](references/t3-native-plan.md) | the native address and transfer flows on T3 Code: contract, acceptance tests, limits, Hetzner acceptance steps |
-| [`references/deposit-minimum-fallback.md`](references/deposit-minimum-fallback.md) | the destination deposit minimum on every venue and coin: the venue's own value or the 1-unit operator fallback, holds, USDT/USDC scope, recheck, acceptance |
+| [`references/deposit-minimum-fallback.md`](references/deposit-minimum-fallback.md) | the USDT destination deposit minimum on every venue: the venue's own value or the 1 USDT operator fallback, holds, scope (USDT only), recheck, acceptance |
 | [`references/security.md`](references/security.md) | environment contract, host registration, Doppler session, loading the skill, smoke check, key permissions |
 | [`references/recipients.md`](references/recipients.md) | native recipient reads (address, memo, landing wallet), deposit fee and minimum sources and hard limits per venue |
 | [`references/exchanges.md`](references/exchanges.md) | wallets, network data, outbound withdraw table, amount steps, account modes |

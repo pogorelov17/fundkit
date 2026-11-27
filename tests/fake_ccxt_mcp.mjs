@@ -13,7 +13,7 @@
 //   * withdraw and transfer ask for the native form like ccxt-mcp (elicitation/create with one
 //     required boolean `confirm` and ccxt-mcp's exact message format), check maxTransferValue,
 //     and record a dispatch only when not dryRun;
-//   * $HOME/fake-ccxt-fixtures.json ({"<exchange>": {"<tool>:<method>[@<args JSON>][:<params JSON>]": data}})
+//   * $HOME/fake-ccxt-fixtures.json ({"<exchange>": {"<tool>:<method>[:<params JSON>]": data}})
 //     answers call_implicit_get / call_read_method in ccxt-mcp's envelope {ok, data}; a value
 //     {"__error": {code, message}} answers an error envelope. Fixtures are read on every call.
 
@@ -120,19 +120,9 @@ function fixture(tool, args) {
   } catch {
     return undefined;
   }
-  // Most specific first: positional args (the coin of a currency read) and params, then params,
-  // then args alone, then the method alone.
   const base = `${tool}:${args.method}`;
-  const params = `:${JSON.stringify(args.params ?? {})}`;
-  const positional = args.args === undefined ? null : `@${JSON.stringify(args.args)}`;
-  const keys = [
-    ...(positional ? [`${base}${positional}${params}`] : []),
-    `${base}${params}`,
-    ...(positional ? [`${base}${positional}`] : []),
-    base,
-  ];
-  const key = keys.find((item) => Object.hasOwn(fixtures, item));
-  return key === undefined ? undefined : fixtures[key];
+  const specific = `${base}:${JSON.stringify(args.params ?? {})}`;
+  return Object.hasOwn(fixtures, specific) ? fixtures[specific] : fixtures[base];
 }
 
 function envelope(data) {

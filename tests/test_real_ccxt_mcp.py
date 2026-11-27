@@ -381,35 +381,28 @@ class RealPlanFormTests(RealCcxtMcpTests):
         self.assertEqual(self.posts(), [])
         self.assert_no_files_with_secrets()
 
-    def test_real_usdc_ten_plus_fee_to_binance_reaches_the_card_reads_only_usdc_and_sends_nothing(self):
+    def test_real_usdc_request_is_refused_with_zero_reads_and_writes(self):
         self.unlock_from_card()
-        host = T3Host(self.host_env, decisions=["cancel"])
+        host = T3Host(self.host_env, decisions=["approve"])
         self.hosts.append(host)
-        request = {**TEN_TO_BINANCE, "coin": "USDC"}
-        body, is_error, _ = host.tool_full("fundkit_transfer_prepare", request, timeout=180)
+        for name, args in (
+            ("fundkit_transfer_prepare", {**TEN_TO_BINANCE, "coin": "USDC"}),
+            ("fundkit_deposit_address", {"exchange": "binance", "network": "BSC", "coin": "USDC"}),
+        ):
+            with self.subTest(name=name):
+                body, is_error, _ = host.tool_full(name, args, timeout=120)
+                self.assertTrue(is_error, body)
+                self.assertEqual(body["error"], "UNSUPPORTED_COIN", body)
+        # No profile was started, so the real server built no request at all.
+        self.assertEqual(recorder_pids(), [])
+        self.assertEqual(self.wire(), [])
+        self.assertEqual((host.forms, host.cards), ([], []))
+        # The same session still serves the USDT request, which asks the venues for USDT only.
+        body, is_error, _ = host.tool_full("fundkit_transfer_prepare", TEN_TO_BINANCE, timeout=180)
         self.assertFalse(is_error, body)
         self.assertEqual(body["status"], "ready", body)
-        plan = body["plan"]
-        self.assertEqual((plan["amount"], plan["fee"]), ("10 USDC", "0.15 USDC (on top)"))
-        self.assertEqual((plan["debit"], plan["credit"]), ("10.15", "10"))
-        self.assertEqual(plan["available"], "812.44 USDC in funding")
-        self.assertEqual(plan["recipient"], "0x3d4E5f60718293a4B5c6D7e8F9a0B1c2D3e4F5a6")
-        self.assertEqual(plan["destinationMinimum"], FALLBACK)
-        self.assertIn(
-            "USDC, Fundkit operator fallback (venue minimum: unknown)", plan["destinationMinimumBasis"]
-        )
-        # Every coin-scoped request either venue received named USDC, never USDT.
         coins = {request["coin"] for request in self.wire() if request["coin"]}
-        self.assertEqual(coins, {"USDC"}, self.wire())
-
-        result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]}, timeout=180)
-        self.assertEqual((result["status"], result["sent"]), ("not-sent", False), result)
-        self.assertEqual(host.auto_cancelled, [])
-        self.assertEqual(len(host.cards), 1)
-        card = host.cards[0]["message"]
-        self.assertIn("Token contract (USDC): 0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", card)
-        self.assertIn(f"Destination minimum: {FALLBACK} USDC, Fundkit operator fallback", card)
-        self.assertNotIn("USDT", card)
+        self.assertEqual(coins, {"USDT"}, self.wire())
         self.assertEqual(self.posts(), [], "zero withdrawal writes")
         self.assert_no_files_with_secrets()
 

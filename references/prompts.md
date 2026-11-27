@@ -20,7 +20,7 @@ user's language and keeps the approval keywords (`APPROVE`, `WITHDRAW`) in Engli
   names that fact. It does not promise a route without questions when such a fact is missing.
 - After the one-time setup, a route's per-plan human part is `APPROVE`, `WITHDRAW` and the
   native forms. Where B publishes no deposit minimum (Binance, MEXC, multi-chain Gate), the
-  agent uses Fundkit's [operator fallback](deposit-minimum-fallback.md) of 1 unit and says it is
+  agent uses Fundkit's [operator fallback](deposit-minimum-fallback.md) of 1 USDT and says it is
   not the exchange's figure; you may instead add B's own minimum from its deposit page. Where
   B's deposit fee has no documented source (KuCoin), you may add it. Either value is a
   [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts) with its read time, and the

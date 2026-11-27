@@ -11,8 +11,8 @@ description: >-
   the connected exchange profiles itself and, with the optional fundkit server, connects
   missing ones for one session from a Doppler config after one private secret card (T3 Code) or
   a private terminal step. Native tools return a verified deposit address with an inline QR and
-  prepare exchange-to-exchange transfers confirmed by one bound human confirmation, for USDT and,
-  on Binance and Bybit (BEP20, ERC20), USDC. Enforces
+  prepare exchange-to-exchange transfers confirmed by one bound human confirmation. USDT only:
+  any other coin (USDC included) is refused. Enforces
   live network checks, an exact expiring plan, the host's native confirmation for every money
   move, and no retries on unknown outcomes.
 ---
@@ -45,8 +45,9 @@ They need no setup record, no UID, no typed `APPROVE`/`WITHDRAW`, no operator `-
 option and no questions about credentials, amounts, minimums or deposit pages.
 
 **"My deposit address"**, for example `Show my Binance USDT deposit address on BSC`: call
-`fundkit_deposit_address {"exchange":"binance","network":"BSC"}` (add `"coin":"USDC"` when the
-user asks for USDC; USDC is native on BEP20 and ERC20 only). On `status: "verified"`,
+`fundkit_deposit_address {"exchange":"binance","network":"BSC"}`. fundkit is USDT only: if the
+user asks for another coin (for example USDC), say so and do not call the tool for USDT
+instead; a `coin` other than USDT is refused with `UNSUPPORTED_COIN`. On `status: "verified"`,
 answer in the user's language with, in this order:
 
 1. If `memo.required`: the memo first, conspicuously, exactly as given (leading zeros kept),
@@ -64,9 +65,9 @@ no address: report its `message` as the exact reason.
 
 **A transfer between the user's exchanges**, for example `Move 300 USDT from Bybit to
 Binance`: call `fundkit_transfer_prepare {"from":"bybit","to":"binance","amount":"300"}`
-(pass `network` only if the user named one, and `"coin":"USDC"` for USDC). An error
-`ASSET_NETWORK_UNSUPPORTED` or `UNSUPPORTED_COIN` means fundkit does not support that coin on
-that chain: say so; nothing was read. Then:
+(pass `network` only if the user named one). USDT only: for any other coin (for example USDC)
+say fundkit does not support it and do not prepare a USDT transfer in its place; the error
+`UNSUPPORTED_COIN` means nothing was read or sent. Then:
 
 - `status: "hold"`: nothing was sent and nothing needs confirming. Tell the user each
   `reasons[].detail` plainly. Do not ask them to look up a value, open a deposit page or change
@@ -76,7 +77,7 @@ that chain: say so; nothing was read. Then:
   minimum with `destinationMinimumBasis`, expiry, `exchangeMayReject`, `onward`) and call
   `fundkit_transfer_confirm {"planId":"…"}` right away. When the basis is the Fundkit operator
   fallback ([deposit minimum rule](#destination-deposit-minimum)), say plainly that the
-  destination's own minimum is unknown, that the value (one unit of the coin) is Fundkit's
+  destination's own minimum is unknown, that the value (1 USDT) is Fundkit's
   assumption and not the exchange's figure, and that it does not guarantee the credit; ask
   nothing more, the card carries the same statement.
   It opens exactly one confirmation card with every plan field. The card's labels are fixed
@@ -461,7 +462,7 @@ sends from OKX Wallet, using the checked sheet.
    `depositMin`, which BingX's API docs define as "Minimum deposit amount". Where B publishes
    no applicable deposit minimum (Binance and MEXC; Gate unless the address response lists the
    chosen chain alone; any venue whose minimum field is absent), the minimum is the
-   [operator fallback](#destination-deposit-minimum): one unit of the coin, stated as such. A
+   [operator fallback](#destination-deposit-minimum): 1 USDT, stated as such. A
    minimum field that is present but not an exact decimal, or contrary evidence, holds. If the
    deposit fee has neither a live field nor a documented policy (the KuCoin deposit fee unless a
    live `depositFeeRate` without a `depositTierFee` gives it), hold and name the missing field.
@@ -787,26 +788,26 @@ the value holds for the next plan.
 
 #### Destination deposit minimum
 
-One rule for every destination of the nine exchanges, for USDT and USDC, at every entry point:
+One rule for USDT deposits into every destination of the nine exchanges, at every entry point:
 wallet top-ups (Scenario 1), API withdrawals (Scenario 2), manual withdrawals (2.9) and the
 native `fundkit_transfer_prepare` tool, which applies it by itself
 ([full rule](references/deposit-minimum-fallback.md)):
 
-- **B's own minimum wins.** A minimum B publishes for that coin and chain, read live from its
+- **B's own minimum wins.** A USDT minimum B publishes for that chain, read live from its
   healthy lookup and an exact non-negative decimal, is the minimum, whatever its value (0, lower
   or higher than 1). Record its field. A user's per-plan human-read minimum is B's figure too.
 - **Otherwise the operator fallback:** when that lookup publishes no applicable minimum (the
   field is absent, or B's only value does not apply to that chain; per venue in the
   [status table](references/recipients.md#status-by-destination-venue)), the minimum is **1
-  unit of the actual coin** (1 USDT). Require `C_min ≥ 1`, inclusive, on the conservative
+  USDT**. Require `C_min ≥ 1`, inclusive, on the conservative
   expected credit after every fee (2.3). Record it on the plan or sheet as
-  `Fundkit operator fallback 1 <coin>, venue minimum unknown`, with the statement that it is
+  `Fundkit operator fallback 1 USDT, venue minimum unknown`, with the statement that it is
   Fundkit's assumption, not B's figure, and does not guarantee the credit. Never report it as
   B's value. It needs no extra question or step.
 - **Still hold:** a minimum field that is present but not an exact decimal (`null`, empty,
   text, negative); contrary evidence (Binance `depositDust` unreadable or above 1, Gate's
   currency-level `min_deposit_amount` above 1 on a multi-chain response); any failed read,
-  disabled or suspended deposits, a wrong coin, chain or contract, an unsupported coin or chain,
+  disabled or suspended deposits, a wrong coin, chain or contract, an unsupported chain,
   and every recipient gate. The fallback never gets a route past them.
 - **Recheck.** At every refresh of B's conditions (Scenario 1 step 6, 2.5, 2.9), read B's
   minimum source again. A minimum that has appeared, even one the amount clears, or any change
@@ -815,7 +816,7 @@ native `fundkit_transfer_prepare` tool, which applies it by itself
 #### Chains
 
 Only these chains and contracts. A chain qualifies only if **both** sides (the wallet or A,
-and B) support the coin on that exact chain at exactly that contract. The USDT reference
+and B) support USDT on that exact chain at exactly that contract. The USDT reference
 contracts matched across Gate, KuCoin and Bitget.
 
 | ccxt code | Chain | USDT reference contract |
@@ -825,18 +826,9 @@ contracts matched across Gate, KuCoin and Bitget.
 | `ERC20` | Ethereum mainnet, EVM chainId 1 | `0xdAC17F958D2ee523a2206206994597C13D831ec7` |
 | `TON` | TON mainnet (memo required if the exchange asks for one) | `EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs` |
 
-USDC has two reference contracts, and fundkit supports it nowhere else (no bridged or other
-variant is substituted; USDC on Tron or TON is not supported):
-
-| ccxt code | USDC reference contract |
-|---|---|
-| `BEP20` | `0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d` (BscScan: Binance-Peg USD Coin, listed by Binance and Bybit as USDC BSC) |
-| `ERC20` | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` (Circle's USDC on Ethereum) |
-
-USDC moves only through the native tools on Binance and Bybit. In the documented flows of
-this skill, a USDC request holds with `ASSET_NOT_VERIFIED`: the venue tables they rely on
-(outbound wire ids, whitelist evidence rows, WhiteBIT's `"USDT (<NET>)"` keys, amount steps,
-entity restrictions) were verified for USDT only. Say so; do not adapt a USDT row for USDC.
+fundkit is USDT only. A request for any other coin (USDC included) stops: say that fundkit
+supports USDT only. Never read, plan, send or reconcile it as USDT, and never adapt a USDT row,
+contract or id for it.
 
 ### 2.3 Debit, withdraw amount and credit
 
@@ -1283,8 +1275,8 @@ or environment differs from the setup record, a money-moving server lacks the na
 the setup record's interactive-form line, or the deposit-only profile reports `dryRun: false`;
 the account mode, available amount, network flag, fee, chain, contract, fee asset or amount
 step is unknown, or B's minimum field is present but unreadable or contradicted (an absent one
-takes the [operator fallback](#destination-deposit-minimum)); a USDC request outside the native
-tools (`ASSET_NOT_VERIFIED`); an amount is not exactly representable; a transfer has
+takes the [operator fallback](#destination-deposit-minimum)); a request for any coin other than
+USDT (USDC included: say fundkit is USDT only, never treat it as USDT); an amount is not exactly representable; a transfer has
 no proof route and is not done manually; the "exchange + network" pair is not in the outbound
 withdraw table, or a gate in the destination or outbound table holds (missing fee or
 contract; Bybit's finite release limit, also when it changes before dispatch; no whitelist

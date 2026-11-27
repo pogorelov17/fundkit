@@ -15,7 +15,7 @@ no real key was used. Readiness for a real account is not established by these t
 
 `d` is B's deposit fee and `min` B's deposit minimum ([2.3](../SKILL.md#23-debit-withdraw-amount-and-credit)).
 Where B's healthy lookup publishes no applicable `min` (marked "fallback" below), `min` is
-Fundkit's [operator fallback](deposit-minimum-fallback.md): 1 unit of the coin on the
+Fundkit's [operator fallback](deposit-minimum-fallback.md): 1 USDT on the
 conservative credit, inclusive, recorded as Fundkit's assumption with the venue minimum
 unknown, never as the venue's figure. A `min` field that is present but not an exact decimal,
 or contrary evidence, holds. "Native" means the agent reads every recipient field itself (the read still relies on the
@@ -56,14 +56,12 @@ one route can use all three, so per-class counts do not add up.
 | Venue-specific setup | once; only the routes that touch that venue | whitelist entry in the setup record (sources other than Binance and Gate); [entity line](exchanges.md#entity-lines) (Binance, Bybit, OKX, BingX sources; WhiteBIT either side); key rights or IP line where no read shows them (key rights: Gate, MEXC, WhiteBIT; IP: MEXC, WhiteBIT); BingX permission-code meanings; provisioning consent (Gate, WhiteBIT as B); WhiteBIT contract pin |
 | Per-plan fact | only if the user opts in, for one plan | B's deposit minimum or fee read on B's deposit page ([rule](../SKILL.md#per-plan-human-read-facts)) |
 
-Result for the 72 directed USDT pairs; none of this shows that a real route is ready. The
-offline run (synthetic fixtures, each expectation fixed before the run;
-[verification](ccxt-mcp.md#verification)) found 36 settling after setup, 28 needing a per-plan
-fact and 8 holding. The [operator fallback](deposit-minimum-fallback.md) then moved the 21
-routes into Binance, MEXC and multi-chain Gate that needed only a minimum. That move follows
-from the rule; it was not re-run offline:
+Measured result for the 72 directed USDT pairs, from the offline run of 2026-11-25 (synthetic
+fixtures, each expectation fixed before the run; [verification](ccxt-mcp.md#verification)). That
+run came **before** the [operator fallback](deposit-minimum-fallback.md), and none of it shows that
+a real route is ready:
 
-- **36 settle after the one-time setup on published fields**, with the human's per-plan part limited to
+- **36 settle after the one-time setup**, with the human's per-plan part limited to
   `APPROVE`, `WITHDRAW` and the native forms: A ∈ Binance, Bybit, Gate, OKX, Bitget, BingX,
   MEXC, KuCoin → B ∈ Bybit, OKX, Bitget, BingX, WhiteBIT (A ≠ B). Every one uses the common
   setup **and** at least one venue-specific fact; none runs on live fields alone. Of the 36:
@@ -71,12 +69,9 @@ from the rule; it was not re-run offline:
   IP allowlist from the setup record 12 (MEXC sources; WhiteBIT, which has no key read, as B),
   BingX permission codes 11, provisioning consent 8, WhiteBIT contract pin 8. 28 of them also run the separate settlement plan on B (Bybit, OKX, Bitget,
   BingX); the 8 to WhiteBIT end credited.
-- **21 more settle after the one-time setup on the operator fallback minimum**: every source
-  except WhiteBIT → Binance, MEXC or Gate (multi-chain address response), each recorded as
-  Fundkit's assumption, not the venue's figure. The user may still supply the venue's own
-  minimum as a per-plan human-read fact; it then wins.
-- **7 settle only with a per-plan human-read fact** the user opts to supply: every source
-  except WhiteBIT → KuCoin (deposit fee). Without it they hold before any money call.
+- **28 settle only with a per-plan human-read fact** the user opts to supply: every source
+  except WhiteBIT → Binance or MEXC (minimum), Gate (minimum on a multi-chain address response)
+  or KuCoin (deposit fee). Without it they held before any money call.
 - **8 hold for an API withdrawal whatever the user supplies**: WhiteBIT as source (its
   available amount is not visible through these tools). The safer alternative that remains is
   the [manual withdrawal sheet](../SKILL.md#29-manual-withdrawal-in-exchange-as-ui) in
@@ -84,18 +79,23 @@ from the rule; it was not re-run offline:
 - Network: Bitget sources use TON (Bitget BEP20 outbound holds), Gate sources avoid TON
   (withdrawals disabled in the live capture); the rest use BEP20 as the cheapest network.
 
-Recipient reads (Scenario 1, 9 venues × 4 networks): all 36 verify address, memo, chain and
-contract, each relying on the profile's registration line, and on Gate, MEXC and WhiteBIT also
-on the key-rights line (MEXC and WhiteBIT also the IP line; BingX the permission codes; Gate and
-WhiteBIT provisioning consent; WhiteBIT the contract pin). A send can be planned without a per-plan fact to 32 of
-them: 20 on published minimums (Bybit, OKX, Bitget, BingX, WhiteBIT) and 12 on the operator
-fallback (Binance, MEXC, multi-chain Gate; by the rule, not re-run offline); 4 need one
-(KuCoin fee).
+**Not measured since.** The operator fallback replaces the minimum gate on the routes into
+Binance, MEXC and Gate (multi-chain address response). Those documented-flow routes were not
+re-run under the rule, so their outcome is not measured, and no updated count is claimed. They
+are not reported as settling. KuCoin's deposit-fee hold does not depend on the minimum. The
+fallback's end-to-end proof is the native tools only (Binance and Bybit as B, offline:
+[acceptance](deposit-minimum-fallback.md#acceptance)).
 
-USDC: the native tools read Binance and Bybit for USDC on BEP20 and ERC20 with the calls below,
-the coin replacing `USDT` in every argument ([rule](deposit-minimum-fallback.md#scope-policy-versus-support)).
-These documented reads were verified for USDT only, so a USDC request outside the native tools
-holds with `ASSET_NOT_VERIFIED`.
+Recipient reads (Scenario 1, 9 venues × 4 networks), same measured run: all 36 verify address,
+memo, chain and contract, each relying on the profile's registration line, and on Gate, MEXC and
+WhiteBIT also on the key-rights line (MEXC and WhiteBIT also the IP line; BingX the permission
+codes; Gate and WhiteBIT provisioning consent; WhiteBIT the contract pin). In that run a send
+could be planned without a per-plan fact to 20 of them (Bybit, OKX, Bitget, BingX, WhiteBIT);
+16 needed one (Binance, MEXC, multi-chain Gate minimum; KuCoin fee). The fallback's effect on
+the Binance, MEXC and Gate sheets is not measured.
+
+USDT only: a request for any other coin (USDC included) is refused, never read with these calls
+([rule](deposit-minimum-fallback.md#scope-policy-versus-support)).
 
 ## Common procedure
 
@@ -253,7 +253,7 @@ a read is not documented.
   that field only as an example value and does not say what it means (`withdrawMin` and the
   other fields are named for what they are). A live field without documented meaning is not
   used as a minimum, so Binance publishes none on any chain and `min` is Fundkit's
-  [operator fallback](deposit-minimum-fallback.md), 1 unit of the coin (not a Binance value, no
+  [operator fallback](deposit-minimum-fallback.md), 1 USDT (not a Binance value, no
   guarantee of credit). `depositDust` that is unreadable or above it is contrary evidence and
   holds; `busy: true` holds. A `depositMin` on the row, if Binance ever supplies one, is applied
   instead whatever its value; an unreadable one holds. The user may supply the minimum from
@@ -412,7 +412,7 @@ and a new plan or sheet (verified offline).
 - **Minimum: operator fallback.** MEXC's [API reference](https://mexcdevelop.github.io/apidocs/spot_v3_en/)
   lists no deposit-minimum field for `capital/config/getall`. `depositTips` is free text with no
   defined format, so the skill does not read a minimum from it. `min` is Fundkit's
-  [operator fallback](deposit-minimum-fallback.md), 1 unit of the coin, recorded as such, unless
+  [operator fallback](deposit-minimum-fallback.md), 1 USDT, recorded as such, unless
   the user supplies MEXC's own minimum from its deposit page as a
   [per-plan human-read fact](../SKILL.md#per-plan-human-read-facts).
 - **Rights.** MEXC documents a permission per endpoint: `GET /api/v3/capital/deposit/address`,

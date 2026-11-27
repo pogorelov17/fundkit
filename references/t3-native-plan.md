@@ -149,8 +149,8 @@ Available on Bybit FUND: 812.44 USDT; withdrawal minimum 10; maximum 1 000 000; 
 
 - **Destination deposit minimum.** Binance documents no API deposit minimum on any chain
   (`depositDust` has no documented meaning; [recipients.md](recipients.md#binance)). Flow 2
-  therefore uses Fundkit's operator fallback minimum of 1 unit of the coin (USDT or USDC) on the
-  expected credit, inclusive, wherever the destination publishes none
+  therefore uses Fundkit's operator fallback minimum of 1 USDT on the expected credit,
+  inclusive, wherever the destination publishes none
   ([rule](deposit-minimum-fallback.md)). It states in the plan and the card that the value is
   not the exchange's figure and does not guarantee the credit. It reads the destination again
   before the card and after the approval. Bybit as B uses its own `depositMin`, and the fallback
@@ -223,8 +223,10 @@ Automated (Boat or any dev machine, no network beyond loopback, no real keys):
   leading zeros is kept and flagged; concurrent requests for two networks produce two
   different files whose payloads match their own addresses; a failed request after a good
   one returns no QR path.
-- **Transfer.** Bybit → Binance reaches the card on the operator fallback minimum, USDT and
-  USDC ([acceptance](deposit-minimum-fallback.md#acceptance)). Binance →
+- **USDT only.** Any coin but USDT (USDC included) is refused with `UNSUPPORTED_COIN` by both
+  native tools, before any session, read or write; their schemas offer `coin: USDT` only.
+- **Transfer.** Bybit → Binance reaches the card on the operator fallback minimum
+  ([acceptance](deposit-minimum-fallback.md#acceptance)). Binance →
   Bybit prepares a plan; T3-shaped host: Decline, Cancel and no answer give zero dispatch;
   Approve gives exactly one dispatch with the frozen arguments; a second confirm, a new broker
   process and a confirm after expiry give no second dispatch; a changed amount needs a new
@@ -244,6 +246,9 @@ Manual (parent agent, real T3 on Hetzner): see
 | QR encodes the exact address; the delivered file decodes to it | Python PNG reader + jsQR in tests; runtime self-check with jsQR | proven offline |
 | Binance BSC address parse and GET-only reads | real pinned ccxt-mcp, recorder transport, `unshare -rn` | proven offline |
 | Plan card matches ccxt-mcp's real form; approval passes the real gate; one POST at most | real pinned ccxt-mcp, recorder refuses the POST | proven offline |
+| 1 USDT operator fallback on Binance as B (card, recheck, inclusive boundary), Bybit's own `depositMin` first | fake ccxt-mcp end to end; real pinned ccxt-mcp for the card, the recheck and Cancel | proven offline (Binance and Bybit only) |
+| Same rule on the other seven venues as B | documented agent flow; policy table checked at function level | not run end to end |
+| Any coin but USDT refused with zero reads and writes | fake: no Doppler secret request, no profile, no call; real server: zero wire requests | proven offline |
 | T3 cannot answer ccxt-mcp's raw form; can answer the plan card | read from T3's `toMcpElicitationResponse` and emulated | read, not run |
 | Inline QR renders in T3; the card renders the message in full | UAT 1 and 3 | not yet shown |
 | Real Doppler, real exchange keys and responses, a real withdrawal | none | not done (by design) |
@@ -265,8 +270,8 @@ Manual (parent agent, real T3 on Hetzner): see
 5. **Custom Claude home.** T3 loads user-scope MCP servers and skills only when it runs Claude
    with the default home (`settingSources` user, project, local). With a custom home it loads
    project and local settings only; register `fundkit` there instead.
-6. **Binance as destination** relies on Fundkit's operator fallback minimum (1 unit of the
-   coin) on every chain, because Binance publishes none (see above).
+6. **Binance as destination** relies on Fundkit's operator fallback minimum (1 USDT) on every
+   chain, because Binance publishes none (see above).
 
 ## Hetzner acceptance (real T3)
 
@@ -319,9 +324,9 @@ address on TRC20`. Pass: no card, a new QR for the TRC20 address, the BSC QR not
 **3. Transfer up to the card, then Decline.**
 `Move 10 USDT from Bybit to Binance on BSC` (with at least 10.15 USDT in Bybit Funding).
 Expected: one plan message and one card that show the destination minimum as Fundkit's operator
-fallback (1 USDT) with Binance's minimum unknown; press **Decline** (pass as below). The same
-holds for `Move 10 USDC from Bybit to Binance on BSC` (1 USDC; the card names USDC and the USDC
-contract only). The reverse direction also
+fallback (1 USDT) with Binance's minimum unknown; press **Decline** (pass as below).
+`Move 10 USDC from Bybit to Binance on BSC` is refused at once (USDT only): no card, no secret
+card, nothing read. The reverse direction also
 reaches the card with an amount the Binance account holds:
 `Move 15 USDT from Binance to Bybit on BSC`. Pass: one plan message, then one T3
 card showing plan id, amount, fee, debit/credit, the Bybit address read from Bybit, network,
