@@ -76,7 +76,7 @@ rules (not a measured result):
   cheapest network.
 
 Measured instead: the native tools end to end (Binance and Bybit as B, offline:
-[acceptance](deposit-minimum.md#acceptance)), and route planning with `fundkit_profiles` for all
+[verification](ccxt-mcp.md#verification)), and route planning with `fundkit_profiles` for all
 56 directed pairs, each naming exactly the profiles and the two Doppler names per exchange
 ([verification](ccxt-mcp.md#verification)).
 

@@ -1,9 +1,9 @@
 # Destination deposit minimum (USDT)
 
-The owner's rule: Fundkit sets **no deposit minimum of its own** for USDT deposits into any of
-the eight supported exchanges. Where the exchange publishes a minimum, that minimum is enforced.
-Where it publishes none, the minimum is **unknown**: Fundkit says so, recommends depositing at
-least 1 USDT, and does not check against that figure. The rule covers wallet top-ups from any
+Fundkit sets **no deposit minimum of its own** for USDT deposits into any of the eight
+supported exchanges. Where the exchange publishes a minimum, that minimum is enforced. Where it
+publishes none, the minimum is **unknown**: Fundkit says so, recommends depositing at least
+1 USDT, and does not check against that figure. The rule covers wallet top-ups from any
 compatible wallet and exchange-to-exchange transfers, at every entry point: the native
 `fundkit_deposit_address` and `fundkit_transfer_prepare` tools, and the documented flows in
 [SKILL.md](../SKILL.md) (Scenario 1, Scenario 2 API withdrawals and the 2.9 manual send).
@@ -13,24 +13,6 @@ any session, read or write (`UNSUPPORTED_COIN`), and is never read, planned or s
 
 Applying the rule (the minimum _policy_) is separate from _support_, meaning which venue and chain
 a fundkit adapter can actually read and send. Both are in [Scope](#scope-policy-versus-support).
-
-## History
-
-A real T3 thread (Bybit → Binance, BSC) ran as follows:
-
-| Request                   | Result                                                   | Correct?            |
-| ------------------------- | -------------------------------------------------------- | ------------------- |
-| address only              | verified address and QR                                  | yes                 |
-| 2 USDT                    | `BELOW_WITHDRAW_MIN` (Bybit `withdrawMin` 10)            | yes, kept           |
-| 10 USDT, 10.14 available  | `INSUFFICIENT_BALANCE` (0.15 fee on top, 10.15 needed)   | yes, kept           |
-| 10 USDT, enough available | `DESTINATION_MINIMUM_UNDOCUMENTED`                       | fixed by this rule  |
-
-Binance's API reference (`GET /sapi/v1/capital/config/getall`, 28 `networkList` fields, read
-2026-11-26) names no deposit minimum, and `depositDust` has only an example value. MEXC (no
-field) and Gate (only a currency-level value) held the same way in the documented flows. The
-owner first set a 1 USDT operator minimum for Binance BSC, then for every exchange. They then
-revised it: even 1 USDT is not to be a minimum. An unknown minimum is stated as such, with a
-recommendation of at least 1 USDT that is not a check, for wallet top-ups and transfers alike.
 
 ## Rule
 
@@ -78,13 +60,13 @@ minimum for this network. Fundkit recommends depositing at least 1 USDT.`
    - an unsupported chain, or a contract that is not the USDT reference contract;
    - any recipient problem (address, memo, disagreeing reads), and an inbound cap.
 
-6. **Unchanged:** every source gate (withdrawal minimum, maximum, step, fee, available balance
-   in one wallet, key rights), session caps, the single human approval, idempotency, the
-   address-only QR (independent of any amount), and reconciliation against the expected `C`.
+6. **Not affected by this rule:** every source gate (withdrawal minimum, maximum, step, fee,
+   available balance in one wallet, key rights), session caps, the single human approval,
+   idempotency, the address-only QR (independent of any amount), and reconciliation against the
+   expected `C`.
 
-There is no constant left to compare `depositDust` with: the old rule held when it was above
-1 USDT. It is now compared with the plan's own `C_min`, is bound into the plan (a change makes
-the plan stale), and is never shown as the minimum.
+Binance `depositDust` is compared only with the plan's own `C_min`. It is bound into the plan
+(a change makes the plan stale) and is never shown as the minimum.
 
 Per venue, "publishes no applicable minimum" means:
 
@@ -105,7 +87,7 @@ Per venue, "publishes no applicable minimum" means:
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Policy (this rule)                  | all eight destinations                                                                                                                   |
 | Chains                              | TRC20, BEP20, ERC20, TON, at the reference contracts in [SKILL.md, Chains](../SKILL.md#chains)                                           |
-| Native tools (address, transfer)    | Binance, Bybit; the other six return `VENUE_NOT_NATIVE`, as before                                                                       |
+| Native tools (address, transfer)    | Binance, Bybit; the other six return `VENUE_NOT_NATIVE`                                                                                  |
 | Documented eight-venue flows        | the agent applies this rule ([SKILL.md](../SKILL.md#destination-deposit-minimum)); wallet top-ups from any compatible wallet (Scenario 1) |
 | Any other coin (USDC, DAI, …)       | refused with `UNSUPPORTED_COIN` before any session or read, at every entry point                                                         |
 
@@ -115,7 +97,7 @@ Per venue, "publishes no applicable minimum" means:
 `depositMinimum` from the network row it already reads, and never holds the address or QR on
 it: `published` (value, field, text), `unpublished` (the advice above) or `unreadable` (a
 present but malformed field: "could not be read", with the same recommendation). A failed read
-shows no address, no QR and no minimum claim, as before.
+shows no address, no QR and no minimum claim.
 
 **Plan.** The plan records `destination.minimum` =
 `{value, coin: "USDT", basis, venueMinimum, field, notice?, advice?, statement?, uninterpreted?}`
@@ -139,58 +121,4 @@ approves, right before the approval is passed to ccxt-mcp. Any change gives `not
   approved card no longer describes the plan.
 
 The card wait is shortened, so card plus recheck stay inside ccxt-mcp's form wait. A plan on a
-venue minimum is not rechecked, as before.
-
-## Acceptance
-
-What was run, and on what. Offline only: synthetic keys and responses, no real account, no
-network. `tests/test_native.py` uses the fake ccxt-mcp and a T3-shaped host.
-`tests/test_real_ccxt_mcp.py` uses the pinned ccxt-mcp 0.1.3 with ccxt 4.5.85, its transport
-replaced by a recorder, inside `unshare -rn`.
-
-1. **Policy matrix.** For each of the 8 venues: an absent field gives `venue-unpublished`,
-   `value: null`, `depositMin: null`, `unknown`, the notice and the statement, and the smallest
-   exact credit (10⁻¹² USDT) passes while 0 holds; 0, 0.5, 25 and 2 are the venue's own figure
-   and enforced; `null`, empty, text and negative hold. USDC is never resolved
-   (`UNSUPPORTED_COIN`), nor is a venue outside the eight. Function level: of the eight, only
-   the Binance and Bybit adapters run end to end (items 2 to 9).
-2. **Reproducer.** Bybit → Binance BSC, 10 + 0.15 on top: `ready` with `minimumNotice`, debit
-   10.15, credit 10, `destinationMinimum: unknown`; one card with the notice line; Cancel gives
-   zero withdrawal writes (fake: no dispatch; real server: no POST).
-3. **Order of disclosure.** For 0.5 (Cancel and Approve) and 10 (Approve): the prepare result
-   carries the notice and `next.how` requires it before the card; no card exists until
-   confirm; the one card shows the notice above the exact call with the plan id and hash; no
-   dispatch has happened while the card is open; Approve sends exactly once. Real server: a 0.5
-   USDT plan reaches one card with the notice, and Cancel gives zero POST.
-4. **Below 1 and the smallest unit:** 0.9999, 0.5, 0.0001 and 1 are planned into Binance;
-   0.000001 on a 6-place Bybit step is planned; 0.0000001 is `AMOUNT_NOT_REPRESENTABLE`. Into
-   Bybit with no `depositMin`: 0.5 and 1 (credit 0.21 and 0.71 after Binance's 0.29 fee) are
-   planned, and a 0.5 plan is sent once on approval.
-5. **Zero or negative after fees:** Binance → Bybit 0.29 (credit 0) and 0.1 (credit −0.19)
-   hold with `CREDIT_NOT_POSITIVE`; so does a credit of 0 with a venue minimum of 0.
-6. **Source gates:** `BELOW_WITHDRAW_MIN` (2 against 10; 0.4999 against 0.5) and
-   `INSUFFICIENT_BALANCE` still hold below and above 1.
-7. **Venue minimum:** Binance 20 holds 10; Binance 0.5, 0 and 1 are enforced inclusively with
-   no notice and no recheck; Bybit 1, 0 are applied, 350 holds 300 and 1 holds a credit of
-   0.71. Bybit `""` and Binance `n/a`, `null` hold.
-8. **Unhealthy, contrary, wrong coin or chain:** `depositDust` `n/a`; `busy`; deposits
-   disabled; a wrong contract; a network list for another coin; a gated read for another chain;
-   two default addresses; a missing memo field; an auth error. Each holds, with no notice, no
-   plan and no card. `depositDust` 0.0005 and 1.5 hold a credit equal to them and allow one a
-   unit above, with the value bound in the plan.
-9. **Recheck:** before the card (a minimum of 1, 0 or 20 appears, the address changes, deposits
-   close, `depositDust` turns unreadable or appears, the key check fails) and while the card is
-   open (a minimum appears, the address changes, a read fails). Each gives `not-sent`,
-   `DESTINATION_RECHECK_FAILED` and zero dispatch (real server: zero POST). Bybit: 0.1
-   appearing before the card reads `now 0.1 USDT (venue), not unknown (venue-unpublished)`.
-10. **Address and QR:** Bybit `depositMin` 1, 0, 350 give `published` with the value; absent
-    gives `unpublished` with the advice; `""` gives `unreadable` ("could not be read", never
-    "not published"); Binance's row gives the advice, or 0.5 when published. Every case shows
-    the verified QR and copyable address, opens no card and creates no plan. A failed read
-    shows no address and no minimum claim.
-11. **USDT only:** `USDC`, `usdc`, ` USDC `, `DAI`, an empty string, `USDT-BSC` and a number are
-    refused with `UNSUPPORTED_COIN` by both native tools, with and without a session, with
-    zero reads and writes.
-
-The documented eight-venue flows are agent procedures, not code. They were **not** re-run for this
-rule, so no route count under it is claimed ([recipients.md](recipients.md#prerequisites-by-route)).
+venue minimum is not rechecked.

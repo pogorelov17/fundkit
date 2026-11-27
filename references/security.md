@@ -353,7 +353,44 @@ Transfers on such a host use `fundkit_transfer_prepare` and `fundkit_transfer_co
 session starts a single-use source profile for one plan (`dryRun: false`, `maxTransferValue` equal
 to the plan amount), forwards only its key check and one `withdraw` whose arguments hash to the
 registered plan, and journals the dispatch with an exclusive create before forwarding it. Other
-money-moving profiles keep the `--writes` rule above.
+money-moving profiles keep the `--writes` rule above. The plan hash is SHA-256 over the canonical
+JSON of the plan id, expiry, route, coin, network, amount, fee, debit, credit, recipient and the
+frozen `withdraw` arguments; a changed amount, network, recipient, fee or argument needs a new
+plan and a new card.
+
+Operator check after `fundkit install` and a first unlock (no values are printed):
+
+```bash
+claude mcp get fundkit                                   # command node, args …/bin/fundkit.mjs mcp
+ls -l ~/.claude/skills/usdt-funding                      # the skill link
+node ~/fundkit/bin/fundkit.mjs status                    # session state, Doppler project and config
+grep -c "dp.st." ~/.local/state/fundkit/run/daemon.log   # 0: no token in the log
+ps -eo args | grep "[f]undkit.mjs daemon"                # no token in argv
+```
+
+The file path the card returned no longer exists after `fundkit unlock`.
+
+### T3 Code host limits
+
+- **ccxt-mcp's own form.** T3 fills an accepted elicitation itself and cannot fill a required
+  boolean without an enum (ccxt-mcp's `confirm`), so it cancels that form without showing it.
+  On a plan profile fundkit never forwards the raw form: it re-shows it as the plan card with a
+  single-option field (`decision: "approve"`) and maps the answer back. The older `fundkit_write`
+  path forwards the raw form, so on T3 it cannot move money and fails closed with
+  `CONFIRM_CANCELED`.
+- **"Always allow this session"** caches an approval by server and exact message. Every plan
+  card carries its own plan id and hash, so a grant never matches another transfer.
+- **One broker owns a profile.** If two T3 threads use fundkit at once, the second gets
+  `ALIAS_IN_USE` for a profile the first holds, until the first thread's MCP server stops.
+- **Tool permissions.** Depending on T3's permission mode, the user may have to allow the
+  agent's `fundkit unlock` shell command or the fundkit tools once. That is a host permission
+  prompt, not an operator step.
+- **Custom Claude home.** T3 loads user-scope MCP servers and skills only when it runs Claude
+  with the default home. With a custom home it loads project and local settings only; register
+  `fundkit` there.
+- **Inline images.** The skill shows the QR as a Markdown image with an absolute path, which T3
+  renders; it does not rely on MCP `image` content in tool results.
+- **New threads.** Threads that were already running do not load a newly registered server.
 
 ### Money-moving registrations
 
