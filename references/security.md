@@ -167,7 +167,6 @@ two names per venue and nothing else:
 | OKX | `OKX_APIKEY`, `OKX_SECRET` (+ API passphrase typed in the private terminal) |
 | Bitget | `BITGET_APIKEY`, `BITGET_SECRET` (+ API passphrase typed in the private terminal) |
 | WhiteBIT | `WHITEBIT_APIKEY`, `WHITEBIT_SECRET` |
-| BingX | `BINGX_APIKEY`, `BINGX_SECRET` |
 | MEXC | `MEXC_APIKEY`, `MEXC_SECRET` |
 | KuCoin | `KUCOIN_APIKEY`, `KUCOIN_SECRET` (+ API passphrase typed in the private terminal) |
 
@@ -200,8 +199,8 @@ The allowlists are in [`lib/policy.mjs`](../lib/policy.mjs). Arguments must name
 own `exchange` and `account`. There is no account-UID binding: one Doppler config is one
 account per exchange, and the operator's mapping of the selected exchange and profile to
 `<EX>_APIKEY`/`<EX>_SECRET` is trusted. fundkit never reads a UID for that purpose (the reads
-that only return one, Binance `privateGetAccount`, BingX `accountV1PrivateGetUid` and MEXC
-`spotPrivateGetUid`, are `NOT_FORWARDED`), never stores or compares one, and `fundkit_write`
+that only return one, Binance `privateGetAccount` and MEXC `spotPrivateGetUid`, are
+`NOT_FORWARDED`), never stores or compares one, and `fundkit_write`
 takes no `uid` (an older caller's is ignored). A key check whose metadata also names a UID is
 used for its key rights only.
 
@@ -419,7 +418,7 @@ start with nothing installed:
 3. **Profile** (`chmod 600`). `funds` is needed because ccxt-mcp gates the address read
    behind it, and `"funds": "live"` requires some `maxTransferValue`. That cap applies only
    to MCP `transfer` and `withdraw` on this account, which `dryRun: true` blocks; it does not
-   limit what you send from OKX Wallet:
+   limit what you send from your own wallet:
 
    ```json
    {
@@ -474,19 +473,20 @@ This setup separates the three keys from each other. It does not hide them from 
 and it relies on the agent following the rules ([trust model](#trust-model)). Running all
 three servers under the operator's own OS user is fine.
 
-### One-session read-only start (Bybit, or Bybit plus BingX)
+### One-session read-only start (Bybit, or Bybit plus OKX)
 
 The smallest useful first session reads only: it connects deposit-only profiles and lets the
 agent check them, so nothing can move. For Bybit alone, follow the
 [Bybit deposit profile](#bybit-deposit-profile) (one read-only main-account key, IP bound).
-To add BingX in the same session, create a BingX key with read permission only and an IP
-allowlist, put it in its own profile directory, and register a second server:
+To add OKX in the same session, create an OKX key with read permission only and an IP
+allowlist, put it in its own profile directory (OKX also needs its API passphrase as
+`password`), and register a second server:
 
 ```bash
-mkdir -p ~/fundkit-profiles/bybit-dst ~/fundkit-profiles/bingx-dst
+mkdir -p ~/fundkit-profiles/bybit-dst ~/fundkit-profiles/okx-dst
 # write both config.json files with an editor: "funds": "live", a small "maxTransferValue", "dryRun": true, keys in the file
 chmod 600 ~/fundkit-profiles/*/config.json
-for p in bybit-dst bingx-dst; do
+for p in bybit-dst okx-dst; do
   claude mcp add-json -s user "ccxt-$p" "{\"command\":\"/usr/bin/node\",\"args\":[\"<APP_DIR>/node_modules/ccxt-mcp/js/server.js\"],\"env\":{\"CCXT_MCP_CONFIG\":\"$HOME/fundkit-profiles/$p/config.json\"}}"
 done
 claude mcp list
@@ -495,8 +495,7 @@ claude mcp list
 Restart the host and paste the [read-only starting prompt](prompts.md#read-only-starting-prompt).
 The agent reports the versions, both key checks (rights, no UIDs), the networks, and the verified
 deposit addresses. Write the registration lines of the [setup record](#setup-record) from that
-report (BingX: also the permission-code meanings shown on BingX's API page). Money-moving
-registrations come later and need their own lines.
+report. Money-moving registrations come later and need their own lines.
 
 ### Venue profiles
 
@@ -509,7 +508,6 @@ server once ([install](ccxt-mcp.md#install)); then, per account:
 | Bybit (`bybit`) | `apiKey`, `secret` | `BYBIT_APIKEY`, `BYBIT_SECRET` | `isMaster: true` (Bybit serves deposit addresses only to main-account keys) |
 | OKX (`okx`) | `apiKey`, `secret`, `password` (API passphrase) | `OKX_APIKEY`, `OKX_SECRET`, `OKX_PASSWORD` | `perm` includes `read_only` |
 | Bitget (`bitget`) | `apiKey`, `secret`, `password` | `BITGET_APIKEY`, `BITGET_SECRET`, `BITGET_PASSWORD` | a successful read (report `authorities`) |
-| BingX (`bingx`) | `apiKey`, `secret` | `BINGX_APIKEY`, `BINGX_SECRET` | a successful read (report the permission codes) |
 | WhiteBIT (`whitebit`) | `apiKey`, `secret` | `WHITEBIT_APIKEY`, `WHITEBIT_SECRET` | no key read exists: say so |
 | MEXC (`mexc`) | `apiKey`, `secret` | `MEXC_APIKEY`, `MEXC_SECRET` | `SPOT_WITHDRAW_READ` among the key's rights (MEXC's deposit-address read needs it); no read shows the rights (`canWithdraw` in `GET /api/v3/account` is an account flag), so the setup record names them |
 | KuCoin (`kucoin`) | `apiKey`, `secret`, `password` | `KUCOIN_APIKEY`, `KUCOIN_SECRET`, `KUCOIN_PASSWORD` | `permission` includes `General` |
@@ -518,7 +516,7 @@ server once ([install](ccxt-mcp.md#install)); then, per account:
 
 Rights a money move needs, per venue (the exchange refuses the move without them; a key
 with more rights is fine for every role). The deposit-only need is in the table above. The offline tests
-exercised settlement on Bybit, OKX, Bitget and BingX only. Names follow each
+exercised settlement on Bybit, OKX and Bitget only. Names follow each
 venue's API key page; confirm them there once and record them in the setup record:
 
 | Venue | Source A (withdraws) | Settlement on B (internal transfer) |
@@ -527,7 +525,6 @@ venue's API key page; confirm them there once and record them in the setup recor
 | Bybit | `readOnly: 0`, `Wallet: Withdraw` (plus `AccountTransfer` if needed), main account | `readOnly: 0`, `Wallet: AccountTransfer` |
 | OKX | `perm` includes `withdraw` | `perm` includes `trade` (OKX grants transfers with trade) |
 | Bitget | an authority naming withdrawal | an authority naming transfer |
-| BingX | the permission code recorded for withdrawal | the code recorded for transfer |
 | MEXC | setup record key rights `SPOT_ACCOUNT_READ`, `SPOT_WITHDRAW_READ`, `SPOT_WITHDRAW_WRITE` | setup record key rights `SPOT_TRANSFER_READ` and `SPOT_TRANSFER_WRITE` |
 | KuCoin | `permission` includes `Withdrawal` | `permission` includes `Transfer`; proof is operator or manual ([transfer proof](exchanges.md#transfer-proof)) |
 | Gate | withdrawal right per the setup record (the key read has no permission fields) | transfer right per the setup record |
@@ -614,9 +611,8 @@ Profile <registration name>: alias <alias>, exchange <id>, environment <live|san
   configPath <path>, journal <path>
   key rights <as shown on the exchange's API page, e.g. MEXC SPOT_ACCOUNT_READ, SPOT_WITHDRAW_READ>, IP allowlist <yes>
   provisioning: <allowed | not allowed>            (Gate, WhiteBIT: their address read may create an address)
-  BingX permission codes: <code → right>
-  Entity <Binance | Bybit | OKX | BingX | WhiteBIT>: <Binance.com | Bybit.com | OKX.com | BingX.com | WhiteBIT.com | other entity name>, jurisdiction <ISO 3166-1 alpha-2>,
-    <travel-rule questionnaire | beneficiary information | rcvrInfo | KYC=KOR recipient fields | EEA/Turkey USDT restriction>: <not required | required | unknown>; evidence <source, UTC>
+  Entity <Binance | Bybit | OKX | WhiteBIT>: <Binance.com | Bybit.com | OKX.com | WhiteBIT.com | other entity name>, jurisdiction <ISO 3166-1 alpha-2>,
+    <travel-rule questionnaire | beneficiary information | rcvrInfo | EEA/Turkey USDT restriction>: <not required | required | unknown>; evidence <source, UTC>
   Native form: interactive dialog; no Elicitation/ElicitationResult hook or auto-answer; checked <UTC>
   WhiteBIT contract <TRC20 | BEP20 | ERC20 | TON>: <full contract>, pinned from the explorer linked on WhiteBIT's deposit page <UTC>
   Whitelist on this source: <full address, character for character as in the agent's code block> memo <none | exact> chain <code> → <B venue>, added with 2FA <UTC>

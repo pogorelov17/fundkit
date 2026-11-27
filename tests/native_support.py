@@ -43,48 +43,34 @@ def params_key(tool: str, method: str, params: dict | None = None) -> str:
     return base if params is None else f"{base}:{json.dumps(params, separators=(',', ':'))}"
 
 
+def fee_key() -> str:
+    """The USDT currency read both venues answer (fetchDepositWithdrawFee ["USDT"])."""
+    return params_key("call_read_method", "fetchDepositWithdrawFee")
+
+
+def binance_row(network: str, contract: str, **fields) -> dict:
+    return {
+        "network": network,
+        "contractAddress": contract,
+        "depositEnable": True,
+        "withdrawEnable": True,
+        "withdrawMax": "9999999",
+        **fields,
+    }
+
+
 def binance_fixtures(free_spot: float = 812.44) -> dict:
-    rows = [
-        {
-            "network": "BSC",
-            "contractAddress": USDT_BSC.lower(),
-            "depositEnable": True,
-            "withdrawEnable": True,
-            "withdrawFee": "0.29",
-            "withdrawMin": "10",
-            "withdrawMax": "9999999",
-            "withdrawIntegerMultiple": "0.00000001",
-        },
-        {
-            "network": "TRX",
-            "contractAddress": USDT_TRX,
-            "depositEnable": True,
-            "withdrawEnable": True,
-            "withdrawFee": "1",
-            "withdrawMin": "10",
-            "withdrawMax": "9999999",
-            "withdrawIntegerMultiple": "0.000001",
-        },
-        {
-            "network": "ETH",
-            "contractAddress": USDT_ETH,
-            "depositEnable": True,
-            "withdrawEnable": True,
-            "withdrawFee": "4",
-            "withdrawMin": "20",
-            "withdrawMax": "9999999",
-            "withdrawIntegerMultiple": "0.000001",
-        },
-        {
-            "network": "TON",
-            "contractAddress": USDT_TON,
-            "depositEnable": True,
-            "withdrawEnable": True,
-            "withdrawFee": "0.5",
-            "withdrawMin": "1",
-            "withdrawMax": "9999999",
-            "withdrawIntegerMultiple": "0.000001",
-        },
+    usdt = [
+        binance_row(
+            "BSC",
+            USDT_BSC.lower(),
+            withdrawFee="0.29",
+            withdrawMin="10",
+            withdrawIntegerMultiple="0.00000001",
+        ),
+        binance_row("TRX", USDT_TRX, withdrawFee="1", withdrawMin="10", withdrawIntegerMultiple="0.000001"),
+        binance_row("ETH", USDT_ETH, withdrawFee="4", withdrawMin="20", withdrawIntegerMultiple="0.000001"),
+        binance_row("TON", USDT_TON, withdrawFee="0.5", withdrawMin="1", withdrawIntegerMultiple="0.000001"),
     ]
     fixtures = {
         params_key("call_implicit_get", "sapiGetAccountApiRestrictions"): {
@@ -93,9 +79,7 @@ def binance_fixtures(free_spot: float = 812.44) -> dict:
             "enableInternalTransfer": False,
             "ipRestrict": True,
         },
-        params_key("call_read_method", "fetchDepositWithdrawFee"): {
-            "info": {"coin": "USDT", "networkList": rows}
-        },
+        fee_key(): {"info": {"coin": "USDT", "networkList": usdt}},
         params_key("call_read_method", "fetchBalance", {"type": "spot"}): {"USDT": {"free": free_spot}},
         params_key("call_read_method", "fetchBalance", {"type": "funding"}): {"USDT": {"free": 0}},
     }
@@ -112,7 +96,7 @@ def set_binance_address(fixtures: dict, code: str, address: str, tag: str | None
     venue_id = BINANCE_IDS[code]
     info = {"coin": "USDT", "address": address, "tag": tag, "url": f"https://explorer/{address}"}
     fixtures[params_key("call_read_method", "fetchDepositAddress", {"network": code})] = {
-        "currency": "USDT",
+        "currency": overrides.get("gated_currency", "USDT"),
         "network": overrides.get("gated_network", code),
         "address": address,
         "tag": tag or None,
@@ -130,28 +114,17 @@ def set_binance_address(fixtures: dict, code: str, address: str, tag: str | None
     ] = rows
 
 
-def bybit_fixtures(free: float = 812.44, batch_release_limit: str = "-1") -> dict:
-    chain = {
-        "chain": "BSC",
-        "chainType": "BSC (BEP20)",
-        "chainDeposit": "1",
-        "chainWithdraw": "1",
-        "depositMin": "1",
-        "withdrawMin": "10",
-        "contractAddress": USDT_BSC.lower(),
-        "minAccuracy": "4",
-        "withdrawFee": "0.3",
-        "withdrawPercentageFee": "0",
-    }
-    entry = {
-        "chainType": "BSC (BEP20)",
-        "chain": "BSC",
-        "addressDeposit": BYBIT_BSC,
-        "tagDeposit": "",
-        "contractAddress": "197955",
-        "batchReleaseLimit": batch_release_limit,
-    }
-    return {
+def bybit_fixtures(
+    *,
+    free: float = 812.44,
+    batch_release_limit: str = "-1",
+    withdraw_fee: str = "0.3",
+    withdraw_min: str = "10",
+    extra_chains: list | None = None,
+    deposit_min: str | None = "1",
+) -> dict:
+    """Bybit for USDT on BSC (deposit_min None: the chain row has no depositMin field)."""
+    fixtures = {
         params_key("call_implicit_get", "privateGetV5UserQueryApi"): {
             "retCode": 0,
             "result": {
@@ -162,20 +135,43 @@ def bybit_fixtures(free: float = 812.44, batch_release_limit: str = "-1") -> dic
                 "userID": 1,
             },
         },
-        params_key("call_read_method", "fetchDepositWithdrawFee"): {
-            "info": {"coin": "USDT", "remainAmount": "1000000", "chains": [chain]}
-        },
-        params_key("call_read_method", "fetchDepositAddressesByNetwork", {"network": "BEP20"}): {
-            "BEP20": {"address": BYBIT_BSC, "tag": None, "network": "BEP20", "info": entry}
-        },
-        params_key(
-            "call_implicit_get", "privateGetV5AssetDepositQueryAddress", {"coin": "USDT", "chainType": "BSC"}
-        ): {
-            "retCode": 0,
-            "result": {"coin": "USDT", "chains": [entry]},
-        },
         params_key("call_read_method", "fetchBalance", {"type": "funding"}): {"USDT": {"free": free}},
     }
+    chain = {
+        "chain": "BSC",
+        "chainType": "BSC (BEP20)",
+        "chainDeposit": "1",
+        "chainWithdraw": "1",
+        "withdrawMin": withdraw_min,
+        "contractAddress": USDT_BSC.lower(),
+        "minAccuracy": "4",
+        "withdrawFee": withdraw_fee,
+        "withdrawPercentageFee": "0",
+    }
+    if deposit_min is not None:
+        chain["depositMin"] = deposit_min
+    entry = {
+        "chainType": "BSC (BEP20)",
+        "chain": "BSC",
+        "addressDeposit": BYBIT_BSC,
+        "tagDeposit": "",
+        "contractAddress": USDT_BSC.lower()[-6:],
+        "batchReleaseLimit": batch_release_limit,
+    }
+    fixtures[fee_key()] = {
+        "info": {"coin": "USDT", "remainAmount": "1000000", "chains": [chain, *(extra_chains or [])]}
+    }
+    fixtures[params_key("call_read_method", "fetchDepositAddressesByNetwork", {"network": "BEP20"})] = {
+        "BEP20": {"address": BYBIT_BSC, "tag": None, "network": "BEP20", "info": entry}
+    }
+    fixtures[
+        params_key(
+            "call_implicit_get",
+            "privateGetV5AssetDepositQueryAddress",
+            {"coin": "USDT", "chainType": "BSC"},
+        )
+    ] = {"retCode": 0, "result": {"coin": "USDT", "chains": [entry]}}
+    return fixtures
 
 
 # --------------------------------------------------------------------------- T3 secret card
@@ -230,7 +226,8 @@ class T3Host(Host):
     """A host that answers forms the way T3 Code's approval card does.
 
     `decisions` is consumed per card shown: "approve", "decline", "cancel", "session" (Always allow
-    this session) or None (the human never answers).
+    this session) or None (the human never answers). A callable is called with the card's params
+    while the card is open and returns one of those.
     """
 
     def __init__(self, env: dict, decisions=None, **options) -> None:
@@ -253,6 +250,8 @@ class T3Host(Host):
             return
         self.cards.append(params)
         decision = self.decisions.pop(0) if self.decisions else None
+        if callable(decision):
+            decision = decision(params)
         if decision is None:
             return
         if decision in ("decline", "cancel"):

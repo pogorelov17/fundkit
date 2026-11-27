@@ -38,7 +38,7 @@ TOKEN = "dp.st.dev." + "A1b2C3d4E5" * 4  # synthetic, in Doppler's service-token
 OTHER_TOKEN = "dp.st.dev." + "Z9y8X7w6V5" * 4
 REDACTED_MARK = "[redacted:fundkit]"
 METADATA_NAMES = ["DOPPLER_PROJECT", "DOPPLER_CONFIG", "DOPPLER_ENVIRONMENT"]
-EXCHANGES = ["binance", "bybit", "gate", "okx", "bitget", "whitebit", "bingx", "mexc", "kucoin"]
+EXCHANGES = ["binance", "bybit", "gate", "okx", "bitget", "whitebit", "mexc", "kucoin"]
 PASSPHRASE_EXCHANGES = ["okx", "bitget", "kucoin"]
 
 
@@ -476,7 +476,6 @@ def key_check(exchange: str, alias: str) -> dict:
         "bybit": "privateGetV5UserQueryApi",
         "okx": "privateGetAccountConfig",
         "bitget": "privateSpotGetV2SpotAccountInfo",
-        "bingx": "accountV1PrivateGetAccountApiPermissions",
         "mexc": "spotPrivateGetAccount",
         "kucoin": "privateGetUserApiKey",
         "gate": "privateAccountGetDetail",

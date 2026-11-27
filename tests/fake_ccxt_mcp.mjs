@@ -33,13 +33,12 @@ const KEY_CHECKS = {
   bybit: ['privateGetV5UserQueryApi', 'userID'],
   okx: ['privateGetAccountConfig', 'uid'],
   bitget: ['privateSpotGetV2SpotAccountInfo', 'userId'],
-  bingx: ['accountV1PrivateGetAccountApiPermissions', 'uid'],
   mexc: ['spotPrivateGetAccount', 'uid'],
   kucoin: ['privateGetUserApiKey', 'uid'],
   gate: ['privateAccountGetDetail', 'user_id'],
 };
 
-const UID_ONLY_READS = new Set(['privateGetAccount', 'accountV1PrivateGetUid', 'spotPrivateGetUid']);
+const UID_ONLY_READS = new Set(['privateGetAccount', 'spotPrivateGetUid']);
 
 const TOOL_NAMES = [
   'get_safety_status',

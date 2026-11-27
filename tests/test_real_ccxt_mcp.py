@@ -22,20 +22,54 @@ from pathlib import Path
 from tests.native_support import T3Host, t3_secret_file
 from tests.support import (
     DOPPLER_CONFIG,
+    EXCHANGES,
     NODE,
     PASSPHRASES,
     ROOT,
     TOKEN,
     SessionTestCase,
+    doppler_names,
     key_check,
     sha256,
     wait_for,
     withdraw_args,
 )
+from tests.test_native import NOTICE
 
 REAL_SERVER = os.environ.get("FUNDKIT_REAL_CCXT_MCP")
 RECORDER = ROOT / "tests" / "real_ccxt_recorder.mjs"
 UIDS = {"okx": "UID-REAL-OKX", "bybit": "UID-REAL-BYBIT"}
+# The real T3 thread: 10 USDT from Bybit (fee 0.15 on top) to Binance on BSC.
+TEN_TO_BINANCE = {"from": "bybit", "to": "binance", "amount": "10", "network": "BSC"}
+# The recorder's Bybit coin list (tests/real_ccxt_recorder.mjs), for tests that override one field.
+BYBIT_COIN_INFO = {
+    "retCode": 0,
+    "retMsg": "OK",
+    "result": {
+        "rows": [
+            {
+                "name": "USDT",
+                "coin": "USDT",
+                "remainAmount": "1000000",
+                "chains": [
+                    {
+                        "chainType": "BSC (BEP20)",
+                        "confirmation": "15",
+                        "withdrawFee": "0.15",
+                        "depositMin": "1",
+                        "withdrawMin": "10",
+                        "chain": "BSC",
+                        "chainDeposit": "1",
+                        "chainWithdraw": "1",
+                        "minAccuracy": "4",
+                        "withdrawPercentageFee": "0",
+                        "contractAddress": "0x55d398326f99059ff775485246999027b3197955",
+                    }
+                ],
+            }
+        ]
+    },
+}
 
 
 def recorder_pids() -> list[int]:
@@ -140,6 +174,47 @@ class RealCcxtMcpTests(SessionTestCase):
         denied = dict(write, alias="bybit-dst", arguments=withdraw_args("bybit-dst", 5))
         body, _ = host.tool("fundkit_write", denied)
         self.assertEqual(body["error"], "ROLE_DENIED")
+
+    def pinned_ccxt_ids(self) -> list[str]:
+        entry = Path(json.loads((self.home / "real-ccxt-paths.json").read_text())["ccxtEntry"])
+        script = (
+            f"const c = await import({json.dumps(entry.as_uri())});"
+            "console.log(JSON.stringify(Object.keys(c.exchanges)));"
+        )
+        result = subprocess.run(
+            [NODE, "--input-type=module", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+        return json.loads(result.stdout)
+
+    def test_every_other_ccxt_venue_is_refused_before_secrets_or_a_server(self):
+        catalog = self.pinned_ccxt_ids()
+        self.assertLessEqual(set(EXCHANGES), set(catalog))
+        unlisted = sorted(set(catalog) - set(EXCHANGES))
+        self.assertIn("hyperliquid", unlisted)  # watch-only: never a fundkit session profile
+        # External registrations: Doppler names exist for every venue fundkit does not list.
+        for venue in unlisted:
+            for name in doppler_names(venue):
+                self.doppler.config[name] = f"SYNTH-{name}"
+        self.session("--writes", "--max-transfer", "300")
+        host = self.host()
+        for venue in unlisted:
+            with self.subTest(venue=venue):
+                for role in ("source", "deposit-only", "settlement"):
+                    body, is_error = host.tool("fundkit_connect", {"exchange": venue, "role": role})
+                    self.assertTrue(is_error)
+                    self.assertEqual(body["error"], "UNKNOWN_EXCHANGE")
+                alias = f"{venue}-src"
+                body, is_error = host.tool(
+                    "fundkit_write", {"alias": alias, "tool": "withdraw", "arguments": withdraw_args(alias)}
+                )
+                self.assertEqual((is_error, body["error"]), (True, "UNKNOWN_ALIAS"))
+        self.assertEqual(self.doppler.secret_requests(), [])
+        self.assertEqual(recorder_pids(), [])
+        self.assertEqual(self.wire(), [])
 
     def test_real_server_end_to_end(self):
         terminal = self.session("--passphrase", "okx", passphrases={"okx": PASSPHRASES["okx"]})
@@ -264,7 +339,7 @@ class RealPlanFormTests(RealCcxtMcpTests):
         self.assertEqual(replies[1]["t"], "plan-registered", replies)
         return plan
 
-    def test_real_form_is_matched_and_shown_once_and_nothing_leaves(self):
+    def unlock_from_card(self) -> None:
         path = t3_secret_file(self.tmp, TOKEN)
         result = subprocess.run(
             [NODE, str(ROOT / "bin" / "fundkit.mjs"), "unlock", "--token-file", str(path)],
@@ -276,6 +351,12 @@ class RealPlanFormTests(RealCcxtMcpTests):
         )
         self.assertIn('"ok":true', result.stdout, result.stdout + result.stderr)
         self.addCleanup(lambda: self.run_cli("stop"))
+
+    def posts(self) -> list[dict]:
+        return [request for request in self.wire() if request["method"] != "GET"]
+
+    def test_real_form_is_matched_and_shown_once_and_nothing_leaves(self):
+        self.unlock_from_card()
 
         recipient = "0x1b6C0d8D0aF0A3a0b6F6e4E5bC6a7F2d3C4e5F60"
         for decision, plan_id in (("decline", "FK-AAAAAAAA"), ("approve", "FK-BBBBBBBB")):
@@ -310,17 +391,7 @@ class RealPlanFormTests(RealCcxtMcpTests):
         self.assert_no_files_with_secrets()
 
     def test_real_binance_address_reads_parse_and_send_only_gets(self):
-        path = t3_secret_file(self.tmp, TOKEN)
-        result = subprocess.run(
-            [NODE, str(ROOT / "bin" / "fundkit.mjs"), "unlock", "--token-file", str(path)],
-            env=self.env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-        self.assertIn('"ok":true', result.stdout, result.stdout + result.stderr)
-        self.addCleanup(lambda: self.run_cli("stop"))
+        self.unlock_from_card()
         host = T3Host(self.host_env)
         self.hosts.append(host)
         body, is_error, _ = host.tool_full(
@@ -343,6 +414,137 @@ class RealPlanFormTests(RealCcxtMcpTests):
             self.assertIn(expected, signed)
         key = sha256(DOPPLER_CONFIG["BINANCE_APIKEY"])
         self.assertTrue(all(request["keyHash"] == key for request in wire if request["signed"]))
+        self.assert_no_files_with_secrets()
+
+    # ------------------------------------------------------------ Binance's unknown deposit minimum
+
+    def getall_reads(self) -> int:
+        return len(
+            [r for r in self.wire() if r["id"] == "binance" and r["path"] == "/sapi/v1/capital/config/getall"]
+        )
+
+    def test_real_bybit_ten_plus_fee_to_binance_reaches_the_card_and_cancel_sends_nothing(self):
+        self.unlock_from_card()
+        host = T3Host(self.host_env, decisions=["cancel"])
+        self.hosts.append(host)
+        body, is_error, _ = host.tool_full("fundkit_transfer_prepare", TEN_TO_BINANCE, timeout=180)
+        self.assertFalse(is_error, body)
+        self.assertEqual(body["status"], "ready", body)
+        plan = body["plan"]
+        self.assertEqual(plan["fee"], "0.15 USDT (on top)")
+        self.assertEqual((plan["amount"], plan["debit"], plan["credit"]), ("10 USDT", "10.15", "10"))
+        self.assertEqual(plan["available"], "812.44 USDT in funding")
+        self.assertEqual(plan["recipient"], "0x1b6C0d8D0aF0A3a0b6F6e4E5bC6a7F2d3C4e5F60")
+        self.assertEqual(plan["destinationMinimum"], "unknown")
+        self.assertEqual((body["minimumNotice"], plan["destinationMinimumBasis"]), (NOTICE, NOTICE))
+        self.assertIn(NOTICE, body["next"]["how"])
+        self.assertEqual((host.cards, self.posts()), ([], []), "the notice comes before any card or write")
+        reads = self.getall_reads()
+
+        result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]}, timeout=180)
+        self.assertEqual((result["status"], result["sent"]), ("not-sent", False), result)
+        self.assertEqual(host.auto_cancelled, [])
+        self.assertEqual(len(host.cards), 1)
+        card = host.cards[0]["message"]
+        self.assertIn(body["planId"], card)
+        self.assertIn(f"\n{NOTICE}\n", card)
+        self.assertGreater(self.getall_reads(), reads, "Binance is read again before the card")
+        self.assertEqual(self.posts(), [], "zero withdrawal writes")
+        again, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]})
+        self.assertTrue(again["duplicate"])
+        self.assertEqual(self.posts(), [])
+        self.assert_no_files_with_secrets()
+
+    def test_real_sub_one_plan_reaches_one_card_with_the_notice_and_cancel_sends_nothing(self):
+        self.unlock_from_card()
+        # Bybit's real-thread row with a withdrawal minimum below 1, so 0.5 USDT clears the source.
+        bybit = json.loads(json.dumps(BYBIT_COIN_INFO))
+        bybit["result"]["rows"][0]["chains"][0]["withdrawMin"] = "0.0001"
+        (self.home / "recorder-overrides.json").write_text(json.dumps({"/v5/asset/coin/query-info": bybit}))
+        seen = []
+
+        def at_card(params):
+            seen.append((params["message"], len(self.posts())))
+            return "cancel"
+
+        host = T3Host(self.host_env, decisions=[at_card])
+        self.hosts.append(host)
+        body, is_error, _ = host.tool_full(
+            "fundkit_transfer_prepare", {**TEN_TO_BINANCE, "amount": "0.5"}, timeout=180
+        )
+        self.assertFalse(is_error, body)
+        self.assertEqual(body["status"], "ready", body)
+        self.assertEqual((body["plan"]["credit"], body["minimumNotice"]), ("0.5", NOTICE))
+        result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]}, timeout=180)
+        self.assertEqual((result["status"], result["sent"]), ("not-sent", False), result)
+        self.assertEqual(len(seen), 1)
+        message, posts_at_card = seen[0]
+        self.assertIn(NOTICE, message)
+        self.assertIn("Amount (withdrawal amount): 0.5 USDT", message)
+        self.assertEqual(posts_at_card, 0)
+        self.assertEqual(self.posts(), [], "zero withdrawal writes")
+        self.assert_no_files_with_secrets()
+
+    def test_real_usdc_request_is_refused_with_zero_reads_and_writes(self):
+        self.unlock_from_card()
+        host = T3Host(self.host_env, decisions=["approve"])
+        self.hosts.append(host)
+        for name, args in (
+            ("fundkit_transfer_prepare", {**TEN_TO_BINANCE, "coin": "USDC"}),
+            ("fundkit_deposit_address", {"exchange": "binance", "network": "BSC", "coin": "USDC"}),
+        ):
+            with self.subTest(name=name):
+                body, is_error, _ = host.tool_full(name, args, timeout=120)
+                self.assertTrue(is_error, body)
+                self.assertEqual(body["error"], "UNSUPPORTED_COIN", body)
+        # No profile was started, so the real server built no request at all.
+        self.assertEqual(recorder_pids(), [])
+        self.assertEqual(self.wire(), [])
+        self.assertEqual((host.forms, host.cards), ([], []))
+        # The same session still serves the USDT request, which asks the venues for USDT only.
+        body, is_error, _ = host.tool_full("fundkit_transfer_prepare", TEN_TO_BINANCE, timeout=180)
+        self.assertFalse(is_error, body)
+        self.assertEqual(body["status"], "ready", body)
+        coins = {request["coin"] for request in self.wire() if request["coin"]}
+        self.assertEqual(coins, {"USDT"}, self.wire())
+        self.assertEqual(self.posts(), [], "zero withdrawal writes")
+        self.assert_no_files_with_secrets()
+
+    def test_real_minimum_known_after_the_approval_sends_nothing(self):
+        self.unlock_from_card()
+        row = {
+            "network": "BSC",
+            "coin": "USDT",
+            "name": "BNB Smart Chain (BEP20)",
+            "contractAddress": "0x55d398326f99059ff775485246999027b3197955",
+            "depositEnable": True,
+            "withdrawEnable": True,
+            "withdrawFee": "0.29",
+            "withdrawMin": "10",
+            "withdrawMax": "9999999",
+            "withdrawIntegerMultiple": "0.00000001",
+            "isDefault": False,
+            "depositMin": "20",
+        }
+        overrides = {
+            "/sapi/v1/capital/config/getall": [{"coin": "USDT", "name": "TetherUS", "networkList": [row]}]
+        }
+
+        def minimum_appears_then_approve(_params):
+            (self.home / "recorder-overrides.json").write_text(json.dumps(overrides))
+            return "approve"
+
+        host = T3Host(self.host_env, decisions=[minimum_appears_then_approve])
+        self.hosts.append(host)
+        body, _, _ = host.tool_full("fundkit_transfer_prepare", TEN_TO_BINANCE, timeout=180)
+        self.assertEqual(body["status"], "ready", body)
+        result, _, _ = host.tool_full("fundkit_transfer_confirm", {"planId": body["planId"]}, timeout=180)
+        self.assertEqual(
+            (result["status"], result["reason"]), ("not-sent", "DESTINATION_RECHECK_FAILED"), result
+        )
+        self.assertIn("20 USDT (venue)", result["detail"])
+        self.assertEqual(len(host.cards), 1)
+        self.assertEqual(self.posts(), [], "zero withdrawal writes")
         self.assert_no_files_with_secrets()
 
 
