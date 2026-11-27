@@ -172,6 +172,9 @@ class ChoiceTests(ManualTestCase):
         self.assertIn("No answer, a timeout, a cancel or a dismissal selects nothing", rules)
         self.assertIn("Never pick an option yourself", rules)
         self.assertIn("Doppler Service Token first", rules)
+        self.assertIn("into the user's language", rules)  # one choice, asked in the user's language
+        self.assertIn("Without one, do not ask this question", rules)
+        self.assertIn("hostWithoutCard", choice)
         for option in choice["options"]:
             self.assertEqual(option["then"]["tool"], "fundkit_credentials")
             self.assertEqual(option["then"]["arguments"]["exchanges"], ["binance"])
@@ -378,6 +381,66 @@ class ManualEntryTests(ManualTestCase):
         )
         self.assertEqual(self.doppler.requests, [])
         self.assert_manual_free()
+
+    def test_each_venue_asks_only_its_own_fields_in_order(self):
+        # Bitget and KuCoin ask for the API passphrase as the third card; Gate (like Binance,
+        # Bybit, WhiteBIT and MEXC) only for the API key and the API secret.
+        extra = {
+            "bitget": {
+                "apiKey": synthetic("manual-bitget-key"),
+                "secret": synthetic("manual-bitget-secret"),
+                "passphrase": synthetic("manual bitget pass"),
+            },
+            "kucoin": {
+                "apiKey": synthetic("manual-kucoin-key"),
+                "secret": synthetic("manual-kucoin-secret"),
+                "passphrase": synthetic("manual kucoin pass") + " ~",
+            },
+            "gate": {"apiKey": synthetic("manual-gate-key"), "secret": synthetic("manual-gate-secret")},
+        }
+        labels = {"Bitget": "bitget", "KuCoin": "kucoin", "Gate": "gate"}
+        host = self.t3()
+        credentials = None
+        for exchange, fields in extra.items():
+            with self.subTest(exchange=exchange):
+                args = {"exchange": exchange, "role": "source"}
+                if credentials:
+                    args["credentials"] = credentials
+                body, is_error, _ = host.tool_full("fundkit_connect", args)
+                self.assertTrue(is_error)
+                self.assertEqual(body["error"], "CREDENTIALS_NEEDED")
+                self.assertEqual(body["missing"], [exchange])
+                chosen, is_error = choose(host, body, "manual")
+                self.assertFalse(is_error, chosen)
+                seen = []
+                while chosen.get("status") == "secret-needed":
+                    step = chosen["secretStep"]
+                    venue, field = step["request"]["label"].split(" ", 1)
+                    self.assertEqual(labels[venue], exchange)
+                    seen.append(FIELDS[field])
+                    chosen, is_error, path = submit_card(host, self.tmp, step, fields[FIELDS[field]])
+                    self.assertFalse(is_error, chosen)
+                    self.assertFalse(path.exists())
+                self.assertEqual(seen, list(fields))
+                self.assertEqual(chosen["status"], "ready")
+                credentials = chosen["credentials"]
+                connected, is_error, _ = resume(host, chosen)
+                self.assertFalse(is_error, connected)
+                start = self.start_of(f"{exchange}-src-m")
+                upper = exchange.upper()
+                expected = {f"{upper}_{ENV_NAMES[field]}" for field in fields}
+                self.assertEqual(
+                    set(start["envNames"]) - {"CCXT_MCP_CONFIG", "HOME", "LANG", "PATH"}, expected
+                )
+                for field, value in fields.items():
+                    self.assertEqual(start["envHashes"][f"{upper}_{ENV_NAMES[field]}"], sha256(value))
+        self.assertEqual(self.doppler.requests, [])
+        log = self.daemon_log()
+        blob = host.all_text() + log
+        for fields in extra.values():
+            for value in fields.values():
+                for form in spellings(value):
+                    self.assertNotIn(form, blob)
 
     def test_refused_values_are_retried_and_never_kept(self):
         host = self.t3()
@@ -650,6 +713,24 @@ class LifetimeTests(ManualTestCase):
         self.assertTrue(is_error)
         self.assertEqual(body["error"], "CREDENTIALS_NEEDED")
         self.assertEqual(self.doppler.requests, [])
+
+    def test_plan_whose_manual_credentials_expired_is_never_sent(self):
+        ttl = 8.0
+        host = self.t3(decisions=["approve"], FUNDKIT_CREDENTIAL_TTL_MS=str(int(ttl * 1000)))
+        body, is_error, _ = host.tool_full("fundkit_transfer_prepare", BINANCE_FROM)
+        self.assertTrue(is_error)
+        entered = time.monotonic()
+        ready = self.enter(host, body)
+        plan, is_error, _ = resume(host, ready)
+        self.assertFalse(is_error, plan)
+        self.assertEqual(plan["status"], "ready", plan)
+        time.sleep(max(0.0, ttl + 0.5 - (time.monotonic() - entered)))
+        result, is_error, _ = host.tool_full("fundkit_transfer_confirm", {"planId": plan["planId"]})
+        self.assertEqual(result["status"], "not-sent", result)
+        self.assertEqual(result["reason"], "CREDENTIALS_CHANGED")
+        self.assertEqual(self.dispatches(), [])
+        self.assertEqual(self.doppler.requests, [])
+        self.assert_manual_free()
 
     def test_expired_card_keeps_no_partial_entry_and_removes_the_late_file(self):
         host = self.t3(FUNDKIT_SECRET_STEP_TTL_MS="2500")
