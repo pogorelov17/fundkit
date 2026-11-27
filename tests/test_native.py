@@ -27,11 +27,13 @@ from tests.native_support import (
     T3Host,
     binance_fixtures,
     bybit_fixtures,
+    choose,
     decode_qr,
     fee_key,
     params_key,
-    run_then,
+    resume,
     set_binance_address,
+    submit_card,
     t3_acceptance,
     t3_secret_file,
 )
@@ -93,7 +95,9 @@ class NativeTestCase(SessionTestCase):
         self.assertTrue(body["ok"], body)
 
     def t3(self, decisions=None, elicitation: bool = True, **env) -> T3Host:
-        host = T3Host({**self.host_env, **env}, decisions=decisions, elicitation=elicitation)
+        # The fundkit MCP server starts the background session itself after the operator's choice,
+        # so it runs with the test's loopback Doppler and synthetic ccxt-mcp (and the decoy values).
+        host = T3Host({**self.env, **env}, decisions=decisions, elicitation=elicitation)
         self.hosts.append(host)
         return host
 
@@ -210,12 +214,13 @@ class HandoffTests(NativeTestCase):
         step = body["secretStep"]
         self.assertEqual(step["request"]["delivery"], "file")
         self.assertEqual(step["request"]["label"], "OKX API passphrase")
+        self.assertNotIn("then", step)  # no shell command: only the path goes to fundkit_secret_submit
 
-        path = self.card(PASSPHRASES["okx"])
-        stored = run_then(step, path, self.env)
-        self.assertTrue(stored["ok"], stored)
+        stored, is_error, path = submit_card(host, self.tmp, step, PASSPHRASES["okx"])
+        self.assertFalse(is_error, stored)
+        self.assertEqual(stored["status"], "ready")
         self.assertFalse(path.exists())
-        body, is_error, _ = host.tool_full("fundkit_connect", {"exchange": "okx", "role": "deposit-only"})
+        body, is_error, _ = resume(host, stored)
         self.assertFalse(is_error, body)
         start = self.starts()["okx-dst"]
         self.assertIn("OKX_PASSWORD", start["envNames"])
@@ -237,15 +242,20 @@ class AddressTests(NativeTestCase):
         self.assertEqual(base64.b64decode(images[0]["data"]), data)
         self.assertEqual(qr["markdown"], f"![QR Binance USDT {body['network']['code']}]({path})")
 
-    def test_no_session_one_card_then_the_same_request_continues(self):
+    def test_no_session_one_choice_one_card_then_the_same_request_continues(self):
         host = self.t3()
         body, is_error, _ = host.tool_full("fundkit_deposit_address", ADDRESS_REQUEST)
         self.assertTrue(is_error)
-        self.assertEqual(body["error"], "NO_SESSION")
-        step = body["secretStep"]
-        self.assertEqual(step["hostTool"], "request_secret")
-        self.assertEqual(step["request"]["delivery"], "file")
-        self.assertEqual(step["request"]["label"], "Doppler service token")
+        self.assertEqual(body["error"], "CREDENTIALS_NEEDED")
+        self.assertNotIn("secretStep", body)  # no card before the operator's choice
+        options = body["choiceStep"]["options"]
+        self.assertEqual(
+            [(option["id"], option["label"], option["default"]) for option in options],
+            [
+                ("doppler", "Doppler Service Token", True),
+                ("manual", "Enter exchange API credentials manually", False),
+            ],
+        )
         self.assertEqual(
             body["resume"],
             {
@@ -253,19 +263,28 @@ class AddressTests(NativeTestCase):
                 "arguments": {"exchange": "binance", "coin": "USDT", "network": "BSC"},
             },
         )
+        self.assertTrue(body["userStep"].startswith("Only on a host without"))
+        self.assertEqual(self.daemon_pids(), [])  # nothing starts before a selection
+
+        chosen, is_error = choose(host, body, "doppler")
+        self.assertFalse(is_error, chosen)
+        step = chosen["secretStep"]
+        self.assertEqual(step["hostTool"], "request_secret")
+        self.assertEqual(step["request"]["delivery"], "file")
+        self.assertEqual(step["request"]["label"], "Doppler Service Token")
+        self.assertIn("BINANCE_APIKEY, BINANCE_SECRET", step["request"]["reason"])
         # No "tell me when you are done" round trip: the step continues on its own.
         self.assertIn(
-            "Do not ask the user to confirm they are done or to run anything.", body["secretStep"]["rules"]
+            "Do not ask the user to run a command, write a file or say they are done.", step["rules"][3]
         )
-        self.assertNotIn("say they are done", json.dumps(body["secretStep"], ensure_ascii=False))
-        self.assertTrue(body["userStep"].startswith("Only on a host without"))
 
-        path = self.card()
-        unlocked = run_then(step, path, self.env)
-        self.assertTrue(unlocked["ok"], unlocked)
+        unlocked, is_error, path = submit_card(host, self.tmp, step, TOKEN)
+        self.assertFalse(is_error, unlocked)
+        self.assertEqual(unlocked["status"], "ready")
+        self.assertEqual(unlocked["doppler"], {"project": "fundkit-test", "config": "prd"})
         self.assertFalse(path.exists())
 
-        body, is_error, result = host.tool_full(body["resume"]["tool"], body["resume"]["arguments"])
+        body, is_error, result = resume(host, unlocked)
         self.assertFalse(is_error, body)
         self.assertEqual(body["status"], "verified")
         self.assertEqual(body["address"], BINANCE_BSC)

@@ -189,17 +189,29 @@ def t3_secret_file(root: Path, value: str) -> Path:
     return path
 
 
-def run_then(step: dict, path: Path, env: dict) -> dict:
-    """Run a secretStep's `then` command with the card's path, as the agent's shell would."""
-    command = step["then"].replace("<FILE>", str(path))
-    result = subprocess.run(
-        ["sh", "-c", command], env=env, capture_output=True, text=True, timeout=60, check=False
-    )
-    lines = [line for line in result.stdout.splitlines() if line.strip()]
-    body = json.loads(lines[-1]) if lines else {}
-    body["_stderr"] = result.stderr
-    body["_status"] = result.returncode
-    return body
+# --------------------------------------------------------------------------- the agent's steps
+def choose(host: Host, body: dict, option: str) -> tuple[object, bool]:
+    """The operator selected `option` in the host's selector; the agent calls that option's `then`."""
+    chosen = next(item for item in body["choiceStep"]["options"] if item["id"] == option)
+    return host.tool(chosen["then"]["tool"], chosen["then"]["arguments"])
+
+
+def submit_card(host: Host, root: Path, step: dict, value: str) -> tuple[object, bool, Path]:
+    """The card returned a file with `value`; the agent passes only its path to `submit`."""
+    path = t3_secret_file(root, value)
+    submit = step["submit"]
+    body, is_error = host.tool(submit["tool"], {**submit["arguments"], "file": str(path)})
+    return body, is_error, path
+
+
+def cancel_card(host: Host, step: dict) -> tuple[object, bool]:
+    """The card was cancelled, dismissed or timed out."""
+    return host.tool(step["ifCancelled"]["tool"], step["ifCancelled"]["arguments"])
+
+
+def resume(host: Host, body: dict) -> tuple[dict, bool, dict]:
+    """Repeat the original request as `resume` names it."""
+    return host.tool_full(body["resume"]["tool"], body["resume"]["arguments"])
 
 
 # --------------------------------------------------------------------------- T3 approval cards
