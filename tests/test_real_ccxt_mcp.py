@@ -22,11 +22,13 @@ from pathlib import Path
 from tests.native_support import T3Host, t3_secret_file
 from tests.support import (
     DOPPLER_CONFIG,
+    EXCHANGES,
     NODE,
     PASSPHRASES,
     ROOT,
     TOKEN,
     SessionTestCase,
+    doppler_names,
     key_check,
     sha256,
     wait_for,
@@ -172,6 +174,47 @@ class RealCcxtMcpTests(SessionTestCase):
         denied = dict(write, alias="bybit-dst", arguments=withdraw_args("bybit-dst", 5))
         body, _ = host.tool("fundkit_write", denied)
         self.assertEqual(body["error"], "ROLE_DENIED")
+
+    def pinned_ccxt_ids(self) -> list[str]:
+        entry = Path(json.loads((self.home / "real-ccxt-paths.json").read_text())["ccxtEntry"])
+        script = (
+            f"const c = await import({json.dumps(entry.as_uri())});"
+            "console.log(JSON.stringify(Object.keys(c.exchanges)));"
+        )
+        result = subprocess.run(
+            [NODE, "--input-type=module", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+        return json.loads(result.stdout)
+
+    def test_every_other_ccxt_venue_is_refused_before_secrets_or_a_server(self):
+        catalog = self.pinned_ccxt_ids()
+        self.assertLessEqual(set(EXCHANGES), set(catalog))
+        unlisted = sorted(set(catalog) - set(EXCHANGES))
+        self.assertIn("hyperliquid", unlisted)  # watch-only: never a fundkit session profile
+        # External registrations: Doppler names exist for every venue fundkit does not list.
+        for venue in unlisted:
+            for name in doppler_names(venue):
+                self.doppler.config[name] = f"SYNTH-{name}"
+        self.session("--writes", "--max-transfer", "300")
+        host = self.host()
+        for venue in unlisted:
+            with self.subTest(venue=venue):
+                for role in ("source", "deposit-only", "settlement"):
+                    body, is_error = host.tool("fundkit_connect", {"exchange": venue, "role": role})
+                    self.assertTrue(is_error)
+                    self.assertEqual(body["error"], "UNKNOWN_EXCHANGE")
+                alias = f"{venue}-src"
+                body, is_error = host.tool(
+                    "fundkit_write", {"alias": alias, "tool": "withdraw", "arguments": withdraw_args(alias)}
+                )
+                self.assertEqual((is_error, body["error"]), (True, "UNKNOWN_ALIAS"))
+        self.assertEqual(self.doppler.secret_requests(), [])
+        self.assertEqual(recorder_pids(), [])
+        self.assertEqual(self.wire(), [])
 
     def test_real_server_end_to_end(self):
         terminal = self.session("--passphrase", "okx", passphrases={"okx": PASSPHRASES["okx"]})

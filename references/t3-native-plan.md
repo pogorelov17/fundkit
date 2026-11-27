@@ -155,7 +155,7 @@ for this revision:
 1. `lib/venues/minimum.mjs`: drop the 1 USDT operator fallback. A healthy read with no
    published minimum gives `{value: null, basis: "venue-unpublished", venueMinimum: "unknown"}`
    and `depositMin: null`. The amount check then requires only a positive conservative credit;
-   a published minimum (0 included) is enforced inclusively. The same rule for all nine
+   a published minimum (0 included) is enforced inclusively. The same rule for all eight
    destinations, USDT only.
 2. Binance `depositDust`: no constant to compare with any more. It is never the minimum and
    never shown as one. An unreadable value holds as an unhealthy response; a readable value
@@ -186,7 +186,7 @@ for this revision:
 
 - **Destination deposit minimum.** Binance documents no API deposit minimum on any chain
   (`depositDust` has no documented meaning; [recipients.md](recipients.md#binance)). Fundkit
-  sets no minimum of its own for any of the nine destinations
+  sets no minimum of its own for any of the eight destinations
   ([rule](deposit-minimum.md)). Where the destination's healthy lookup publishes none, the plan
   records the venue minimum as **unknown** (never 0 and never a credit guarantee), the plan and
   the card say `venue minimum unknown`, and any positive expected credit after fees qualifies,
@@ -203,7 +203,7 @@ for this revision:
   exact message; every confirmation message carries the plan id and hash, so no cached grant
   ever matches another transfer.
 - **Native venues.** `fundkit_deposit_address` and the transfer tools support Binance and
-  Bybit natively in this change. The other seven venues return `VENUE_NOT_NATIVE` with the
+  Bybit natively in this change. The other six venues return `VENUE_NOT_NATIVE` with the
   reason; their documented manual reads in [SKILL.md](../SKILL.md) are unchanged.
 - **Inline images.** T3 renders Markdown images with absolute paths. Whether a given T3
   build also renders MCP `image` content in tool results is not relied on; the tool returns
@@ -212,7 +212,7 @@ for this revision:
   requires it for the account's entity (Bybit KR/IN/TR/KZ/ID/AE, regional Binance entities),
   the exchange rejects the withdrawal before sending; the plan says so.
 
-## Key rights (all nine venues)
+## Key rights (all eight venues)
 
 One Doppler config, exactly `<EXCHANGE>_APIKEY` and `<EXCHANGE>_SECRET` per exchange. The same
 key serves reads and withdrawals; fundkit enforces the local role on every call, including
@@ -237,7 +237,7 @@ passphrase; Bybit main-account key for deposit addresses).
 6. Daemon plan profiles: per-plan cap, one forwarded money call bound to the plan hash;
    persistent plan journal under `~/.local/state/fundkit/plans` (no secrets).
 7. SKILL.md, README.md, security.md, prompts.md: T3 flows first, key-rights wording across
-   the nine venues, honest host matrix.
+   the eight venues, honest host matrix.
 8. Tests (offline, synthetic): see Acceptance.
 
 ## Acceptance
@@ -286,7 +286,7 @@ Manual (parent agent, real T3 on Hetzner): see
 | Binance BSC address parse and GET-only reads | real pinned ccxt-mcp, recorder transport, `unshare -rn` | proven offline |
 | Plan card matches ccxt-mcp's real form; approval passes the real gate; one POST at most | real pinned ccxt-mcp, recorder refuses the POST | proven offline |
 | No Fundkit minimum on Binance as B (venue minimum unknown on the card, recheck, sub-1 and smallest-unit credits, zero or negative credit holds), Bybit's own `depositMin` first | fake ccxt-mcp end to end; real pinned ccxt-mcp for the card, a sub-1 plan, the recheck and Cancel | proven offline (Binance and Bybit only) |
-| Same rule on the other seven venues as B | documented agent flow; policy table checked at function level | not run end to end |
+| Same rule on the other six venues as B | documented agent flow; policy table checked at function level | not run end to end |
 | Any coin but USDT refused with zero reads and writes | fake: no Doppler secret request, no profile, no call; real server: zero wire requests | proven offline |
 | T3 cannot answer ccxt-mcp's raw form; can answer the plan card | read from T3's `toMcpElicitationResponse` and emulated | read, not run |
 | Inline QR renders in T3; the card renders the message in full | UAT 1 and 3 | not yet shown |

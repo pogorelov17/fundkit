@@ -2,7 +2,7 @@
 name: usdt-funding
 description: >-
   Plan and semi-automatically execute USDT moves between centralized exchanges (Binance,
-  Bybit, Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin) through the pinned ccxt-mcp 0.1.3
+  Bybit, Gate, OKX, Bitget, WhiteBIT, MEXC, KuCoin) through the pinned ccxt-mcp 0.1.3
   server (ccxt 4.5.85), top-ups from any self-custody wallet (mobile, desktop or hardware) to an
   exchange address read from the operator's own account, and watch-only Hyperliquid margin checks. Use whenever the user wants to move,
   send, transfer, withdraw, top up or fund USDT between exchanges or wallets, in any language
@@ -161,7 +161,7 @@ manual flows below only if the user asks for them.
    the [outbound withdraw table](references/exchanges.md#outbound-withdraw). Pass `network` at
    the top level and the memo only in `tag`. Put exactly what the table requires for that
    exchange into `params`: `fee` for OKX, `accountType` for Bybit, `uta` for Bitget,
-   `walletType` for Binance, `type: "fund"` for BingX, `{}` for the rest. Any other key (`chain`, `network`, `includeFee` and so on) goes to the exchange
+   `walletType` for Binance, `{}` for the rest. Any other key (`chain`, `network`, `includeFee` and so on) goes to the exchange
    and overrides the request, and it is visible neither in the preview nor in the form. For
    example, `params.chain` on Bybit replaced BSC with ETH (verified). If the pair is not in the
    table, or the exchange is marked "manual only", the human withdraws in the exchange UI.
@@ -424,7 +424,7 @@ For each server involved:
    environment, `configPath`, `journal` and role. Later chats compare those fields against that
    record without opening the exchange. Any difference is a stop. An account UID in an older
    setup record is ignored: never compare it and never ask for it. One key per exchange may
-   serve every role, on all nine venues: a deposit-only profile on a write-enabled key is
+   serve every role, on all eight venues: a deposit-only profile on a write-enabled key is
    deposit-only because of its role (fundkit's allowlists on a session profile, `dryRun: true`
    and the skill's read-only calls on a registered one), not because of the key. Report the
    key's real rights ("withdrawal right present; deposit-only enforced locally"), never
@@ -467,8 +467,7 @@ sends, from their own wallet and signing there, using the checked sheet.
    "no data", not "network disabled". The deposit fee `d` comes from a live field or the
    venue's documented policy in the
    [destination status table](references/recipients.md#status-by-destination-venue), so the
-   human does not open the exchange for it. BingX's minimum is the chosen chain's live
-   `depositMin`, which BingX's API docs define as "Minimum deposit amount". Where B publishes
+   human does not open the exchange for it. Where B publishes
    no applicable deposit minimum (Binance and MEXC; Gate unless the address response lists the
    chosen chain alone; any venue whose minimum field is absent), the minimum is
    [unknown](#destination-deposit-minimum): the sheet says so with the recommendation to
@@ -489,7 +488,7 @@ sends, from their own wallet and signing there, using the checked sheet.
    contracts.
 4. **Deposit address and memo.** Read them from the operator's own destination account with
    the venue's [native recipient read](references/recipients.md) (for Bybit, the
-   [Bybit deposit address](#bybit-deposit-address) flow). Each of the nine exchanges has such a
+   [Bybit deposit address](#bybit-deposit-address) flow). Each of the eight exchanges has such a
    read; whether the network qualifies is decided by the gates in the
    [status table](references/recipients.md#status-by-destination-venue).
    The human does not open the exchange. Only if the user chooses the manual path do they
@@ -583,7 +582,7 @@ Match what you see:
 | `configProblems` names the account, or says `REFUSED (strictPermissions)` | Fix the config as the message says (`"funds": "live"` needs `maxTransferValue`; `"funds": true` is sandbox only; `chmod 600` the file); restart |
 | `TIER_DISABLED` on a recipient read | Recipient reads need `"funds": "live"` and a `maxTransferValue` in the profile; restart |
 | `AUTH_FAILED` with `requires "apiKey"`, `"secret"` or `"password"` credential | This server process received no such credential. Scheme C: add the field (`apiKey`, `secret`, and for OKX, Bitget and KuCoin also `password`, the API passphrase) to that profile's `config.json`. Schemes A and B: set the [variables](references/security.md#venue-profiles) where the server is launched (Codex: also list them in `env_vars`). Restart the host, start a new chat |
-| `AUTH_FAILED`, `EXCHANGE_ERROR` or `BAD_REQUEST` quoting the venue's key error (Binance `-2015`, OKX `50120`, Bitget `40014`, KuCoin `400007`, BingX `100413`, MEXC `10072`, Gate `FORBIDDEN`, WhiteBIT `unauthorized`) | The exchange rejected the key or its permission for this read: check the key's rights, IP binding and passphrase against the [venue profile](references/security.md#venue-profiles); replace the key if needed |
+| `AUTH_FAILED`, `EXCHANGE_ERROR` or `BAD_REQUEST` quoting the venue's key error (Binance `-2015`, OKX `50120`, Bitget `40014`, KuCoin `400007`, MEXC `10072`, Gate `FORBIDDEN`, WhiteBIT `unauthorized`) | The exchange rejected the key or its permission for this read: check the key's rights, IP binding and passphrase against the [venue profile](references/security.md#venue-profiles); replace the key if needed |
 | a key check shows a withdrawal right on a deposit-only profile | Not a problem: report it as shown; the role keeps the profile to reads |
 | a key check shows no withdrawal right on a source profile that must withdraw | Stop the withdrawal: say exactly that this exchange's key cannot withdraw. Reads continue |
 | any other error | Quote the code and message; do not guess the cause |
@@ -709,8 +708,8 @@ fact is missing, and those routes hold. Without a B profile in this session (sch
   fields alone.
 - **Venue-specific setup** (one-time, only some routes): a whitelist entry in the setup record
   (every source except Binance and Gate, which have a saved-address read), an entity line
-  (Binance, Bybit, OKX and BingX sources, WhiteBIT either side), a key-rights or IP line where
-  no read shows it (Gate, MEXC, WhiteBIT), BingX permission-code meanings, provisioning consent
+  (Binance, Bybit and OKX sources, WhiteBIT either side), a key-rights or IP line where
+  no read shows it (Gate, MEXC, WhiteBIT), provisioning consent
   (Gate and WhiteBIT as B), the WhiteBIT contract pin.
 - **Per-plan facts** (only if the user opts in): a [human-read fact](#per-plan-human-read-facts).
 
@@ -762,14 +761,14 @@ because it passes these gates offline.
    for missing API fields. Check the full recipient and memo per rule 9.
    - **API withdrawal:** require a native form, API withdrawals enabled on A, and an
      [outbound table](references/exchanges.md#outbound-withdraw) entry whose wire value
-     matches A's live network ID (BingX: the live id must equal the code). B's full address
+     matches A's live network ID. B's full address
      and memo must be on A's withdrawal whitelist for that chain. Adding it is the operator's
      one-time 2FA step in A's security settings per destination address. Never ask for or
      attempt to bypass that step. The plan records the evidence from the
      [whitelist evidence table](references/exchanges.md#withdrawal-whitelist-evidence): the
      saved-address row on Binance and Gate, otherwise the setup record entry and its UTC, in
      both cases equal to the recipient character for character.
-     Binance, Bybit, OKX and BingX sources, and WhiteBIT accounts on either side, need the
+     Binance, Bybit and OKX sources, and WhiteBIT accounts on either side, need the
      venue's [entity line](references/exchanges.md#entity-lines) in the setup record. One rule
      for all of them: the venue's global platform label exactly, an ISO 3166-1 alpha-2
      jurisdiction that the venue's official page does not list, "not required", and the
@@ -809,7 +808,7 @@ the value holds for the next plan.
 
 #### Destination deposit minimum
 
-One rule for USDT deposits into every destination of the nine exchanges, at every entry point:
+One rule for USDT deposits into every destination of the eight exchanges, at every entry point:
 wallet top-ups (Scenario 1), API withdrawals (Scenario 2), manual withdrawals (2.9), the
 native `fundkit_deposit_address` and `fundkit_transfer_prepare` tools, which apply it by
 themselves ([full rule](references/deposit-minimum.md)). Fundkit sets **no minimum of its
@@ -917,7 +916,7 @@ Example (target credit): B must receive 300 USDT, `f = 1`, `d = 0`, model unconf
   needs `depQuotaFixed − usedDepQuotaFixed` of at least 1.02 × the upper bound of `C`.
   Exceeded or unreadable: hold.
 - **Entities.** The skill sends no travel-rule data: no Binance questionnaire, no OKX
-  `rcvrInfo`, no Bybit `beneficiary`, no BingX KYC=KOR fields. Each such source, and WhiteBIT
+  `rcvrInfo`, no Bybit `beneficiary`. Each such source, and WhiteBIT
   on either side, needs its [entity line](references/exchanges.md#entity-lines) under the one
   rule in 2.2; otherwise hold.
 - **Representable amounts (before plan approval).** Every call amount (`W` and each
@@ -954,7 +953,7 @@ Amount steps: currency <…>, network <…>, exchange <…> (<source>); W and tr
 Registrations: A <registration> / <alias> / <environment> / journal <path>; B <same>  (each equal to the setup record)
 B deposit: address <full address>, memo <none | exact memo>, source <native read: <venue> alias <B alias>, read <UTC> | B's UI, by the human>; address check <EVM format | TON OK>
 Whitelist on A: <saved-address row: <fields> | setup record <UTC>>, equal character for character; entity line: <venue label / jurisdiction, not required, evidence | n/a>
-Relies on: common setup <registration lines, interactive-form line>; venue-specific <whitelist entry | entity line | key rights or IP line | BingX codes | provisioning | WhiteBIT contract pin | none>; per-plan <B minimum or fee: value, source: human, <venue> deposit page, read <UTC> | none>
+Relies on: common setup <registration lines, interactive-form line>; venue-specific <whitelist entry | entity line | key rights or IP line | provisioning | WhiteBIT contract pin | none>; per-plan <B minimum or fee: value, source: human, <venue> deposit page, read <UTC> | none>
 B minimum: <<value> USDT, venue: <field>, read <UTC>; C_min ≥ minimum (inclusive) | Destination deposit minimum unknown. Fundkit recommends depositing at least 1 USDT. (C_min > 0) | <value> USDT, human: <venue> deposit page, read <UTC>; C_min ≥ minimum (inclusive)>
 Memo requirement: <required | not required | no published flag>; evidence <source, UTC>
 Bybit inbound cap: <batchReleaseLimit "-1" (unlimited), read <UTC> | n/a>
@@ -1045,7 +1044,7 @@ back as `UNKNOWN_OUTCOME` and cannot be told apart from a failure of the write i
   The ID is the `id` in the call's own response. It says which record is this step's, not
   that the step succeeded. Compare IDs only within the namespace the
   [transfer proof table](references/exchanges.md#transfer-proof) names. OKX `transId` is not
-  a `billId`, KuCoin `orderId` is not a ledger `id`, BingX `transferId` is not `tranId`, and
+  a `billId`, KuCoin `orderId` is not a ledger `id`, and
   a withdrawal ID on A is not a deposit ID on B.
   - **Withdrawal:** the record with that `id` in `fetchWithdrawals` (WhiteBIT: the
     `uniqueId` that ccxt generates and returns as `id`), status `ok`, with a hash.
@@ -1108,8 +1107,7 @@ back as `UNKNOWN_OUTCOME` and cannot be told apart from a failure of the write i
     record and B's deposit record) the asset must be USDT in the unified and the raw field, the
     unified network must be the plan's ccxt code and the raw chain field the venue's id for that
     chain (compare raw with raw ids, unified with unified codes), and the status terminal
-    success: unified `ok` **and** the venue's raw success value
-    (BingX: raw `status` `6` only, because ccxt maps BingX's "not credited" `1` to `ok`).
+    success: unified `ok` **and** the venue's raw success value.
     MEXC deposits: ccxt 4.5.85 derives the unified network from MEXC's long network string
     (`BSC` for BEP20, the raw string itself for TON), which is not a ccxt code; there the raw
     `network` must equal the config row's `network` string for the chosen chain, and the
@@ -1244,8 +1242,7 @@ expiry and a proof route (2.5) → `APPROVE <PLAN-ID>` → expiry check and rech
 and success status (2.7). With no API or operator proof route, the transfer is manual in the
 exchange UI. Take wallet names only from the [wallet table](references/exchanges.md#wallets-for-transfer).
 On Gate and Bitget, `funding` is an alias of `spot`, so `funding → spot` is meaningless
-there. On BingX, `future` is `stdFutures`, while USDT-M perpetual is `swap` or `linear`
-(`USDTMPerp`).
+there.
 
 ## Scenario 4. Hyperliquid margin monitoring (watch-only)
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import socket
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -18,13 +19,16 @@ from tests.support import (
     DOPPLER_CONFIG,
     EXCHANGES,
     METADATA_NAMES,
+    NODE,
     PASSPHRASE_EXCHANGES,
     PASSPHRASES,
+    ROOT,
     TOKEN,
     SessionTestCase,
     doppler_names,
     label,
     sha256,
+    withdraw_args,
 )
 
 
@@ -35,16 +39,19 @@ def passphrase_prompt(exchange: str) -> str:
 class DopplerNameTests(SessionTestCase):
     def test_every_route_needs_exactly_the_two_plain_names(self):
         host = self.host()
+        routes = 0
         for source in EXCHANGES:
             for destination in EXCHANGES:
                 if source == destination:
                     continue
+                routes += 1
                 body, _ = host.tool("fundkit_profiles", {"from": source, "to": destination})
                 for need in body["needs"]:
                     with self.subTest(source=source, destination=destination, role=need["role"]):
                         self.assertEqual(need["dopplerNames"], doppler_names(need["exchange"]))
                         has_passphrase = "passphrase" in need
                         self.assertEqual(has_passphrase, need["exchange"] in PASSPHRASE_EXCHANGES)
+        self.assertEqual(routes, len(EXCHANGES) * (len(EXCHANGES) - 1))  # 56 directed CEX pairs
         body, _ = host.tool("fundkit_profiles")
         self.assertIn("<EXCHANGE>_APIKEY and <EXCHANGE>_SECRET", body["naming"])
         self.assertEqual(self.doppler.requests, [])  # route planning needs no session
@@ -111,6 +118,167 @@ class DopplerNameTests(SessionTestCase):
         body, _ = host.tool("fundkit_connect", {"exchange": "okx", "role": "admin"})
         self.assertEqual(body["error"], "UNKNOWN_ROLE")
         self.assertEqual(self.doppler.secret_requests(), [])
+
+
+# Venues fundkit does not serve: other ccxt ids, near misses of supported ids, an alias used as an
+# exchange name, and the watch-only Hyperliquid. Supported ones are matched exactly, not by prefix.
+UNLISTED_VENUES = [
+    "kraken",
+    "htx",
+    "binanceus",
+    "okxus",
+    "Binance US",
+    "okx-src",
+    "gate.io.example",
+    "hyperliquid",
+]
+LABELS = {
+    "binance": "Binance",
+    "bybit": "Bybit",
+    "gate": "Gate",
+    "okx": "OKX",
+    "bitget": "Bitget",
+    "whitebit": "WhiteBIT",
+    "mexc": "MEXC",
+    "kucoin": "KuCoin",
+}
+
+
+def venue_registries() -> dict:
+    """The venue registries of lib/, evaluated in node."""
+    modules = {
+        name: (ROOT / "lib" / path).as_uri()
+        for name, path in [("e", "exchanges.mjs"), ("m", "venues/minimum.mjs"), ("p", "policy.mjs")]
+    }
+    script = (
+        "".join(f"const {name} = await import({json.dumps(uri)});" for name, uri in modules.items())
+        + f"const unlisted = {json.dumps(UNLISTED_VENUES)};"
+        "const ids = Object.keys(e.EXCHANGES);"
+        "const minimum = (v) => { try { m.resolveMinimum({ exchange: v, coin: 'USDT',"
+        "  networkLabel: 'x', published: { present: false }, field: 'f' }); return 'resolved'; }"
+        "  catch (err) { return err.code; } };"
+        "console.log(JSON.stringify({"
+        "  ids, labels: Object.fromEntries(ids.map((v) => [v, e.exchangeLabel(v)])),"
+        "  passphrase: e.PASSPHRASE_EXCHANGES, destinations: Object.keys(m.DESTINATIONS),"
+        "  keyCheck: ids.filter((v) => p.hasKeyCheck(v)),"
+        "  spellings: Object.fromEntries(ids.flatMap((v) => [v, v.toUpperCase(), ` ${e.exchangeLabel(v)} `]"
+        "    .map((s) => [s, e.normalizeExchange(s)]))),"
+        "  synonyms: ['gate.io', 'gateio', 'kucoin.com', 'binance.com'].map((s) => e.normalizeExchange(s)),"
+        "  unlisted: unlisted.map((v) => [e.normalizeExchange(v), p.hasKeyCheck(v), minimum(v)]),"
+        "}));"
+    )
+    result = subprocess.run(
+        [NODE, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=30, check=True
+    )
+    return json.loads(result.stdout)
+
+
+class SupportedVenueTests(SessionTestCase):
+    """Fundkit serves exactly the eight CEX venues; any other is refused before a secret or a call."""
+
+    def test_the_registries_hold_exactly_the_supported_venues(self):
+        registries = venue_registries()
+        self.assertEqual(registries["ids"], EXCHANGES)
+        self.assertEqual(registries["labels"], LABELS)
+        self.assertEqual(registries["passphrase"], PASSPHRASE_EXCHANGES)
+        self.assertEqual(sorted(registries["destinations"]), sorted(EXCHANGES))
+        self.assertEqual(registries["keyCheck"], [v for v in EXCHANGES if v != "whitebit"])
+        for spelling, exchange in registries["spellings"].items():
+            with self.subTest(spelling=spelling):
+                self.assertEqual(exchange, spelling.strip().lower())
+        self.assertEqual(registries["synonyms"], ["gate", "gate", "kucoin", "binance"])
+        for venue, (exchange, key_check, minimum) in zip(
+            UNLISTED_VENUES, registries["unlisted"], strict=True
+        ):
+            with self.subTest(venue=venue):
+                self.assertEqual((exchange, key_check, minimum), (None, False, "VENUE_NOT_SUPPORTED"))
+
+    def test_session_options_and_the_passphrase_command_refuse_unlisted_venues(self):
+        for venue in UNLISTED_VENUES:
+            with self.subTest(venue=venue):
+                for option, allowed in (
+                    ("--passphrase", "okx, bitget, kucoin"),
+                    ("--allow-provisioning", "gate, whitebit"),
+                ):
+                    terminal = self.terminal("session", option, venue)
+                    self.assertEqual(terminal.wait(), 2)
+                    self.assertIn(f"{option} accepts {allowed}", terminal.text)
+                terminal = self.terminal("passphrase", venue)
+                self.assertEqual(terminal.wait(), 2)
+                self.assertIn("usage: fundkit passphrase <okx|bitget|kucoin>", terminal.text)
+        self.assertEqual(self.doppler.requests, [])
+
+    def test_unlisted_venues_and_external_registrations_are_refused_before_secrets_or_calls(self):
+        # An external registration: Doppler names for an unlisted venue, and a ccxt-mcp profile for it
+        # left in the run directory by something other than this session.
+        for venue in ("kraken", "htx"):
+            for name in doppler_names(venue):
+                self.doppler.config[name] = f"SYNTH-{name}"
+        self.session("--writes", "--max-transfer", "300")
+        stale = self.run_dir / "profiles" / "kraken-src"
+        stale.mkdir(parents=True, mode=0o700)
+        (stale / "config.json").write_text(
+            json.dumps(
+                {"accounts": {"kraken-src": {"exchange": "kraken", "apiKey": "SYNTH", "secret": "SYNTH"}}}
+            )
+        )
+        host = self.host()
+        for venue in UNLISTED_VENUES:
+            for role in ("source", "deposit-only", "settlement"):
+                with self.subTest(venue=venue, role=role):
+                    body, is_error = host.tool("fundkit_connect", {"exchange": venue, "role": role})
+                    self.assertTrue(is_error)
+                    self.assertEqual(body["error"], "UNKNOWN_EXCHANGE")
+            with self.subTest(venue=venue, tool="fundkit_profiles"):
+                body, _ = host.tool("fundkit_profiles", {"from": venue, "to": "binance"})
+                unlisted = body["needs"][0]
+                self.assertEqual((unlisted["exchange"], unlisted["error"]), (venue, "unsupported exchange"))
+                self.assertNotIn("dopplerNames", unlisted)
+                self.assertEqual({need.get("exchange") for need in body["needs"][1:]}, {"binance"})
+        self.assertEqual(self.doppler.secret_requests(), [])
+
+        # Calls addressed to the unregistered alias, or to another venue through a connected profile.
+        _, is_error = host.tool("fundkit_connect", {"exchange": "binance", "role": "source"})
+        self.assertFalse(is_error)
+        for channel, tool, arguments in [
+            ("fundkit_read", "get_balance", {"account": "kraken-src"}),
+            (
+                "fundkit_read",
+                "call_implicit_get",
+                {"exchange": "kraken", "account": "kraken-src", "method": "x"},
+            ),
+            ("fundkit_write", "withdraw", withdraw_args("kraken-src")),
+        ]:
+            with self.subTest(channel=channel, tool=tool):
+                body, is_error = host.tool(
+                    channel, {"alias": "kraken-src", "tool": tool, "arguments": arguments}
+                )
+                self.assertTrue(is_error)
+                self.assertEqual(body["error"], "UNKNOWN_ALIAS")
+        for arguments, code in [
+            ({"exchange": "kraken", "account": "binance-src", "method": "fetchBalance"}, "WRONG_EXCHANGE"),
+            ({"exchange": "binance", "account": "kraken-src", "method": "fetchBalance"}, "WRONG_ACCOUNT"),
+        ]:
+            with self.subTest(code=code):
+                body, is_error = host.tool(
+                    "fundkit_read",
+                    {"alias": "binance-src", "tool": "call_read_method", "arguments": arguments},
+                )
+                self.assertTrue(is_error)
+                self.assertEqual(body["error"], code)
+        body, is_error = host.tool(
+            "fundkit_write",
+            {"alias": "binance-src", "tool": "withdraw", "arguments": withdraw_args("kraken-src")},
+        )
+        self.assertTrue(is_error)
+        self.assertEqual(body["error"], "WRONG_ACCOUNT")
+
+        self.assertEqual(self.doppler.secret_requests(), [doppler_names("binance")])
+        self.assertEqual(set(self.starts()), {"binance-src"})
+        self.assertEqual(
+            [c for c in self.calls() if c["name"] not in ("get_safety_status", "list_accounts")], []
+        )
+        self.assertEqual(self.events("dispatch"), [])
 
 
 class PassphraseTests(SessionTestCase):

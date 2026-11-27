@@ -92,7 +92,7 @@ English, so the agent shows the plan in your language in the chat just before th
 > line is in the plan message before the confirmation card and on the card itself, and the
 > address and QR lookup gives the same advice. Any positive credit after fees is planned,
 > 0.5 USDT included, as long as every other read of that exchange is verified and healthy. The
-> rule is the same for all nine exchanges, for transfers and for top-ups from any wallet.
+> rule is the same for all eight exchanges, for transfers and for top-ups from any wallet.
 > fundkit is USDT only: any other coin is refused. A minimum the exchange publishes, 0
 > included, is enforced. A malformed or contradicted one holds, and a native plan with an
 > unknown minimum is read again before the card and after the approval
@@ -136,7 +136,6 @@ GATE_APIKEY      GATE_SECRET
 OKX_APIKEY       OKX_SECRET
 BITGET_APIKEY    BITGET_SECRET
 WHITEBIT_APIKEY  WHITEBIT_SECRET
-BINGX_APIKEY     BINGX_SECRET
 MEXC_APIKEY      MEXC_SECRET
 KUCOIN_APIKEY    KUCOIN_SECRET
 ```
@@ -193,7 +192,7 @@ operator sets up:
 1. **Server.** Install the pinned server ([install](references/ccxt-mcp.md#install)) and create
    one `config.json` per account, starting with `"dryRun": true`
    ([venue profiles](references/security.md#venue-profiles): credential fields, variable names
-   and key rights for all nine exchanges).
+   and key rights for all eight exchanges).
 2. **Host.** Register one server per profile and pick a launch scheme. Scheme C keeps each
    account's key in its own `chmod 600` profile file, so exchange A and exchange B are both
    connected in one session
@@ -212,13 +211,13 @@ set it up ([loading the skill](references/security.md#loading-the-skill)).
 **Native tools** (fundkit server; USDT only, on TRC20, BEP20/BSC, ERC20 and TON; any other coin,
 USDC included, is refused with `UNSUPPORTED_COIN` before anything is read):
 
-| | Binance | Bybit | Gate, OKX, Bitget, WhiteBIT, BingX, MEXC, KuCoin |
+| | Binance | Bybit | Gate, OKX, Bitget, WhiteBIT, MEXC, KuCoin |
 | --- | --- | --- | --- |
 | Deposit address with QR | ✓ | ✓ | `VENUE_NOT_NATIVE` |
 | Transfer, as source | ✓ | ✓ | `VENUE_NOT_NATIVE` |
 | Transfer, as destination | ✓ minimum unknown: no Fundkit minimum, advice only ([rule](references/deposit-minimum.md)) | ✓ Bybit's `depositMin`; unknown only when the field is absent | `VENUE_NOT_NATIVE` |
 
-**Documented flows** ([`SKILL.md`](SKILL.md), all nine exchanges), used when you ask for them:
+**Documented flows** ([`SKILL.md`](SKILL.md), all eight exchanges), used when you ask for them:
 
 - **Wallet → exchange**, from any compatible wallet (mobile, desktop or hardware). The agent
   picks a network from live data and reads the address and memo from your own account; you

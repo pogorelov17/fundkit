@@ -1144,7 +1144,7 @@ class AddressMinimumTests(MinimumTestCase):
 
 
 # =========================================================================== the policy, USDT only
-VENUES = ["binance", "bybit", "okx", "bitget", "gate", "kucoin", "mexc", "bingx", "whitebit"]
+VENUES = ["binance", "bybit", "okx", "bitget", "gate", "kucoin", "mexc", "whitebit"]
 # Requests fundkit refuses before a session, a read or a write: it supports USDT only.
 REFUSED_COINS = ["USDC", "usdc", " USDC ", "DAI", "", "USDT-BSC", 5]
 
@@ -1152,7 +1152,7 @@ REFUSED_COINS = ["USDC", "usdc", " USDC ", "DAI", "", "USDT-BSC", 5]
 class DepositMinimumPolicyTests(MinimumTestCase):
     """No Fundkit minimum: USDT deposits into every supported CEX destination."""
 
-    def test_policy_matrix_nine_venues_usdt_only(self):
+    def test_policy_matrix_eight_venues_usdt_only(self):
         outcome = minimum_js(
             f"const venues = {json.dumps(VENUES)};"
             "const label = 'Ethereum (ERC20)';"

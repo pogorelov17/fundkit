@@ -21,7 +21,6 @@ one wallet**.
 | OKX (`okx`) | `funding`→6 · `trading`,`spot`,`swap`,`future`,`futures`,`margin`,`option`→18 (trading) |
 | Bitget (`bitget`) | **`funding`,`spot`→spot** · `swap`→usdt_futures (USDT-M) · `usdc_swap`→usdc_futures · `future`→coin_futures (**not** USDT-M) · `cross`→crossed_margin · `isolated`→isolated_margin · `p2p` · `uta`,`unified`→uta |
 | WhiteBIT (`whitebit`) | `funding`,`main`→main · `spot`,`trade`→spot · `margin`→collateral |
-| BingX (`bingx`) | `funding`→fund · `spot`→spot · **`future`→stdFutures** (standard futures) · **`swap`,`linear`→USDTMPerp** (USDT-M perpetual) · `inverse`→coinMPerp |
 | MEXC (`mexc`) | `spot`→SPOT · `swap`,`future`→FUTURES (mapped inside `transfer`; offline request verified) |
 | KuCoin (`kucoin`) | `funding`,`main`→main · `spot`→trade · `hf`→trade_hf · `margin`,`cross`,`marginV2`→margin · `isolated` · `future`,`swap`,`contract`→contract · `uta`,`unified`→unified · `mining`→pool |
 | Hyperliquid | not used (watch-only) |
@@ -45,12 +44,11 @@ on a real account are an account test.
 | Bybit | `call_read_method … fetchDepositWithdrawFee ["USDT"] includeInfo` with the Bybit alias | `info.remainAmount` (maximum per withdrawal); `info.chains[]`: `chain`, `chainType`, `chainDeposit` (`1` normal, `0` suspended), `chainWithdraw`, `depositMin`, `withdrawMin`, `contractAddress` (full), `minAccuracy`, `withdrawFee`, `withdrawPercentageFee` (must be `0`); **no deposit fee** ([below](#bybit-deposit-address)). ccxt 4.5.85 sends no `feeType`, so Bybit's default applies (the entered amount is the amount received; the fee comes on top) | fields per Bybit's coin-info docs; offline; `AUTH_FAILED` without a key |
 | OKX | `call_implicit_get {"exchange":"okx","account":"<alias>","method":"privateGetAssetCurrencies","params":{"ccy":"USDT"}}` | one raw row per chain: `chain`, `canDep`, `canWd`, `minDep`, `minWd`, `maxWd` (per transaction), `wdQuota` and `usedWdQuota` (24 h, USD), `depQuotaFixed` and `usedDepQuotaFixed` (USD; empty = no deposit limit), `fee`, `burningFeeRate`, `wdTickSz`, `ctAddr`, `needTag` (OKX documents it as the withdrawal-side memo flag; on the deposit side it is a conservative cross-check, the address row is the evidence). Not `fetchDepositWithdrawFee`: its `info` keeps only the last chain's row (verified offline) | offline; key required |
 | Binance, MEXC | `fetchDepositWithdrawFee ["USDT"] includeInfo` | `info.networkList[]` (Binance: `withdrawEnable`, `withdrawFee`, `withdrawMin`, `withdrawIntegerMultiple`, `depositEnable`, `contractAddress`, `withdrawTag`; MEXC: `netWork`, `network`, `withdrawEnable`, `withdrawFee`, `withdrawMin`, `withdrawIntegerMultiple`, `depositEnable`, `contract`) | offline; `AUTH_FAILED` without a key |
-| BingX | same (`GET /openApi/wallets/v1/capital/config/getall`) | `info["<code>"].info`: `network`, `withdrawEnable`, `withdrawFee`, `withdrawMin`, `withdrawPrecision`, `depositEnable`, `depositMin` (BingX's [API docs](https://bingx-api.github.io/docs/#/en-us/common/wallet-api.html): "Minimum deposit amount", per network row), `contractAddress`, `needTagOrMemo` | offline; public response `null` |
-| all nine, recipient side | [native recipient reads](recipients.md) | address, memo, chain, landing wallet where returned; deposit fee and minimum sources per venue | offline |
+| all eight, recipient side | [native recipient reads](recipients.md) | address, memo, chain, landing wallet where returned; deposit fee and minimum sources per venue | offline |
 
 `fetchCurrencies` is not suitable for picking a network. For Gate, Bitget, WhiteBIT and
-KuCoin the whole response is replaced by the truncation marker, and Binance, Bybit, OKX, MEXC
-and BingX returned `{}` without a key.
+KuCoin the whole response is replaced by the truncation marker, and Binance, Bybit, OKX and MEXC
+returned `{}` without a key.
 
 ### Gate as recipient
 
@@ -124,10 +122,9 @@ responses unless noted:
 ## Outbound withdraw
 
 Verified offline with ccxt-mcp 0.1.3 and ccxt 4.5.85. The table shows what the exchange
-request actually contains for `network: "<code>"` and `tag`. For all venues except BingX, the
-value does not depend on live data: each code has a static mapping, and WhiteBIT passes the string
-unchanged. BingX maps the code through its live currency data, so its row has an extra identity
-condition. No other pairs qualify. `ARBONE` on every exchange depends on live data and is **not
+request actually contains for `network: "<code>"` and `tag`. The value does not depend on live
+data: each code has a static mapping, and WhiteBIT passes the string unchanged. No other pairs
+qualify. `ARBONE` on every exchange depends on live data and is **not
 verified**, so withdrawals there are manual only.
 
 | Exchange | `TRC20` | `BEP20` | `ERC20` | `TON` | memo is sent as | `params` (exactly) |
@@ -136,9 +133,8 @@ verified**, so withdrawals there are manual only.
 | Bybit | `chain=TRX` | `BSC` | `ETH` | `TON` | `tag` | `{"accountType":"FUND"}` or `{"accountType":"UTA"}`, the wallet holding the USDT; without it ccxt picks UTA or SPOT from its own mode query. No beneficiary data is sent: entities that require it hold |
 | Gate | `chain=TRX` | `BSC` | `ETH` | `TON` | `memo` | `{}` |
 | OKX | `chain=USDT-TRC20` | `USDT-BSC` | `USDT-ERC20` | `USDT-TON` | `toAddr=<address>:<memo>` | `{"fee":"<exact f>"}` (sent as `fee`; OKX's current reference lists no such parameter, so the server's use of it is unverified). No `rcvrInfo` is sent: entities that require it hold |
-| Bitget | `chain=TRC20` | `BSC`³ | `ERC20` | `TON` | `tag` | `{"uta":true}` or `{"uta":false}` per the verified mode; without it ccxt assumes classic on any probe error |
+| Bitget | `chain=TRC20` | `BSC`² | `ERC20` | `TON` | `tag` | `{"uta":true}` or `{"uta":false}` per the verified mode; without it ccxt assumes classic on any probe error |
 | WhiteBIT | `network=` the exact string passed: pass `<NET>` from the `"USDT (<NET>)"` key (`TRC20`, `BEP20`, `ERC20`, `TON`) | | | | `memo` | `{}`. The contract comes from the operator's pinned setup evidence ([recipients.md](recipients.md#whitebit)); routes from WhiteBIT still hold because its available amount is not visible ([account mode table](#account-mode-and-available-amount)) |
-| BingX | `network=TRC20`² | `BEP20`² | `ERC20`² | `TON`² | `addressTag` | `{"type":"fund"}`, sent as `walletType=1` (the fund account). Not `{"walletType":…}`: ccxt drops that key and sends its default `15` (verified) |
 | MEXC | `netWork=TRX` | `BSC`¹ | `ETH` | `TONCOIN`¹ | `memo` | `{}`; the amount goes out unrounded, so the step must come from a valid live `withdrawIntegerMultiple`; `null` (as in MEXC's reference example) holds that network only ([steps](#amount-steps)) |
 | KuCoin | `chain=trx` | `bsc` | `eth` | `ton` | `memo` | `{}`; `network` is required, without it the default chain is sent |
 
@@ -148,19 +144,7 @@ The outbound value must match that network's id in A's live response. Otherwise,
 `BNB Smart Chain(BEP20)`). The pair qualifies only if the id in A's live response is exactly
 `BSC` or `TONCOIN`; otherwise withdraw manually.
 
-² BingX: ccxt sends the network id it finds for the code in BingX's live currency list. The pair
-qualifies only if A's live `info["<code>"].info.network` equals the code itself (`BEP20` for
-`BEP20`, and so on). With an identity row, the request carries exactly that id (verified offline
-for `BEP20` and `TON`, with memo as `addressTag`). Any other live id holds the route. BingX's
-[wallet reference](https://github.com/bingx-api/api-ai-skills/blob/d40bcc6ab6e91ad7c2d801250425c2a973d2f95a/skills/spot-wallet/api-reference.md)
-documents `walletType` `1` fund, `2` standard futures and `3` perpetual futures. ccxt's default
-`15` is not among them. The reference also requires `vaspEntityId`, `recipientLastName`,
-`recipientFirstName` and `dateOfbirth` for KYC=KOR (Korean individual) accounts. The skill does
-not collect those, so a BingX source needs its [entity line](#entity-lines) with a jurisdiction
-other than KR; KR, or no line, holds. Proof: `fetchWithdrawals` with `params {"id":"<id>"}` (sent as `id`). Raw
-status `6` is completed, `4` under review and `5` failed.
-
-³ Bitget's live public coin list names that chain `BEP20`, not `BSC`, and no source shows that
+² Bitget's live public coin list names that chain `BEP20`, not `BSC`, and no source shows that
 Bitget accepts `BSC`. Bitget BEP20 **outbound** therefore holds: ccxt builds the withdrawal, and
 overriding its chain with `params` would be invisible in the form. Inbound Bitget BEP20 is
 native: the recipient read is Bitget's raw, funds-gated endpoint, sent with the live id `BEP20`
@@ -197,7 +181,6 @@ evidence alone.
 | Binance (A) | `Binance.com` | every EU member state (AT, BE, BG, HR, CY, CZ, DK, EE, FI, FR, DE, GR, HU, IE, IT, LV, LT, LU, MT, NL, PL, PT, RO, SK, SI, ES, SE), JP, KZ, NZ, BH, AE, IN, ZA, AU, BR | [withdraw questionnaire](https://developers.binance.com/docs/wallet/travel-rule/withdraw-questionnaire): local entities Japan, Kazakhstan, New Zealand, Bahrain, UAE, India, "EU(Poland,France)" with "For all the EU countries, please following the same questionnaire.", South Africa, Australia, Brazil. They withdraw through `/sapi/v1/localentity/withdraw/apply`, which ccxt 4.5.85 lacks (no `localentity` endpoint) |
 | Bybit (A) | `Bybit.com` | KR, IN, TR, KZ, ID, AE | [withdraw](https://bybit-exchange.github.io/docs/v5/asset/withdraw): `beneficiary` "required for kyc/kyb=KOR (Korean), kyc=IND (India) users", sub-fields required for TR, KZ and ID users and address fields for UAE users |
 | OKX (A) | `OKX.com` | none named | OKX withdrawal reference: `rcvrInfo` "For the specific entity users to do on-chain withdrawal/lightning withdrawal, this information is required"; no entity is named |
-| BingX (A) | `BingX.com` | KR | BingX wallet reference: `vaspEntityId`, recipient names and date of birth for KYC=KOR accounts |
 | WhiteBIT (A or B) | `WhiteBIT.com` | the EEA (EU members, IS, LI, NO) and TR | [compliance](https://docs.whitebit.com/institutional/compliance): EEA accounts cannot deposit or withdraw USDT since 2024-12-30; EEA and Turkey deposits can be frozen for the travel rule |
 
 So a Binance account in Italy or Germany holds even if the line says "not required" (verified
@@ -221,13 +204,12 @@ which rounds down.
 | OKX | unchanged | currency step |
 | Bitget | network step | unchanged, as a number |
 | WhiteBIT | currency step | currency step |
-| BingX | currency step (`currencyToPrecision` in ccxt 4.5.85 code; rounding not exercised offline, so require a multiple of `withdrawPrecision`) | currency step |
 | MEXC | unchanged, as a number; step only from a nonnull `withdrawIntegerMultiple`, otherwise unknown (hold) | unchanged, as a number |
 | KuCoin | network step, then as a number | currency step |
 
 ccxt takes the network step from an exchange field: Binance `withdrawIntegerMultiple`, Bybit
-`minAccuracy`, OKX `wdTickSz`, Bitget `withdrawMinScale`, BingX and KuCoin
-`withdrawPrecision`; Gate is hard-coded to `0.0001`, MEXC has none. The currency step is an
+`minAccuracy`, OKX `wdTickSz`, Bitget `withdrawMinScale`, KuCoin `withdrawPrecision`; Gate is
+hard-coded to `0.0001`, MEXC has none. The currency step is an
 explicit field (KuCoin `precision`, WhiteBIT `currency_precision`, Gate `0.0001`), otherwise
 the largest step among all USDT networks on that exchange. "Unchanged" does not remove the
 exchange's own step: you still need to know it
@@ -260,7 +242,6 @@ Account test. Read the mode and the available amount with unified methods and
 | OKX | `fetchAccounts` (raw `acctLv`) | raw `fetchBalance` `type: funding\|trading` | funding / funding |
 | Bitget | raw `fetchBalance` (classic or `uta`) | raw `fetchBalance` | spot / spot (`uta` from the plan) |
 | WhiteBIT | — | none: `fetchBalance` returns no raw `info` on WhiteBIT and the raw read is a POST (verified offline), so the available field is not visible: hold | main / main |
-| BingX | raw `fetchBalance` per wallet | raw `fetchBalance` `type: funding` (`data.assets[].free`) | fund / fund (`{"type":"fund"}`) |
 | MEXC | — | raw `fetchBalance` | spot / spot |
 | KuCoin | `fetchAccounts` (classic or UTA) | raw `fetchBalance` | main / main |
 
@@ -272,8 +253,8 @@ credit in B's deposit wallet → a separate plan in B's session for a B `transfe
 trading wallet ([SKILL.md, 2.8](../SKILL.md#28-settlement-on-b)). The deposit wallet column
 is typical only; where a deposit actually lands is confirmed in B's session.
 
-`fetchDeposits` and `fetchWithdrawals` exist on all nine exchanges; `fetchTransfers` is
-missing on Gate and WhiteBIT, and `fetchLedger` on WhiteBIT, BingX and MEXC. Only WhiteBIT has
+`fetchDeposits` and `fetchWithdrawals` exist on all eight exchanges; `fetchTransfers` is
+missing on Gate and WhiteBIT, and `fetchLedger` on WhiteBIT and MEXC. Only WhiteBIT has
 `certified: false`.
 
 ## Transfer proof
@@ -295,7 +276,6 @@ the field named here; the success value is the raw one (pending and failed value
 | OKX | `transId` | `null` | `fetchTransfer` `["<transId>","USDT"]` (`GET /asset/transfer-state`). Not `fetchTransfers`: it reads bills, whose `id` is a `billId`. Not found → every field `null` | `info.state: "success"` | API |
 | Bitget classic | `transferId` | `null` | `fetchTransfers` `["USDT",<since>,20]`, `params {"fromAccount":"<plan's fromAccount>"}` (sent as `fromType`). The transfer itself uses `params {"uta":false}`, which is not sent | `Successful` | API |
 | Bitget UTA | `transferId` (v3 UTA endpoint) | `null` | none: `fetchTransfers` reads only the classic v2 records | — | operator or manual |
-| BingX | `transferId`; the response also has `tranId`, a different field | `null` | `fetchTransfers` `["USDT",<since>,20]`, `params {"transferId":"<id>"}` (ccxt requires it, or both `fromAccount` and `toAccount`); the response is top-level `{total, rows}` | `CONFIRMED` | API |
 | MEXC | `tranId` | `null` | `fetchTransfers` `["USDT",<since>,20]`, `params {"fromAccountType":"<FROM>","toAccountType":"<TO>"}` (both required, raw `SPOT`/`FUTURES` of the planned direction). Not `fetchTransfer`: it queries `asset/internal/transfer/record` by `transact_id` | `SUCCESS` | API |
 | KuCoin | `orderId` | `ok`, filled in by ccxt from the request, not by the exchange | none: `fetchTransfers` reads account ledgers. Each entry has its own ledger `id` and no status; raw `context` may name the `orderId` (format unverified), so it is a candidate only | — | operator or manual |
 | Gate | `tx_id` (Gate returns it since API v4.78.0); an empty body gives `null`, and then there is no proof route: operator or manual | `null` | `call_implicit_get {"exchange":"gate","account":"<alias>","method":"privateWalletGetTransfers","params":{"tx_id":"<id>"}}` (`GET /wallet/transfers`, Gate v4.106.113, 2026-08-03). One record with `tx_id`, `currency`, `amount`, `from_account`, `to_account`. `fetchTransfers` itself returns `NOT_SUPPORTED` | `success` (`pending`, `fail`) | API |

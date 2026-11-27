@@ -390,7 +390,7 @@ class KeyCheckTests(SessionTestCase):
     def test_key_check_gates_without_any_uid_and_uid_only_reads_are_not_forwarded(self):
         self.session("--writes", "--max-transfer", "300")
         host = self.host()
-        for exchange in ("binance", "bingx", "mexc"):
+        for exchange in ("binance", "mexc"):
             host.tool("fundkit_connect", {"exchange": exchange, "role": "source"})
         binance = {"alias": "binance-src", "tool": "withdraw", "arguments": withdraw_args("binance-src")}
         body, _ = host.tool("fundkit_write", binance)
@@ -413,7 +413,6 @@ class KeyCheckTests(SessionTestCase):
         # The reads whose only purpose is the UID are not forwarded, on any venue that has one.
         for exchange, method in [
             ("binance", "privateGetAccount"),
-            ("bingx", "accountV1PrivateGetUid"),
             ("mexc", "spotPrivateGetUid"),
         ]:
             with self.subTest(exchange=exchange):
@@ -424,10 +423,10 @@ class KeyCheckTests(SessionTestCase):
                 )
                 self.assertEqual(body["error"], "NOT_FORWARDED")
                 self.assertIn("does not bind profiles to UIDs", body["message"])
-        uid_reads = {"privateGetAccount", "accountV1PrivateGetUid", "spotPrivateGetUid"}
+        uid_reads = {"privateGetAccount", "spotPrivateGetUid"}
         self.assertFalse([c for c in self.calls("call_implicit_get") if c["args"]["method"] in uid_reads])
-        # The permission reads are the key check there, and a money move then needs nothing more.
-        for exchange in ("bingx", "mexc"):
+        # The permission read is the key check there, and a money move then needs nothing more.
+        for exchange in ("mexc",):
             alias = f"{exchange}-src"
             _, is_error = host.tool("fundkit_read", key_check(exchange, alias))
             self.assertFalse(is_error)
@@ -435,7 +434,7 @@ class KeyCheckTests(SessionTestCase):
                 "fundkit_write", {"alias": alias, "tool": "withdraw", "arguments": withdraw_args(alias)}
             )
             self.assertFalse(is_error, body)
-        self.assertEqual(len(self.events("dispatch")), 3)
+        self.assertEqual(len(self.events("dispatch")), 2)
 
 
 class LimitsAndFormsTests(SessionTestCase):

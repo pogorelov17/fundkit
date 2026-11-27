@@ -1,7 +1,7 @@
 # Destination deposit minimum (USDT)
 
 The owner's rule: Fundkit sets **no deposit minimum of its own** for USDT deposits into any of
-the nine supported exchanges. Where the exchange publishes a minimum, that minimum is enforced.
+the eight supported exchanges. Where the exchange publishes a minimum, that minimum is enforced.
 Where it publishes none, the minimum is **unknown**: Fundkit says so, recommends depositing at
 least 1 USDT, and does not check against that figure. The rule covers wallet top-ups from any
 compatible wallet and exchange-to-exchange transfers, at every entry point: the native
@@ -94,7 +94,6 @@ Per venue, "publishes no applicable minimum" means:
 | Bybit       | `chains[].depositMin`                                                                | the field is absent from the chain row                                                                                   |
 | OKX         | `minDep` on the raw currency row                                                     | the field is absent                                                                                                      |
 | Bitget      | `minDepositAmount`                                                                   | the field is absent                                                                                                      |
-| BingX       | the chosen chain's `depositMin`                                                      | the field is absent from that row                                                                                        |
 | WhiteBIT    | `required.minAmount` on the address object                                           | the field is absent                                                                                                      |
 | KuCoin      | `depositMinSize`                                                                     | the field is `null` or absent (KuCoin's schema uses `null` for unset)                                                    |
 | MEXC        | none in the API (`depositTips` is free text)                                         | always                                                                                                                   |
@@ -104,10 +103,10 @@ Per venue, "publishes no applicable minimum" means:
 
 |                                     | USDT                                                                                                                                     |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Policy (this rule)                  | all nine destinations                                                                                                                    |
+| Policy (this rule)                  | all eight destinations                                                                                                                   |
 | Chains                              | TRC20, BEP20, ERC20, TON, at the reference contracts in [SKILL.md, Chains](../SKILL.md#chains)                                           |
-| Native tools (address, transfer)    | Binance, Bybit; the other seven return `VENUE_NOT_NATIVE`, as before                                                                     |
-| Documented nine-venue flows         | the agent applies this rule ([SKILL.md](../SKILL.md#destination-deposit-minimum)); wallet top-ups from any compatible wallet (Scenario 1) |
+| Native tools (address, transfer)    | Binance, Bybit; the other six return `VENUE_NOT_NATIVE`, as before                                                                       |
+| Documented eight-venue flows        | the agent applies this rule ([SKILL.md](../SKILL.md#destination-deposit-minimum)); wallet top-ups from any compatible wallet (Scenario 1) |
 | Any other coin (USDC, DAI, …)       | refused with `UNSUPPORTED_COIN` before any session or read, at every entry point                                                         |
 
 ## Native tools
@@ -149,11 +148,11 @@ network. `tests/test_native.py` uses the fake ccxt-mcp and a T3-shaped host.
 `tests/test_real_ccxt_mcp.py` uses the pinned ccxt-mcp 0.1.3 with ccxt 4.5.85, its transport
 replaced by a recorder, inside `unshare -rn`.
 
-1. **Policy matrix.** For each of the 9 venues: an absent field gives `venue-unpublished`,
+1. **Policy matrix.** For each of the 8 venues: an absent field gives `venue-unpublished`,
    `value: null`, `depositMin: null`, `unknown`, the notice and the statement, and the smallest
    exact credit (10⁻¹² USDT) passes while 0 holds; 0, 0.5, 25 and 2 are the venue's own figure
    and enforced; `null`, empty, text and negative hold. USDC is never resolved
-   (`UNSUPPORTED_COIN`), nor is a venue outside the nine. Function level: of the nine, only
+   (`UNSUPPORTED_COIN`), nor is a venue outside the eight. Function level: of the eight, only
    the Binance and Bybit adapters run end to end (items 2 to 9).
 2. **Reproducer.** Bybit → Binance BSC, 10 + 0.15 on top: `ready` with `minimumNotice`, debit
    10.15, credit 10, `destinationMinimum: unknown`; one card with the notice line; Cancel gives
@@ -193,6 +192,5 @@ replaced by a recorder, inside `unshare -rn`.
     refused with `UNSUPPORTED_COIN` by both native tools, with and without a session, with
     zero reads and writes.
 
-The documented nine-venue flows are agent procedures, not code. They were **not** re-run for this
-rule, so no route count under it is claimed: [recipients.md](recipients.md#prerequisites-by-route)
-reports only the counts that were measured before it.
+The documented eight-venue flows are agent procedures, not code. They were **not** re-run for this
+rule, so no route count under it is claimed ([recipients.md](recipients.md#prerequisites-by-route)).
