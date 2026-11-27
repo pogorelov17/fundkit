@@ -248,7 +248,7 @@ exchange are in [`exchanges.md`](references/exchanges.md) and
 
 **Hosts:**
 
-| Host | Token and passphrases | Money confirmation |
+| Host | Credentials (Doppler token, manual API credentials, passphrases) | Money confirmation |
 | --- | --- | --- |
 | T3 Code | one choice (Doppler first, or manual entry), then one private secret card per value (`request_secret`, file delivery) | one fundkit card per plan |
 | Claude Code, Codex | hidden prompt in a private terminal (`fundkit session`) | the host's native MCP form, once the operator has [checked](references/security.md#interactive-native-form) that no hook answers it |
