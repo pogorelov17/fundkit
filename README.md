@@ -221,16 +221,13 @@ set it up ([loading the skill](references/security.md#loading-the-skill)).
 
 ## Venues and hosts
 
-**Native tools** (fundkit server; USDT only, on TRC20, BEP20/BSC, ERC20 and TON; any other coin,
-USDC included, is refused with `UNSUPPORTED_COIN` before anything is read):
+Fundkit targets eight exchanges: Binance, Bybit, Gate, OKX, Bitget, WhiteBIT, MEXC and KuCoin.
+It handles USDT only, on TRC20, BEP20 (BSC), ERC20 and TON; any other coin, USDC included, is
+refused. Network data, fees and minimums are read live at request time. Route details per
+exchange are in [`exchanges.md`](references/exchanges.md) and
+[`recipients.md`](references/recipients.md).
 
-| | Binance | Bybit | Gate, OKX, Bitget, WhiteBIT, MEXC, KuCoin |
-| --- | --- | --- | --- |
-| Deposit address with QR | ✓ | ✓ | `VENUE_NOT_NATIVE` |
-| Transfer, as source | ✓ | ✓ | `VENUE_NOT_NATIVE` |
-| Transfer, as destination | ✓ minimum unknown: no Fundkit minimum, advice only ([rule](references/deposit-minimum.md)) | ✓ Bybit's `depositMin`; unknown only when the field is absent | `VENUE_NOT_NATIVE` |
-
-**Documented flows** ([`SKILL.md`](SKILL.md), all eight exchanges), used when you ask for them:
+**Flows** ([`SKILL.md`](SKILL.md)), used when you ask for them:
 
 - **Wallet → exchange**, from any compatible wallet (mobile, desktop or hardware). The agent
   picks a network from live data and reads the address and memo from your own account; you
@@ -240,15 +237,12 @@ USDC included, is refused with `UNSUPPORTED_COIN` before anything is read):
 - **Exchange A → exchange B, semi-automatic.** Both accounts in one session; you approve the
   plan with `APPROVE <PLAN-ID>` and `WITHDRAW <PLAN-ID>` and confirm each money move in the
   host's native form, after the operator's one-time
-  [setup record](references/security.md#setup-record). Where B publishes no deposit minimum
-  (Binance, MEXC, multi-chain Gate), the minimum is
-  [unknown](references/deposit-minimum.md) and the plan carries the 1 USDT recommendation, not a
-  check. Where B documents no deposit fee
-  (KuCoin), the route holds unless you supply that value from B's deposit page for that plan
-  ([per-plan human-read fact](SKILL.md#per-plan-human-read-facts)). These flows are USDT only,
-  and the minimum rule in them is an agent procedure that has not been re-run as a test. Route
-  by route:
-  [status by destination venue](references/recipients.md#status-by-destination-venue).
+  [setup record](references/security.md#setup-record). Where B publishes no deposit minimum, the
+  minimum is [unknown](references/deposit-minimum.md) and the plan carries the 1 USDT
+  recommendation, not a check. Where B documents no deposit fee, the route holds unless you
+  supply that value from B's deposit page for that plan
+  ([per-plan human-read fact](SKILL.md#per-plan-human-read-facts)). The minimum rule in these
+  flows is an agent procedure that has not been re-run as a test.
 - **Funding ↔ trading/margin** on one exchange.
 - **Hyperliquid**: watch-only margin and position checks by public address.
 
